@@ -1,0 +1,35 @@
+[project]
+name = "jh-quant"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "dotenv>=0.9.9",
+    "duckdb>=1.4.4",
+    "httpx>=0.28.1",
+    "pandas>=2.3.3",
+    "pyarrow>=23.0.1",
+    "rich>=14.3.2",
+    "joblib>=1.4.0",
+    "polars>=1.0.0",
+    "scipy>=1.15.3",
+    "quantstats>=0.0.81",
+    "pywebview>=6.1",
+    "pydantic>=2.13.3",
+    "fastapi>=0.116.1",
+    "uvicorn>=0.35.0",
+    "psycopg[binary]>=3.2.9",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["jh_quant"]
+
+[tool.hatch.build]
+include = [
+    "jh_quant/dashboard/front_src/**",
+]
