@@ -181,12 +181,6 @@ class MockOMS(OMS):
         # 恢复PnL记录
         self.trade_pnl = state.get("trade_pnl", {})
 
-        print(
-            f"State restored for session {self.session_id}. "
-            f"Cash: {self.available_balance}, Holdings: {len(self.holds)}, "
-            f"Trades: {len(self.trades)}"
-        )
-
     def _restore_state(
         self, restore_from: str, state_dict: Optional[Dict[str, Any]] = None
     ) -> bool:
@@ -203,19 +197,22 @@ class MockOMS(OMS):
         restored = False
 
         if restore_from == "auto" or restore_from == "db":
-            # 尝试从DB恢复
             if self.recorder:
                 try:
                     state = self._load_state_from_db()
                     if state:
                         self.import_state(state)
                         restored = True
+                        print(
+                            f"State restored for session {self.session_id}. "
+                            f"Cash: {self.available_balance}, Holdings: {len(self.holds)}, "
+                            f"Trades: {len(self.trades)}"
+                        )
                 except Exception as e:
                     print(f"Failed to restore from DB: {e}")
                     if restore_from == "db":
                         return False
 
-        # 如果DB恢复失败或选择state，尝试state_dict
         if not restored and (restore_from == "auto" or restore_from == "state"):
             if state_dict:
                 try:

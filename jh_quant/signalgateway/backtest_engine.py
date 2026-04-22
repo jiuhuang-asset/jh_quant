@@ -22,8 +22,35 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime
 import pandas as pd
 import numpy as np
-from .models import Trade, BacktestSession
+from pydantic import BaseModel, ConfigDict
+
+from .models import Trade
 from .order_recorder import OrderRecorder
+
+
+class BacktestSession(BaseModel):
+    """回测会话"""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    session_id: str
+    strategy_id: str
+    strategy_name: Optional[str] = None
+    start_time: pd.Timestamp
+    end_time: Optional[pd.Timestamp] = None
+    initial_capital: float
+    final_balance: Optional[float] = None
+    total_return: Optional[float] = None
+    annual_return: Optional[float] = None
+    sharpe_ratio: Optional[float] = None
+    max_drawdown: Optional[float] = None
+    winning_trades: int = 0
+    losing_trades: int = 0
+    win_rate: Optional[float] = None
+    total_trades: int = 0
+    avg_win: Optional[float] = None
+    avg_loss: Optional[float] = None
+    profit_factor: Optional[float] = None
 
 
 class BacktestEngine:

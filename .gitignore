@@ -15,3 +15,6 @@ test.py
 test_*
 
 *.db
+
+.claude
+specs

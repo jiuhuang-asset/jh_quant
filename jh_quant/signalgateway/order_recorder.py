@@ -36,9 +36,19 @@ class OrderRecorder:
         raise NotImplementedError
 
     def save_session_state(self, state: Dict[str, Any]):
+        """保存 OMS 会话状态（含持仓、交易记录等）"""
         raise NotImplementedError
 
     def load_latest_session_state(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """加载最新 OMS 会话状态"""
+        raise NotImplementedError
+
+    def save_service_state(self, state: Dict[str, Any]):
+        """保存 Service 运行时状态（配置、策略、结果等）"""
+        raise NotImplementedError
+
+    def load_latest_service_state(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """加载最新 Service 运行时状态"""
         raise NotImplementedError
 
     def query_trades(self, session_id: str) -> pd.DataFrame:
@@ -66,7 +76,12 @@ def _ensure_jsonable(value: Any) -> Any:
             return value.isoformat()
         except TypeError:
             pass
-    return value
+    # 不可序列化的对象（如 FamaMacBethValidationResult）转为字符串或跳过
+    try:
+        json.dumps(value)
+        return value
+    except TypeError:
+        return str(value)
 
 
 class SQLiteOrderRecorder(OrderRecorder):
@@ -146,6 +161,16 @@ class SQLiteOrderRecorder(OrderRecorder):
             """
         )
         cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS session_service_states (
+                session_id TEXT PRIMARY KEY,
+                state_data TEXT NOT NULL,
+                export_time TIMESTAMP NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_trades_session ON trades(session_id)"
         )
         cursor.execute(
@@ -156,6 +181,9 @@ class SQLiteOrderRecorder(OrderRecorder):
         )
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_session_states_session ON session_states(session_id)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_service_states_session ON session_service_states(session_id)"
         )
         self.conn.commit()
 
@@ -258,6 +286,35 @@ class SQLiteOrderRecorder(OrderRecorder):
             WHERE session_id = ?
             ORDER BY export_time DESC
             LIMIT 1
+            """,
+            [session_id],
+        )
+        row = cursor.fetchone()
+        return json.loads(row[0]) if row else None
+
+    def save_service_state(self, state: Dict[str, Any]):
+        """保存 Service 运行时状态（REPLACE 保证同一 session 只有一条）"""
+        state_json = json.dumps(_ensure_jsonable(state), ensure_ascii=False)
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO session_service_states (session_id, state_data, export_time)
+            VALUES (?, ?, ?)
+            """,
+            [
+                state.get("session_id"),
+                state_json,
+                _ensure_jsonable(state.get("export_time")),
+            ],
+        )
+        self.conn.commit()
+
+    def load_latest_service_state(self, session_id: str) -> Optional[Dict[str, Any]]:
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT state_data FROM session_service_states
+            WHERE session_id = ?
             """,
             [session_id],
         )
@@ -368,6 +425,16 @@ class PostgresOrderRecorder(OrderRecorder):
                 """
             )
             cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS session_service_states (
+                    session_id TEXT PRIMARY KEY,
+                    state_data JSONB NOT NULL,
+                    export_time TIMESTAMPTZ NOT NULL,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+                """
+            )
+            cur.execute(
                 "CREATE INDEX IF NOT EXISTS idx_trades_session ON trades(session_id)"
             )
             cur.execute(
@@ -378,6 +445,9 @@ class PostgresOrderRecorder(OrderRecorder):
             )
             cur.execute(
                 "CREATE INDEX IF NOT EXISTS idx_session_states_session ON session_states(session_id)"
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_service_states_session ON session_service_states(session_id)"
             )
 
     def save_trade(self, trade: Trade):
@@ -515,6 +585,37 @@ class PostgresOrderRecorder(OrderRecorder):
                 WHERE session_id = %s
                 ORDER BY export_time DESC
                 LIMIT 1
+                """,
+                [session_id],
+            )
+            row = cur.fetchone()
+        return row["state_data"] if row else None
+
+    def save_service_state(self, state: Dict[str, Any]):
+        normalized = _ensure_jsonable(state)
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO session_service_states (session_id, state_data, export_time)
+                VALUES (%s, %s::jsonb, %s)
+                ON CONFLICT (session_id) DO UPDATE SET
+                    state_data = EXCLUDED.state_data,
+                    export_time = EXCLUDED.export_time
+                """,
+                [
+                    normalized.get("session_id"),
+                    json.dumps(normalized, ensure_ascii=False),
+                    normalized.get("export_time"),
+                ],
+            )
+
+    def load_latest_service_state(self, session_id: str) -> Optional[Dict[str, Any]]:
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT state_data
+                FROM session_service_states
+                WHERE session_id = %s
                 """,
                 [session_id],
             )

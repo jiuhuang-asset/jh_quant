@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import traceback
+import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from threading import Event, Lock, Thread
@@ -9,9 +10,8 @@ from typing import Any, Callable, Dict, List, Literal, Optional
 import pandas as pd
 from pydantic import BaseModel, Field
 
-from jh_quant.backtest import JhSelector
-from jh_quant.backtest.selectors import FactorSelectionResult
 from jh_quant.backtest.strategy import (
+    Strategy,
     StrategyBollingerBands,
     StrategyBreakout,
     StrategyBuyAndHold,
@@ -24,15 +24,13 @@ from jh_quant.backtest.strategy import (
     StrategyVolumeDivergence,
     StrategyVolumeTrend,
 )
-from jh_quant.data import JHData
-from jh_quant.factors import FactorType
 
 from .market_data import JHMarketData
 from .oms import OMS
 from .signalgateway import SignalGateway
 
 
-STRATEGY_REGISTRY = {
+STRATEGY_REGISTRY: Dict[str, type] = {
     "turtle": StrategyTurtle,
     "moving_average_crossover": StrategyMovingAverageCrossover,
     "buy_and_hold": StrategyBuyAndHold,
@@ -47,6 +45,28 @@ STRATEGY_REGISTRY = {
 }
 
 
+def register_strategy(name: str, strategy_cls: type) -> None:
+    """注册自定义策略到全局注册表
+
+    用户实现的 Strategy 子类可通过此函数注册，
+    注册后可在 StrategySpec 中通过 name 引用。
+
+    Example:
+        from jh_quant.backtest.strategy import Strategy
+
+        class MyStrategy(Strategy):
+            ...
+
+        register_strategy("my_strategy", MyStrategy)
+
+        # 然后在 StrategySpec 中使用:
+        # StrategySpec(name="my_strategy", ...)
+    """
+    if not issubclass(strategy_cls, Strategy):
+        raise TypeError(f"{strategy_cls} must inherit from Strategy")
+    STRATEGY_REGISTRY[name] = strategy_cls
+
+
 class StrategySpec(BaseModel):
     name: str
     weight: float = 1.0
@@ -55,36 +75,30 @@ class StrategySpec(BaseModel):
 
 
 class FixedUniverseSelectionConfig(BaseModel):
+    """固定股票池选股配置"""
     mode: Literal["fixed"] = "fixed"
     symbols: List[str]
 
 
-class FactorSelectionConfig(BaseModel):
-    mode: Literal["factor"] = "factor"
-    factor: str
-    start: str
-    end: Optional[str] = None
-    top_n: int = 50
-    bottom_n: int = 0
-    factor_alpha: float = 0.10
-    default_weight: float = 0.1
-    period: str = "M"
-    insignificant_weight_ratio: float = 0.5
-    missing_data_threshold: float = 0.10
-    test_window: Optional[int] = 36
-    verbose: bool = False
+class DummySelectionConfig(BaseModel):
+    """Dummy 选股配置 - 默认从预定义股票池随机/顺序选择"""
+    mode: Literal["dummy"] = "dummy"
+    symbols: List[str] = Field(default_factory=list)
+    top_n: int = 100
 
 
-SelectionConfig = FixedUniverseSelectionConfig | FactorSelectionConfig
+SelectionConfig = FixedUniverseSelectionConfig | DummySelectionConfig
 
 
 class ServiceConfig(BaseModel):
-    session_id: str
+    session_id: Optional[str] = None
     mode: Literal["paper", "live"] = "paper"
     interval_seconds: int = 300
     price_lookback_days: int = 180
     max_candidates: int = 10
     auto_start: bool = False
+    period: Literal["daily", "1min", "5min", "15min", "30min", "60min"] = "daily"
+    price_slippage: float = 0.0
 
 
 class LLMCommandRequest(BaseModel):
@@ -94,7 +108,8 @@ class LLMCommandRequest(BaseModel):
 
 @dataclass
 class SelectionSnapshot:
-    symbols: List[str]
+    top_selections: List[str]
+    bottom_selections: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -116,6 +131,8 @@ class TradingCycleResult:
 
 
 class SelectionProvider:
+    """选股提供者协议，支持自定义 Selector 实现"""
+
     def select(self, as_of_date: str) -> SelectionSnapshot:
         raise NotImplementedError
 
@@ -126,73 +143,56 @@ class FixedUniverseSelectionProvider(SelectionProvider):
 
     def select(self, as_of_date: str) -> SelectionSnapshot:
         return SelectionSnapshot(
-            symbols=self.config.symbols,
+            top_selections=self.config.symbols,
             metadata={"mode": self.config.mode, "as_of_date": as_of_date},
         )
 
 
-class FactorSelectionProvider(SelectionProvider):
-    def __init__(self, jhd: JHData, config: FactorSelectionConfig):
-        self.jhd = jhd
-        self.config = config
-        self.selector = JhSelector(jhd)
+class DummySelectionProvider(SelectionProvider):
+    """默认 Dummy 选股提供者 - 直接返回配置的 symbols 或自动生成
 
-    def _resolve_factor(self) -> FactorType:
-        for factor in FactorType:
-            if factor.name == self.config.factor or factor.value == self.config.factor:
-                return factor
-        raise ValueError(f"Unknown factor: {self.config.factor}")
+    用户可以通过 FixedUniverseSelectionConfig 指定股票池，
+    也可以注入自定义 SelectionProvider 实现自己的选股逻辑。
+    """
+
+    def __init__(self, config: DummySelectionConfig):
+        self.config = config
 
     def select(self, as_of_date: str) -> SelectionSnapshot:
-        factor = self._resolve_factor()
-        result: FactorSelectionResult = self.selector.select_by_factor(
-            factor=factor,
-            start=self.config.start,
-            end=self.config.end or as_of_date,
-            top_n=self.config.top_n,
-            bottom_n=self.config.bottom_n,
-            factor_alpha=self.config.factor_alpha,
-            default_weight=self.config.default_weight,
-            period=self.config.period,
-            insignificant_weight_ratio=self.config.insignificant_weight_ratio,
-            missing_data_threshold=self.config.missing_data_threshold,
-            test_window=self.config.test_window,
-            verbose=self.config.verbose,
-        )
+        symbols = self.config.symbols
+        if not symbols:
+            symbols = [f"DUMMY{i:04d}" for i in range(1, self.config.top_n + 1)]
+        else:
+            symbols = symbols[:self.config.top_n]
         return SelectionSnapshot(
-            symbols=result.top_stocks,
-            metadata={
-                "mode": self.config.mode,
-                "factor": self.config.factor,
-                "weights": result.weights,
-                "top_scores": result.top_scores,
-                "bottom_scores": result.bottom_scores,
-            },
+            top_selections=symbols,
+            metadata={"mode": self.config.mode, "as_of_date": as_of_date, "count": len(symbols)},
         )
 
 
-def build_selection_provider(jhd: JHData, config: SelectionConfig) -> SelectionProvider:
+def build_selection_provider(config: SelectionConfig) -> SelectionProvider:
     if config.mode == "fixed":
         return FixedUniverseSelectionProvider(config)
-    return FactorSelectionProvider(jhd, config)
+    return DummySelectionProvider(config)
 
 
 class SignalGatewayService:
     def __init__(
         self,
         gateway: SignalGateway,
-        jhd: JHData,
         config: ServiceConfig,
-        selection_config: SelectionConfig,
+        selection_provider: SelectionProvider,
         strategy_specs: List[StrategySpec],
         llm_handler: Optional[Callable[[str, Dict[str, Any]], Dict[str, Any]]] = None,
     ):
+        # Auto-generate session_id if not provided
+        if config.session_id is None:
+            config.session_id = str(uuid.uuid4())
+
         self.gateway = gateway
-        self.jhd = jhd
         self.config = config
-        self.selection_config = selection_config
+        self.selection_provider = selection_provider
         self.strategy_specs = strategy_specs
-        self.selection_provider = build_selection_provider(jhd, selection_config)
         self.llm_handler = llm_handler
 
         self._lock = Lock()
@@ -203,8 +203,26 @@ class SignalGatewayService:
         self._last_error: Optional[str] = None
 
         self.configure_strategies(strategy_specs)
+
+        # Restore OMS state from recorder on startup
+        self._restore_oms_state()
+
         if self.config.auto_start:
             self.start()
+
+    def _restore_oms_state(self):
+        """从 recorder 恢复 OMS 状态（如果有）"""
+        recorder = getattr(self.gateway.oms, "recorder", None)
+        if recorder is None:
+            return
+        if not hasattr(recorder, "load_latest_session_state"):
+            return
+        try:
+            saved = recorder.load_latest_session_state(self.config.session_id)
+            if saved:
+                self.gateway.oms.import_state(saved)
+        except Exception:
+            pass
 
     def _build_strategy_instance(self, spec: StrategySpec) -> dict:
         if spec.name not in STRATEGY_REGISTRY:
@@ -224,11 +242,11 @@ class SignalGatewayService:
             self.strategy_specs = strategy_specs
             self._persist_runtime_state(extra={"event": "strategy_config_updated"})
 
-    def configure_selection(self, selection_config: SelectionConfig):
+    def configure_selection(self, config: SelectionConfig):
+        """动态更换选股提供者"""
         with self._lock:
-            self.selection_config = selection_config
-            self.selection_provider = build_selection_provider(self.jhd, selection_config)
-            self._persist_runtime_state(extra={"event": "selection_config_updated"})
+            self.selection_provider = build_selection_provider(config)
+            self._persist_runtime_state(extra={"event": "selection_config_updated", "mode": config.mode})
 
     def _as_of_date(self, as_of_date: Optional[str] = None) -> str:
         return as_of_date or datetime.now().strftime("%Y-%m-%d")
@@ -236,6 +254,18 @@ class SignalGatewayService:
     def _price_start_date(self, as_of_date: str) -> str:
         dt = datetime.strptime(as_of_date, "%Y-%m-%d")
         return (dt - timedelta(days=self.config.price_lookback_days)).strftime("%Y-%m-%d")
+
+    def _frequency_for_period(self) -> str:
+        """根据 period 返回 MarketDataProvider 的 frequency 参数"""
+        mapping = {
+            "daily": "1d",
+            "1min": "1m",
+            "5min": "5m",
+            "15min": "15m",
+            "30min": "30m",
+            "60min": "60m",
+        }
+        return mapping.get(self.config.period, "1d")
 
     def _latest_prices_from_price(self, price: pd.DataFrame) -> pd.Series:
         if price.empty:
@@ -250,16 +280,24 @@ class SignalGatewayService:
         if hasattr(self.gateway.oms, "update_position_market_value"):
             self.gateway.oms.update_position_market_value(latest_prices.to_dict())
 
+    def _apply_slippage(self, price: float, trade_type: str) -> float:
+        """应用价格滑点"""
+        if self.config.price_slippage <= 0:
+            return price
+        if trade_type == "BUY":
+            return price * (1 + self.config.price_slippage)
+        else:
+            return price * (1 - self.config.price_slippage)
+
     def _persist_runtime_state(self, extra: Optional[Dict[str, Any]] = None):
         recorder = getattr(self.gateway.oms, "recorder", None)
-        if recorder is None or not hasattr(recorder, "save_session_state"):
+        if recorder is None or not hasattr(recorder, "save_service_state"):
             return
         payload = {
             "session_id": self.config.session_id,
             "export_time": datetime.now().isoformat(),
             "service": {
                 "config": self.config.model_dump(),
-                "selection_config": self.selection_config.model_dump(),
                 "strategy_specs": [spec.model_dump() for spec in self.strategy_specs],
                 "running": self._running,
                 "last_error": self._last_error,
@@ -268,7 +306,7 @@ class SignalGatewayService:
         }
         if extra:
             payload["service"]["extra"] = extra
-        recorder.save_session_state(payload)
+        recorder.save_service_state(payload)
 
     def get_status(self) -> Dict[str, Any]:
         return {
@@ -276,7 +314,6 @@ class SignalGatewayService:
             "mode": self.config.mode,
             "running": self._running,
             "interval_seconds": self.config.interval_seconds,
-            "selection_config": self.selection_config.model_dump(),
             "strategy_specs": [spec.model_dump() for spec in self.strategy_specs],
             "last_error": self._last_error,
             "last_result": asdict(self._last_result) if self._last_result else None,
@@ -287,14 +324,27 @@ class SignalGatewayService:
             cycle_date = self._as_of_date(as_of_date)
             price_start = self._price_start_date(cycle_date)
 
-            selection = self.selection_provider.select(cycle_date)
-            symbols = selection.symbols
+            selection = self.selection_provider.select(as_of_date=cycle_date)
+            top_selections = selection.top_selections
+            bottom_selections = getattr(selection, "bottom_selections", [])
+            # 动态生成 metadata（用户自定义 Provider 可能没有此属性）
+            if hasattr(selection, "metadata") and selection.metadata:
+                selection_meta = selection.metadata
+            else:
+                selection_meta = {"as_of_date": cycle_date}
+                # 将 selection 对象上除已知字段外的所有属性都加入 metadata
+                known = {"top_selections", "bottom_selections", "metadata"}
+                for k in dir(selection):
+                    if not k.startswith("_") and k not in known:
+                        v = getattr(selection, k, None)
+                        if not callable(v):
+                            selection_meta[k] = v
 
             if isinstance(self.gateway.market_data_provider, JHMarketData):
-                self.gateway.market_data_provider.default_symbols = symbols
+                self.gateway.market_data_provider.default_symbols = top_selections
 
             price = self.gateway.get_price_data(
-                symbols=symbols or None,
+                symbols=top_selections or None,
                 start_date=price_start,
                 end_date=cycle_date,
             )
@@ -310,7 +360,7 @@ class SignalGatewayService:
             )
             executed_sells = []
             if not short_candidates.empty:
-                executed_sells = self.gateway.execute_short(short_candidates, latest_prices)
+                executed_sells = self.gateway.execute_short(short_candidates, latest_prices, self.config.price_slippage)
 
             long_candidates = self.gateway.get_long_candidates(
                 start_date=price_start,
@@ -320,18 +370,18 @@ class SignalGatewayService:
             )
             executed_buys = []
             if not long_candidates.empty:
-                executed_buys = self.gateway.execute_long(long_candidates, latest_prices)
+                executed_buys = self.gateway.execute_long(long_candidates, latest_prices, self.config.price_slippage)
 
             result = TradingCycleResult(
                 session_id=self.config.session_id,
                 mode=self.config.mode,
                 cycle_time=datetime.now().isoformat(),
-                selection_count=len(symbols),
+                selection_count=len(top_selections),
                 long_candidate_count=len(long_candidates),
                 short_candidate_count=len(short_candidates),
                 executed_buy_count=len(executed_buys),
                 executed_sell_count=len(executed_sells),
-                selected_symbols=symbols,
+                selected_symbols=top_selections,
                 long_symbols=[]
                 if long_candidates.empty
                 else long_candidates["symbol"].tolist(),
@@ -341,14 +391,14 @@ class SignalGatewayService:
             )
             self._last_result = result
             self._last_error = None
-            self._persist_runtime_state(extra={"selection_metadata": selection.metadata})
+            self._persist_runtime_state(extra={"selection_metadata": selection_meta})
             return result
 
     def _loop(self):
         while not self._stop_event.is_set():
             try:
                 self.run_once()
-            except Exception as exc:  # pragma: no cover - runtime service path
+            except Exception as exc:
                 self._last_error = f"{type(exc).__name__}: {exc}"
                 self._last_result = TradingCycleResult(
                     session_id=self.config.session_id,
@@ -369,7 +419,7 @@ class SignalGatewayService:
         if self._running:
             return
         self._stop_event.clear()
-        self._thread = Thread(target=self._loop, daemon=True)
+        self._thread = Thread(target=self._loop, daemon=False)
         self._thread.start()
         self._running = True
         self._persist_runtime_state(extra={"event": "service_started"})

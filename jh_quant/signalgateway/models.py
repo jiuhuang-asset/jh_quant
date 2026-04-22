@@ -1,55 +1,52 @@
-import pandas as pd
-from pydantic import BaseModel, Field, ConfigDict
-from typing import List, Optional
+"""
+Core data models for the signalgateway trading system.
+"""
+from __future__ import annotations
+
 from datetime import datetime
+from typing import List, Optional
 
-
-# StockDataSchema is now just a list of column names for validation
-STOCK_DATA_COLUMNS = [
-    "date", "symbol", "open", "close", "high", "low", "volume",
-    "amount", "amplitude", "pct_chg", "chg", "turnover_rate", "created_at"
-]
-
-
-def get_stock_data_schema_fields():
-    """Get all field names from StockDataSchema."""
-    return STOCK_DATA_COLUMNS
+import pandas as pd
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class StockHoldRecord(BaseModel):
+    """持仓记录（内存中）"""
+
     symbol: str
     volume: int
-    avg_cost: float = 0.0  # 平均成本
-    market_value: float = 0.0  # 市场价值
+    avg_cost: float = 0.0
+    market_value: float = 0.0
     buy_date: str = Field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d"))
 
 
 class Positions(BaseModel):
+    """持仓汇总"""
+
     total: float
     available_balance: float
-    total_profit: Optional[float] = Field(default=None)
-    daily_profit: Optional[float] = Field(default=None)
+    total_profit: Optional[float] = None
+    daily_profit: Optional[float] = None
     holds: List[StockHoldRecord]
 
 
 class Order(BaseModel):
+    """订单"""
+
     symbol: str
     price: float
     volume: int
     trade_type: str = "BUY"  # BUY or SELL
 
 
-# ==================== 回测记录相关模型 ====================
-
-
 class Trade(BaseModel):
-    """交易记录"""
+    """成交记录"""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     trade_id: str
     session_id: str
-    trade_date: pd.Timestamp
+    trade_date: pd.Timestamp | str
     symbol: str
     trade_type: str  # BUY or SELL
     price: float
@@ -57,13 +54,20 @@ class Trade(BaseModel):
     amount: float  # price * quantity
     commission: float = 0.0
     slippage: float = 0.0
-    total_cost: float  # amount + commission + slippage
+    total_cost: float
     signal_reason: Optional[str] = None
     order_id: Optional[str] = None
 
+    @field_validator("trade_date", mode="before")
+    @classmethod
+    def _coerce_trade_date(cls, v):
+        if isinstance(v, str):
+            return pd.Timestamp(v)
+        return v
+
 
 class DailyPerformance(BaseModel):
-    """日度表现"""
+    """日度表现（可从 snapshots/trades 计算，保留以支持历史数据兼容）"""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -80,7 +84,7 @@ class DailyPerformance(BaseModel):
 
 
 class PositionSnapshot(BaseModel):
-    """持仓快照"""
+    """持仓快照（持久化）"""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -94,28 +98,3 @@ class PositionSnapshot(BaseModel):
     market_value: float
     pnl: Optional[float] = None
     pnl_pct: Optional[float] = None
-
-
-class BacktestSession(BaseModel):
-    """回测会话"""
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    session_id: str
-    strategy_id: str
-    strategy_name: Optional[str] = None
-    start_time: pd.Timestamp
-    end_time: Optional[pd.Timestamp] = None
-    initial_capital: float
-    final_balance: Optional[float] = None
-    total_return: Optional[float] = None
-    annual_return: Optional[float] = None
-    sharpe_ratio: Optional[float] = None
-    max_drawdown: Optional[float] = None
-    winning_trades: int = 0
-    losing_trades: int = 0
-    win_rate: Optional[float] = None
-    total_trades: int = 0
-    avg_win: Optional[float] = None
-    avg_loss: Optional[float] = None
-    profit_factor: Optional[float] = None

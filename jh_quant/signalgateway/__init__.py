@@ -7,11 +7,9 @@ from .models import (
     Trade,
     DailyPerformance,
     PositionSnapshot,
-    BacktestSession,
-    STOCK_DATA_COLUMNS,
-    get_stock_data_schema_fields,
 )
-from .signalgateway import SignalGateway, PositionSizer, ATRPositionSizer, FixedWeightPositionSizer
+from .signalgateway import SignalGateway
+from .position_sizer import PositionSizer, ATRPositionSizer, FixedWeightPositionSizer
 from .oms import OMS, MockOMS
 from .market_data import MarketDataProvider, JHMarketData
 from .order_recorder import (
@@ -20,16 +18,21 @@ from .order_recorder import (
     PostgresOrderRecorder,
     MemFireCloudRecorder,
 )
+from .performance import (
+    calculate_holding_returns,
+    calculate_turnover,
+    get_performance_summary,
+)
 from .service import (
     ServiceConfig,
     StrategySpec,
     FixedUniverseSelectionConfig,
-    FactorSelectionConfig,
+    DummySelectionConfig,
     SignalGatewayService,
     LLMCommandRequest,
+    register_strategy,
 )
 from .service_api import create_service_app, run_service_app
-
 
 
 __all__ = [
@@ -42,9 +45,6 @@ __all__ = [
     "Trade",
     "DailyPerformance",
     "PositionSnapshot",
-    "BacktestSession",
-    "STOCK_DATA_COLUMNS",
-    "get_stock_data_schema_fields",
     "SignalGateway",
     "PositionSizer",
     "ATRPositionSizer",
@@ -57,13 +57,16 @@ __all__ = [
     "SQLiteOrderRecorder",
     "PostgresOrderRecorder",
     "MemFireCloudRecorder",
+    "calculate_holding_returns",
+    "calculate_turnover",
+    "get_performance_summary",
     "ServiceConfig",
     "StrategySpec",
     "FixedUniverseSelectionConfig",
-    "FactorSelectionConfig",
+    "DummySelectionConfig",
     "SignalGatewayService",
     "LLMCommandRequest",
+    "register_strategy",
     "create_service_app",
     "run_service_app",
-    "backtest_signal",
 ]

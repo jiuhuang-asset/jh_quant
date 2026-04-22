@@ -8,205 +8,18 @@
 
 设计：使用 MarketDataProvider 统一获取市场数据，支持回测和实盘
 """
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, List, Optional, Union
+
 import pandas as pd
-import numpy as np
-from abc import ABC, abstractmethod
-from typing import List, Optional
-from .strategy import Strategy
-from .oms import OMS
-from .models import Order, Trade
-from .utils import rprint
+
 from .market_data import MarketDataProvider
-
-
-class PositionSizer(ABC):
-    """
-    头寸计算器抽象基类
-
-    实现此接口可以自定义不同的头寸计算策略：
-    - ATR风险对齐（默认）
-    - 固定金额
-    - 等权重
-    """
-
-    @abstractmethod
-    def calculate(
-        self,
-        candidates: pd.DataFrame,
-        price_df: pd.DataFrame,
-        latest_prices: pd.Series,
-        available_balance: float,
-        total_equity: float,
-    ) -> pd.DataFrame:
-        """
-        计算头寸
-
-        Args:
-            candidates: 候选股票（含 symbol, score）
-            price_df: 价格数据
-            latest_prices: 最新价格
-            available_balance: 可用资金
-            total_equity: 总权益
-
-        Returns:
-            包含 symbol 和 target_qty 的 DataFrame
-        """
-        pass
-
-
-class ATRPositionSizer(PositionSizer):
-    """
-    基于波动率（ATR）的风险对齐头寸计算器
-
-    逻辑：
-    1. 基础头寸 = (总权益 * 风险单位) / ATR * 策略得分
-    2. 风险封顶 = min(基础头寸, 总权益 * max_position_weight)
-    """
-
-    def __init__(
-        self,
-        risk_unit: float = 0.01,
-        max_position_weight: float = 0.2,
-    ):
-        """
-        Args:
-            risk_unit: 风险单位（默认1%）
-            max_position_weight: 单只股票最大仓位占比（默认20%）
-        """
-        self.risk_unit = risk_unit
-        self.max_position_weight = max_position_weight
-
-    def calculate(
-        self,
-        candidates: pd.DataFrame,
-        price_df: pd.DataFrame,
-        latest_prices: pd.Series,
-        available_balance: float,
-        total_equity: float,
-    ) -> pd.DataFrame:
-        if candidates.empty:
-            return pd.DataFrame()
-
-        if total_equity <= 0 or available_balance <= 0:
-            return pd.DataFrame()
-
-        # ATR 计算
-        def compute_atr(group):
-            try:
-                df = group.sort_values("date").reset_index(drop=True)
-                if len(df) < 14:
-                    return np.nan
-                high_low = df["high"] - df["low"]
-                high_close = np.abs(df["high"] - df["close"].shift())
-                low_close = np.abs(df["low"] - df["close"].shift())
-                true_range = np.maximum(high_low, np.maximum(high_close, low_close))
-                atr = true_range.rolling(window=14).mean()
-                return atr.iloc[-1]
-            except Exception:
-                return np.nan
-
-        candidate_symbols = candidates["symbol"].unique()
-        price_df_filtered = price_df[price_df["symbol"].isin(candidate_symbols)]
-        atr_series = price_df_filtered.groupby("symbol").apply(compute_atr).dropna()
-
-        result = candidates.copy()
-        result = result.merge(
-            latest_prices.to_frame("current_price"),
-            left_on="symbol",
-            right_index=True,
-            how="left",
-        )
-        result = result.merge(
-            atr_series.to_frame("atr_value"),
-            left_on="symbol",
-            right_index=True,
-            how="left",
-        )
-
-        result = result.dropna(subset=["current_price", "atr_value"])
-        result = result[result["atr_value"] > 0].copy()
-
-        rprint(
-            label="Debug:",
-            content=f"calculate_position_size: candidates={len(candidates)}, "
-            f"latest_prices={len(latest_prices)}, atr_series={len(atr_series)}, "
-            f"after_dropna={len(result)}",
-        )
-
-        # 计算头寸
-        risk_amount = total_equity * self.risk_unit
-        result["raw_position_value"] = (risk_amount / result["atr_value"]) * result["score"]
-
-        # 单仓位上限
-        max_value_per_stock = total_equity * self.max_position_weight
-        result["capped_position_value"] = result["raw_position_value"].clip(upper=max_value_per_stock)
-
-        # 计算目标股数（向下取整至100股）
-        result["target_qty"] = (
-            result["capped_position_value"] // result["current_price"] // 100
-        ) * 100
-        result = result[result["target_qty"] > 0].copy()
-
-        if result.empty:
-            return pd.DataFrame()
-
-        # 现金约束
-        result = result.sort_values("score", ascending=False)
-        selected_indices = []
-        current_spent = 0
-
-        for idx, row in result.iterrows():
-            cost = row["target_qty"] * row["current_price"]
-            if current_spent + cost <= available_balance:
-                selected_indices.append(idx)
-                current_spent += cost
-            else:
-                remaining = available_balance - current_spent
-                possible_qty = (remaining // row["current_price"] // 100) * 100
-                if possible_qty >= 100:
-                    result.loc[idx, "target_qty"] = possible_qty
-                    selected_indices.append(idx)
-                break
-
-        return result.loc[selected_indices, ["symbol", "target_qty"]].reset_index(drop=True)
-
-
-class FixedWeightPositionSizer(PositionSizer):
-    """等权重头寸计算器"""
-
-    def __init__(self, max_stocks: int = 10):
-        self.max_stocks = max_stocks
-
-    def calculate(
-        self,
-        candidates: pd.DataFrame,
-        price_df: pd.DataFrame,
-        latest_prices: pd.Series,
-        available_balance: float,
-        total_equity: float,
-    ) -> pd.DataFrame:
-        if candidates.empty:
-            return pd.DataFrame()
-
-        # 取 top N
-        top_candidates = candidates.sort_values("score", ascending=False).head(self.max_stocks)
-
-        # 等权重分配
-        weight_per_stock = available_balance / len(top_candidates)
-
-        result = top_candidates.copy()
-        result = result.merge(
-            latest_prices.to_frame("current_price"),
-            left_on="symbol",
-            right_index=True,
-            how="left",
-        )
-        result = result.dropna(subset=["current_price"])
-
-        result["target_qty"] = (weight_per_stock // result["current_price"] // 100) * 100
-        result = result[result["target_qty"] > 0]
-
-        return result[["symbol", "target_qty"]].reset_index(drop=True)
+from .models import Order, Trade
+from .oms import OMS
+from .position_sizer import ATRPositionSizer, PositionSizer
+from .strategy import Strategy
+from .utils import rprint
 
 
 class SignalGateway:
@@ -256,6 +69,14 @@ class SignalGateway:
                 name=item["name"],
                 weight=item.get("weight", 1.0),
             )
+
+    def configure_position_sizer(self, sizer: PositionSizer) -> None:
+        """动态更换头寸计算器
+
+        Args:
+            sizer: 实现 PositionSizer 协议的头寸计算器实例
+        """
+        self.position_sizer = sizer
 
     def get_price_data(
         self,
@@ -331,23 +152,11 @@ class SignalGateway:
         signal_column = f"{signal_type}_signal"
         weighted_column = f"{signal_type}_signal_w"
 
-        rprint(
-            label="Debug:",
-            content=f"price shape={price.shape}, latest_timeindex={latest_timeindex}",
-        )
-
         all_signals = []
         for strat in self.strategy_pool:
             signal_df = strat["strategy"](price)
-            before_filter_len = len(signal_df)
-            buy_sum = signal_df[signal_column].sum() if signal_column in signal_df.columns else 0
             signal_df[weighted_column] = signal_df[signal_column] * strat["weight"]
             signal_df = signal_df.loc[signal_df["date"] >= pd.to_datetime(latest_timeindex)]
-            rprint(
-                label="Debug:",
-                content=f"  strategy={strat['name']}: before_filter={before_filter_len}, "
-                f"buy_signal_sum={buy_sum}, after_filter={len(signal_df)}",
-            )
             all_signals.append(signal_df[["symbol", weighted_column]])
 
         if not all_signals:
@@ -465,12 +274,6 @@ class SignalGateway:
             rprint(label="Info:", content="没有买入信号")
             return pd.DataFrame()
 
-        rprint(
-            label="Debug:",
-            content=f"raw_signals before head: {len(raw_signals)} candidates, "
-            f"top scores: {raw_signals.sort_values('score', ascending=False).head(5)[['symbol','score']].to_dict('records')}",
-        )
-
         final_list = raw_signals.sort_values(by="score", ascending=False).head(max_candidates)
 
         if self.market_data_provider is not None:
@@ -546,8 +349,15 @@ class SignalGateway:
         self,
         orders: pd.DataFrame,
         latest_prices: pd.Series = None,
+        slippage: float = 0.0,
     ) -> List[Trade]:
-        """执行买入订单"""
+        """执行买入订单
+
+        Args:
+            orders: 订单 DataFrame
+            latest_prices: 最新价格
+            slippage: 滑点比例（买入时价格上涨 slippage，A股建议0.001-0.003）
+        """
         if latest_prices is None:
             symbols = orders["symbol"].tolist() if not orders.empty else []
             latest_prices = self.get_latest_prices(symbols)
@@ -562,9 +372,10 @@ class SignalGateway:
                 continue
 
             price_val = latest_prices[symbol]
+            exec_price = price_val * (1 + slippage) if slippage > 0 else price_val
 
             try:
-                order = Order(symbol=symbol, price=price_val, volume=target_qty)
+                order = Order(symbol=symbol, price=exec_price, volume=target_qty)
                 trade = self.oms.signal_buy(order)
                 executed_trades.append(trade)
             except Exception as e:
@@ -578,8 +389,15 @@ class SignalGateway:
         self,
         orders: pd.DataFrame,
         latest_prices: pd.Series = None,
+        slippage: float = 0.0,
     ) -> List[Trade]:
-        """执行卖出订单"""
+        """执行卖出订单
+
+        Args:
+            orders: 订单 DataFrame
+            latest_prices: 最新价格
+            slippage: 滑点比例（卖出时价格下跌 slippage，A股建议0.001-0.003）
+        """
         if latest_prices is None:
             symbols = orders["symbol"].tolist() if not orders.empty else []
             latest_prices = self.get_latest_prices(symbols)
@@ -597,21 +415,22 @@ class SignalGateway:
                 continue
 
             price_val = latest_prices[symbol]
+            exec_price = price_val * (1 - slippage) if slippage > 0 else price_val
             holding_info = holdings_map.get(symbol)
 
             if holding_info is None:
                 continue
 
             try:
-                order = Order(symbol=symbol, price=price_val, volume=target_qty)
+                order = Order(symbol=symbol, price=exec_price, volume=target_qty)
                 trade = self.oms.signal_sell(order)
                 executed_trades.append(trade)
 
-                pnl = (price_val - holding_info.avg_cost) * target_qty
-                pnl_pct = ((price_val - holding_info.avg_cost) / holding_info.avg_cost * 100) if holding_info.avg_cost > 0 else 0
+                pnl = (exec_price - holding_info.avg_cost) * target_qty
+                pnl_pct = ((exec_price - holding_info.avg_cost) / holding_info.avg_cost * 100) if holding_info.avg_cost > 0 else 0
                 rprint(
                     label="Trade:",
-                    content=f"卖出 {symbol} {target_qty} 股 @ {price_val:.2f}, "
+                    content=f"卖出 {symbol} {target_qty} 股 @ {exec_price:.2f}, "
                     f"成本: {holding_info.avg_cost:.2f}, PnL: {pnl:.2f} ({pnl_pct:.2f}%)",
                 )
             except Exception as e:

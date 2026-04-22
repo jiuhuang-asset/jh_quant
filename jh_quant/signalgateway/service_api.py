@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import List
 
 try:
     from fastapi import FastAPI
@@ -15,7 +15,7 @@ except ImportError:  # pragma: no cover - optional dependency at runtime
 from dataclasses import asdict
 
 from .service import (
-    FactorSelectionConfig,
+    DummySelectionConfig,
     FixedUniverseSelectionConfig,
     LLMCommandRequest,
     ServiceConfig,
@@ -42,14 +42,14 @@ def create_service_app(service: SignalGatewayService):
     def service_config():
         return {
             "service_config": service.config.model_dump(),
-            "selection_config": service.selection_config.model_dump(),
+            "selection_config": service.selection_provider.config.model_dump(),
             "strategy_specs": [spec.model_dump() for spec in service.strategy_specs],
         }
 
     @app.post("/service/start")
     def service_start():
         service.start()
-        return {"status": "started"}
+        return {"status": "started", "session_id": service.config.session_id}
 
     @app.post("/service/stop")
     def service_stop():
@@ -71,8 +71,8 @@ def create_service_app(service: SignalGatewayService):
         service.configure_selection(config)
         return {"status": "updated", "mode": config.mode}
 
-    @app.post("/service/selection-config/factor")
-    def update_factor_selection(config: FactorSelectionConfig):
+    @app.post("/service/selection-config/dummy")
+    def update_dummy_selection(config: DummySelectionConfig):
         service.configure_selection(config)
         return {"status": "updated", "mode": config.mode}
 
