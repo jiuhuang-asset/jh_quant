@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, List, Optional, Union
 
 import pandas as pd
@@ -35,6 +36,7 @@ class SignalGateway:
         oms: OMS,
         market_data_provider: MarketDataProvider = None,
         position_sizer: PositionSizer = None,
+        strict_mode: bool = False,
     ):
         """
         初始化信号网关
@@ -50,6 +52,7 @@ class SignalGateway:
         self.oms = oms
         self.market_data_provider = market_data_provider
         self.position_sizer = position_sizer or ATRPositionSizer()
+        self.strict_mode = strict_mode
         self.strategy_pool: List[dict] = []
 
     def add_strategy(self, strategy: Strategy, name: str, weight: float = 1.0):
@@ -83,6 +86,7 @@ class SignalGateway:
         symbols: List[str] = None,
         start_date: str = None,
         end_date: str = None,
+        frequency: str = "1d",
     ) -> pd.DataFrame:
         """
         从数据提供者获取股票价格数据
@@ -107,14 +111,15 @@ class SignalGateway:
             symbols=symbols,
             start_date=start_date or "1900-01-01",
             end_date=end_date or "2099-12-31",
+            frequency=frequency,
         )
-        # breakpoint()
         dfs = []
         for symbol, bars in bars_dict.items():
             for bar in bars:
                 dfs.append({
                     "symbol": bar.symbol,
                     "date": bar.datetime,
+                    "price": bar.price,
                     "open": bar.open,
                     "high": bar.high,
                     "low": bar.low,
@@ -127,6 +132,66 @@ class SignalGateway:
             return pd.DataFrame()
 
         return pd.DataFrame(dfs)
+
+    def _period_max_age(self, period: str) -> timedelta:
+        mapping = {
+            "daily": timedelta(hours=24),
+            "day": timedelta(hours=24),
+            "1d": timedelta(hours=24),
+            "60min": timedelta(hours=1),
+            "1hour": timedelta(hours=1),
+            "1h": timedelta(hours=1),
+            "30min": timedelta(minutes=30),
+            "15min": timedelta(minutes=15),
+            "5min": timedelta(minutes=5),
+            "1min": timedelta(minutes=1),
+        }
+        return mapping.get((period or "daily").lower(), timedelta(hours=24))
+
+    def _normalize_reference_time(
+        self, value: Optional[Union[str, datetime, pd.Timestamp]]
+    ) -> pd.Timestamp:
+        if value is None:
+            return pd.Timestamp(datetime.now())
+        timestamp = pd.Timestamp(value)
+        if timestamp.tzinfo is not None:
+            timestamp = timestamp.tz_localize(None)
+        return timestamp
+
+    def validate_price_freshness(
+        self,
+        price: pd.DataFrame,
+        period: str = "daily",
+        reference_time: Optional[Union[str, datetime, pd.Timestamp]] = None,
+        strict_mode: Optional[bool] = None,
+    ) -> bool:
+        should_check = self.strict_mode if strict_mode is None else strict_mode
+        if not should_check:
+            return True
+        if price.empty or "date" not in price.columns:
+            rprint(
+                label="Warning:",
+                content="Price freshness check failed because no valid date column is available",
+            )
+            return False
+
+        latest_timeindex = pd.Timestamp(price["date"].max())
+        if latest_timeindex.tzinfo is not None:
+            latest_timeindex = latest_timeindex.tz_localize(None)
+
+        reference_ts = self._normalize_reference_time(reference_time)
+        max_age = self._period_max_age(period)
+        if reference_ts - latest_timeindex > max_age:
+            rprint(
+                label="Warning:",
+                content=(
+                    f"Latest market data is stale for period={period}. "
+                    f"latest={latest_timeindex}, reference={reference_ts}, max_age={max_age}. "
+                    "Skip current execution."
+                ),
+            )
+            return False
+        return True
 
     def aggregate_signals(
         self,
@@ -241,6 +306,8 @@ class SignalGateway:
         end_date: str = None,
         max_candidates: int = 5,
         price: pd.DataFrame = None,
+        period: str = "daily",
+        reference_time: Optional[Union[str, datetime, pd.Timestamp]] = None,
     ) -> pd.DataFrame:
         """
         获取买入候选股票（直接从provider获取数据）
@@ -264,6 +331,13 @@ class SignalGateway:
 
         if price.empty:
             rprint(label="Warning:", content="无法获取价格数据")
+            return pd.DataFrame()
+
+        if not self.validate_price_freshness(
+            price=price,
+            period=period,
+            reference_time=reference_time or end_date,
+        ):
             return pd.DataFrame()
 
         latest_timeindex = price["date"].max()  # 拿到最新的价格
@@ -295,6 +369,8 @@ class SignalGateway:
         start_date: str = None,
         end_date: str = None,
         price: pd.DataFrame = None,
+        period: str = "daily",
+        reference_time: Optional[Union[str, datetime, pd.Timestamp]] = None,
     ) -> pd.DataFrame:
         """
         获取卖出候选持仓
@@ -317,6 +393,13 @@ class SignalGateway:
             price = price[price["symbol"].isin(hold_symbols)].copy()
 
         if price.empty:
+            return pd.DataFrame()
+
+        if not self.validate_price_freshness(
+            price=price,
+            period=period,
+            reference_time=reference_time or end_date,
+        ):
             return pd.DataFrame()
 
         latest_timeindex = price["date"].max()

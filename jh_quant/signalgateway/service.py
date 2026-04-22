@@ -27,6 +27,11 @@ from jh_quant.backtest.strategy import (
 
 from .market_data import JHMarketData
 from .oms import OMS
+from .performance import (
+    calculate_holding_returns,
+    calculate_turnover,
+    get_performance_summary,
+)
 from .signalgateway import SignalGateway
 
 
@@ -279,6 +284,18 @@ class SignalGatewayService:
             .last()
         )
 
+    def _records_from_frame(self, frame: pd.DataFrame) -> List[Dict[str, Any]]:
+        if frame is None or frame.empty:
+            return []
+
+        normalized = frame.copy()
+        for column in normalized.columns:
+            if pd.api.types.is_datetime64_any_dtype(normalized[column]):
+                normalized[column] = normalized[column].apply(
+                    lambda value: value.isoformat() if pd.notna(value) else None
+                )
+        return normalized.to_dict(orient="records")
+
     def _update_hold_market_value(self, latest_prices: pd.Series):
         if hasattr(self.gateway.oms, "update_position_market_value"):
             self.gateway.oms.update_position_market_value(latest_prices.to_dict())
@@ -322,10 +339,44 @@ class SignalGatewayService:
             "last_result": asdict(self._last_result) if self._last_result else None,
         }
 
+    def get_performance_snapshot(self) -> Dict[str, Any]:
+        recorder = getattr(self.gateway.oms, "recorder", None)
+        if recorder is None:
+            return {
+                "session_id": self.config.session_id,
+                "summary": {},
+                "holding_returns": [],
+                "turnover": [],
+            }
+
+        return {
+            "session_id": self.config.session_id,
+            "summary": get_performance_summary(recorder, self.config.session_id),
+            "holding_returns": self._records_from_frame(
+                calculate_holding_returns(recorder, self.config.session_id)
+            ),
+            "turnover": self._records_from_frame(
+                calculate_turnover(recorder, self.config.session_id)
+            ),
+        }
+
+    def get_runtime_snapshot(self) -> Dict[str, Any]:
+        positions = self.gateway.oms.get_positions()
+        runtime = {
+            "status": self.get_status(),
+            "positions": positions.model_dump(),
+            "performance": self.get_performance_snapshot(),
+        }
+
+        if hasattr(self.gateway.oms, "export_state"):
+            runtime["oms_state"] = self.gateway.oms.export_state()
+        return runtime
+
     def run_once(self, as_of_date: Optional[str] = None) -> TradingCycleResult:
         with self._lock:
             cycle_date = self._as_of_date(as_of_date)
             price_start = self._price_start_date(cycle_date)
+            frequency = self._frequency_for_period()
 
             selection = self.selection_provider.select(as_of_date=cycle_date)
             top_selections = selection.top_selections
@@ -350,6 +401,7 @@ class SignalGatewayService:
                 symbols=top_selections or None,
                 start_date=price_start,
                 end_date=cycle_date,
+                frequency=frequency,
             )
 
             latest_prices = self._latest_prices_from_price(price)
@@ -360,6 +412,8 @@ class SignalGatewayService:
                 start_date=price_start,
                 end_date=cycle_date,
                 price=price,
+                period=self.config.period,
+                reference_time=cycle_date,
             )
             executed_sells = []
             if not short_candidates.empty:
@@ -370,6 +424,8 @@ class SignalGatewayService:
                 end_date=cycle_date,
                 max_candidates=self.config.max_candidates,
                 price=price,
+                period=self.config.period,
+                reference_time=cycle_date,
             )
             executed_buys = []
             if not long_candidates.empty:

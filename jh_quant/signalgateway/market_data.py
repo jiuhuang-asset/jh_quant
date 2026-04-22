@@ -192,7 +192,8 @@ class JHMarketData(MarketDataProvider):
     def __init__(
         self,
         jhd: Optional[JHData] = None,
-        data_type: DataTypes = DataTypes.AK_STOCK_ZH_A_SPOT,
+        # data_type: DataTypes = DataTypes.AK_STOCK_ZH_A_SPOT,
+        data_type: DataTypes = DataTypes.AK_STOCK_ZH_A_HIST,
         default_symbols: Optional[List[str]] = None,
     ):
         self.jhd = jhd or JHData()
@@ -219,11 +220,14 @@ class JHMarketData(MarketDataProvider):
         if not resolved_symbols:
             return pd.DataFrame()
 
+        api_start = self._normalize_api_datetime(start_date, is_end=False)
+        api_end = self._normalize_api_datetime(end_date, is_end=True)
+
         return self.jhd.get_data(
             self.data_type,
             symbol=",".join(resolved_symbols),
-            start=start_date,
-            end=end_date,
+            start=api_start,
+            end=api_end,
         )
 
     def _normalize_frequency(self, frequency: str) -> str:
@@ -234,6 +238,23 @@ class JHMarketData(MarketDataProvider):
             "1d": "1d",
         }
         return mapping.get((frequency or "1d").lower(), frequency)
+
+    def _normalize_api_datetime(self, value: str, *, is_end: bool) -> str:
+        timestamp = pd.Timestamp(value)
+        if timestamp.tzinfo is not None:
+            timestamp = timestamp.tz_localize(None)
+
+        text = str(value)
+        requires_time = self.data_type == DataTypes.AK_STOCK_ZH_A_SPOT
+
+        if len(text.strip()) <= 10:
+            timestamp = timestamp.normalize()
+            if requires_time and is_end:
+                timestamp += pd.Timedelta(hours=23, minutes=59, seconds=59)
+
+        if requires_time:
+            return timestamp.strftime("%Y-%m-%d %H:%M:%S")
+        return timestamp.strftime("%Y-%m-%d")
 
     def _row_to_bar(self, row: pd.Series) -> BarData:
         close_price = float(row.get("close", row.get("price", 0.0)))

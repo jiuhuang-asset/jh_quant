@@ -18,7 +18,6 @@ from .service import (
     DummySelectionConfig,
     FixedUniverseSelectionConfig,
     LLMCommandRequest,
-    ServiceConfig,
     SignalGatewayService,
     StrategySpec,
 )
@@ -37,6 +36,14 @@ def create_service_app(service: SignalGatewayService):
     @app.get("/service/status")
     def service_status():
         return service.get_status()
+
+    @app.get("/service/runtime")
+    def service_runtime():
+        return service.get_runtime_snapshot()
+
+    @app.get("/service/performance")
+    def service_performance():
+        return service.get_performance_snapshot()
 
     @app.get("/service/config")
     def service_config():
