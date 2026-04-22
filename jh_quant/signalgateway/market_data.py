@@ -37,6 +37,11 @@ class BarData:
     volume: int
     amount: float
 
+    @property
+    def price(self) -> float:
+        """Alias used by real-time style consumers."""
+        return float(self.close)
+
 
 class MarketDataProvider(ABC):
     @abstractmethod
@@ -187,7 +192,7 @@ class JHMarketData(MarketDataProvider):
     def __init__(
         self,
         jhd: Optional[JHData] = None,
-        data_type: DataTypes = DataTypes.AK_STOCK_ZH_A_HIST_QFQ,
+        data_type: DataTypes = DataTypes.AK_STOCK_ZH_A_SPOT,
         default_symbols: Optional[List[str]] = None,
     ):
         self.jhd = jhd or JHData()
@@ -206,7 +211,8 @@ class JHMarketData(MarketDataProvider):
         end_date: str,
         frequency: str = "1d",
     ) -> pd.DataFrame:
-        if frequency != "1d":
+        normalized_frequency = self._normalize_frequency(frequency)
+        if normalized_frequency != "1d":
             raise NotImplementedError("JHMarketData currently supports daily bars only")
 
         resolved_symbols = self._resolve_symbols(symbols)
@@ -220,6 +226,33 @@ class JHMarketData(MarketDataProvider):
             end=end_date,
         )
 
+    def _normalize_frequency(self, frequency: str) -> str:
+        mapping = {
+            "daily": "1d",
+            "day": "1d",
+            "1day": "1d",
+            "1d": "1d",
+        }
+        return mapping.get((frequency or "1d").lower(), frequency)
+
+    def _row_to_bar(self, row: pd.Series) -> BarData:
+        close_price = float(row.get("close", row.get("price", 0.0)))
+        open_price = float(row.get("open", close_price))
+        high_price = float(row.get("high", max(open_price, close_price)))
+        low_price = float(row.get("low", min(open_price, close_price)))
+        volume = int(row.get("volume", 0) or 0)
+        amount = float(row.get("amount", close_price * volume))
+        return BarData(
+            symbol=row["symbol"],
+            datetime=pd.to_datetime(row["date"]),
+            open=open_price,
+            high=high_price,
+            low=low_price,
+            close=close_price,
+            volume=volume,
+            amount=amount,
+        )
+
     def get_price_df(
         self,
         symbols: Optional[List[str]],
@@ -227,12 +260,19 @@ class JHMarketData(MarketDataProvider):
         end_date: str,
         frequency: str = "1d",
     ) -> pd.DataFrame:
-        return self._get_price_df(
+        price_df = self._get_price_df(
             symbols=symbols,
             start_date=start_date,
             end_date=end_date,
             frequency=frequency,
         )
+        if price_df is None or price_df.empty:
+            return pd.DataFrame()
+
+        price_df = price_df.copy()
+        if "close" in price_df.columns and "price" not in price_df.columns:
+            price_df["price"] = price_df["close"]
+        return price_df
 
     def get_latest_prices(self, symbols: List[str]) -> Dict[str, float]:
         price_df = self._get_price_df(
@@ -270,19 +310,7 @@ class JHMarketData(MarketDataProvider):
         ordered_symbols = self._resolve_symbols(symbols)
         for symbol in ordered_symbols:
             symbol_data = price_df[price_df["symbol"] == symbol].sort_values("date")
-            result[symbol] = [
-                BarData(
-                    symbol=row["symbol"],
-                    datetime=pd.to_datetime(row["date"]),
-                    open=row["open"],
-                    high=row["high"],
-                    low=row["low"],
-                    close=row["close"],
-                    volume=row["volume"],
-                    amount=row["amount"],
-                )
-                for _, row in symbol_data.iterrows()
-            ]
+            result[symbol] = [self._row_to_bar(row) for _, row in symbol_data.iterrows()]
         return result
 
     def subscribe(self, symbols: List[str]) -> None:

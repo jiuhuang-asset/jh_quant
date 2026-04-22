@@ -102,13 +102,13 @@ class SignalGateway:
             positions = self.oms.get_positions()
             position_symbols = [h.symbol for h in positions.holds]
             symbols = position_symbols or None
-
+        
         bars_dict = self.market_data_provider.get_bars(
             symbols=symbols,
             start_date=start_date or "1900-01-01",
             end_date=end_date or "2099-12-31",
         )
-
+        # breakpoint()
         dfs = []
         for symbol, bars in bars_dict.items():
             for bar in bars:
@@ -266,7 +266,7 @@ class SignalGateway:
             rprint(label="Warning:", content="无法获取价格数据")
             return pd.DataFrame()
 
-        latest_timeindex = price["date"].max()
+        latest_timeindex = price["date"].max()  # 拿到最新的价格
 
         raw_signals = self.aggregate_buy_signals(price=price, latest_timeindex=latest_timeindex)
 

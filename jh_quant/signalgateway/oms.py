@@ -70,8 +70,8 @@ class MockOMS(OMS):
 
     def __init__(
         self,
-        session_id: str,
         initial_capital: float,
+        session_id: Optional[str] = None,
         start_time: datetime = None,
         recorder=None,
         restore_from: Optional[str] = None,
@@ -88,7 +88,7 @@ class MockOMS(OMS):
             restore_from: 恢复方式 - 'auto'(优先DB)、'db'(仅DB)、'state'(仅state_dict)、None(新建)
             state_dict: 状态字典，当restore_from='state'或'auto'时使用
         """
-        self.session_id = session_id
+        self.session_id = session_id or f"oms_{uuid.uuid4().hex}"
         self.initial_capital = initial_capital
         self.total = initial_capital
         self.available_balance = initial_capital

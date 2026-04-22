@@ -185,15 +185,18 @@ class SignalGatewayService:
         strategy_specs: List[StrategySpec],
         llm_handler: Optional[Callable[[str, Dict[str, Any]], Dict[str, Any]]] = None,
     ):
-        # Auto-generate session_id if not provided
-        if config.session_id is None:
-            config.session_id = str(uuid.uuid4())
-
         self.gateway = gateway
         self.config = config
         self.selection_provider = selection_provider
         self.strategy_specs = strategy_specs
         self.llm_handler = llm_handler
+
+        # Keep service session_id aligned with OMS when callers omit one side.
+        oms_session_id = getattr(self.gateway.oms, "session_id", None)
+        if self.config.session_id is None:
+            self.config.session_id = oms_session_id or str(uuid.uuid4())
+        elif not oms_session_id:
+            self.gateway.oms.session_id = self.config.session_id
 
         self._lock = Lock()
         self._stop_event = Event()
