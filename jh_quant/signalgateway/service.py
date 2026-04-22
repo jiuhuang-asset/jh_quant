@@ -398,7 +398,7 @@ class SignalGatewayService:
         while not self._stop_event.is_set():
             try:
                 self.run_once()
-            except Exception as exc:
+            except BaseException as exc:
                 self._last_error = f"{type(exc).__name__}: {exc}"
                 self._last_result = TradingCycleResult(
                     session_id=self.config.session_id,
@@ -412,8 +412,14 @@ class SignalGatewayService:
                     status="error",
                     error=traceback.format_exc(),
                 )
-                self._persist_runtime_state(extra={"event": "cycle_error"})
-            self._stop_event.wait(self.config.interval_seconds)
+                try:
+                    self._persist_runtime_state(extra={"event": "cycle_error"})
+                except Exception:
+                    pass  # swallow to avoid nested exception corruption
+            try:
+                self._stop_event.wait(self.config.interval_seconds)
+            except BaseException:
+                break  # exit gracefully on shutdown or other base exceptions
 
     def start(self):
         if self._running:
