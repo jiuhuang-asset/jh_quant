@@ -145,10 +145,6 @@ class SignalGatewayService:
         dt = datetime.strptime(as_of_date, "%Y-%m-%d")
         return (dt - timedelta(days=self.config.price_lookback_days)).strftime("%Y-%m-%d")
 
-    def _configured_frequency(self) -> Frequency:
-        """返回当前服务配置使用的 Frequency。"""
-        return self.config.frequency
-
     def _latest_prices_from_price(self, price: pd.DataFrame) -> pd.Series:
         if price.empty:
             return pd.Series(dtype=float)
@@ -251,8 +247,7 @@ class SignalGatewayService:
         with self._lock:
             cycle_date = self._as_of_date(as_of_date)
             price_start = self._price_start_date(cycle_date)
-            frequency = self._configured_frequency()
-
+            frequency = self.config.frequency
             selection = self.selection_provider.select(as_of_date=cycle_date)
             top_selections = selection.top_selections
             # bottom_selections = getattr(selection, "bottom_selections", [])
@@ -276,7 +271,9 @@ class SignalGatewayService:
                 frequency=frequency,
             )
 
-            latest_prices = self._latest_prices_from_price(price)
+            latest_prices = self.gateway.get_latest_prices(
+                symbols=top_selections
+            )
             if not latest_prices.empty:
                 self._update_hold_market_value(latest_prices)
 
@@ -289,7 +286,7 @@ class SignalGatewayService:
             )
             executed_sells = []
             if not short_candidates.empty:
-                executed_sells = self.gateway.execute_short(short_candidates, latest_prices, self.config.price_slippage)
+                executed_sells = self.gateway.execute_short(short_candidates, self.config.price_slippage)
 
             long_candidates = self.gateway.get_long_candidates(
                 start_date=price_start,
@@ -301,7 +298,7 @@ class SignalGatewayService:
             )
             executed_buys = []
             if not long_candidates.empty:
-                executed_buys = self.gateway.execute_long(long_candidates, latest_prices, self.config.price_slippage)
+                executed_buys = self.gateway.execute_long(long_candidates, self.config.price_slippage)
 
             result = TradingCycleResult(
                 session_id=self.config.session_id,

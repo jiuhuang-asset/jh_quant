@@ -436,19 +436,16 @@ class SignalGateway:
     def execute_long(
         self,
         orders: pd.DataFrame,
-        latest_prices: pd.Series = None,
         slippage: float = 0.0,
     ) -> List[Trade]:
         """执行买入订单
 
         Args:
             orders: 订单 DataFrame
-            latest_prices: 最新价格
             slippage: 滑点比例（买入时价格上涨 slippage，A股建议0.001-0.003）
         """
-        if latest_prices is None:
-            symbols = orders["symbol"].tolist() if not orders.empty else []
-            latest_prices = self.get_latest_prices(symbols)
+        symbols = orders["symbol"].tolist() if not orders.empty else []
+        latest_prices = self.get_latest_prices(symbols)
 
         executed_trades = []
         for _, row in orders.iterrows():
@@ -476,19 +473,16 @@ class SignalGateway:
     def execute_short(
         self,
         orders: pd.DataFrame,
-        latest_prices: pd.Series = None,
         slippage: float = 0.0,
     ) -> List[Trade]:
         """执行卖出订单
 
         Args:
             orders: 订单 DataFrame
-            latest_prices: 最新价格
             slippage: 滑点比例（卖出时价格下跌 slippage，A股建议0.001-0.003）
         """
-        if latest_prices is None:
-            symbols = orders["symbol"].tolist() if not orders.empty else []
-            latest_prices = self.get_latest_prices(symbols)
+        symbols = orders["symbol"].tolist() if not orders.empty else []
+        latest_prices = self.get_latest_prices(symbols)
 
         positions = self.oms.get_positions()
         holdings_map = {h.symbol: h for h in positions.holds}
@@ -529,38 +523,3 @@ class SignalGateway:
         self.oms.save_state_snapshot()
         return executed_trades
 
-    def run_trading_cycle(
-        self,
-        start_date: str = None,
-        end_date: str = None,
-    ) -> dict:
-        """
-        运行完整交易周期（卖出 -> 买入）
-
-        数据从 MarketDataProvider 自动获取
-
-        Args:
-            start_date: 数据开始日期
-            end_date: 数据结束日期
-
-        Returns:
-            包含 executed_buys 和 executed_sells 的字典
-        """
-        latest_prices = self.get_latest_prices()
-
-        # 卖出
-        sell_candidates = self.get_short_candidates(start_date, end_date)
-        executed_sells = []
-        if not sell_candidates.empty:
-            executed_sells = self.execute_short(sell_candidates, latest_prices)
-
-        # 买入
-        long_candidates = self.get_long_candidates(start_date, end_date)
-        executed_buys = []
-        if not long_candidates.empty:
-            executed_buys = self.execute_long(long_candidates, latest_prices)
-
-        return {
-            "executed_buys": executed_buys,
-            "executed_sells": executed_sells,
-        }

@@ -47,7 +47,7 @@ def create_service_app(service: SignalGatewayService):
     def service_config():
         return {
             "service_config": service.config.model_dump(),
-            # "selection_config": service.selection_provider.config.model_dump(),
+            "selection_config": service.selection_provider.config,
             "strategy_specs": [spec.model_dump() for spec in service.strategy_specs],
         }
 

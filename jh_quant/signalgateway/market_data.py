@@ -253,7 +253,7 @@ class JHMarketData(MarketDataProvider):
             symbols=symbols,
             start_date="1900-01-01",
             end_date="2099-12-31",
-            frequency=self.frequency,
+            # frequency=self.frequency,
         )
         if price_df is None or price_df.empty:
             return {}
