@@ -1,6 +1,7 @@
 from __future__ import annotations
 import traceback
 import uuid
+import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from threading import Event, Lock, Thread
@@ -16,6 +17,35 @@ from .performance import (
     get_performance_summary,
 )
 from .signalgateway import SignalGateway
+
+
+class CronScheduler:
+    """
+    跨平台 cron 调度器，使用 croniter 实现。
+
+    支持标准 5 字段 cron 表达式，自动处理时区。
+    """
+
+    def __init__(self, cron_expression: str, timezone: str = "Asia/Shanghai"):
+        from croniter import croniter
+        self.cron_expr = cron_expression
+        self.timezone = timezone
+        self._iter = croniter(cron_expression, time.time(), tz=timezone)
+
+    def get_next_timeout(self) -> float:
+        """返回距离下次执行的秒数（timeout）"""
+        next_tick = self._iter.get_next(time.time)
+        return max(0.0, next_tick - time.time())
+
+    def wait(self, stop_event: Event) -> bool:
+        """
+        阻塞等待直到下次执行时间或 stop_event 被设置。
+
+        Returns:
+            True if next execution time was reached, False if stopped early.
+        """
+        timeout = self.get_next_timeout()
+        return not stop_event.wait(timeout=timeout)
 
 
 
@@ -205,6 +235,8 @@ class SignalGatewayService:
             "mode": self.config.mode,
             "running": self._running,
             "interval_seconds": self.config.interval_seconds,
+            "cron_expression": self.config.cron_expression,
+            "timezone": self.config.timezone,
             "strategy_specs": [spec.model_dump() for spec in self.strategy_specs],
             "last_error": self._last_error,
             "last_result": asdict(self._last_result) if self._last_result else None,
@@ -247,16 +279,13 @@ class SignalGatewayService:
         with self._lock:
             cycle_date = self._as_of_date(as_of_date)
             price_start = self._price_start_date(cycle_date)
-            frequency = self.config.frequency
             selection = self.selection_provider.select(as_of_date=cycle_date)
             top_selections = selection.top_selections
-            # bottom_selections = getattr(selection, "bottom_selections", [])
-            # 动态生成 metadata（用户自定义 Provider 可能没有此属性）
+
             if hasattr(selection, "metadata") and selection.metadata:
                 selection_meta = selection.metadata
             else:
                 selection_meta = {"as_of_date": cycle_date}
-                # 将 selection 对象上除已知字段外的所有属性都加入 metadata
                 known = {"top_selections", "bottom_selections", "metadata"}
                 for k in dir(selection):
                     if not k.startswith("_") and k not in known:
@@ -264,41 +293,16 @@ class SignalGatewayService:
                         if not callable(v):
                             selection_meta[k] = v
 
-            price = self.gateway.get_price_data(
-                symbols=top_selections or None,
-                start_date=price_start,
-                end_date=cycle_date,
-                frequency=frequency,
+            executed_buys, executed_sells, long_candidates, short_candidates = (
+                self.gateway.execute_cycle(
+                    top_selections=top_selections,
+                    price_start=price_start,
+                    cycle_date=cycle_date,
+                    frequency=self.config.frequency,
+                    max_candidates=self.config.max_candidates,
+                    price_slippage=self.config.price_slippage,
+                )
             )
-
-            latest_prices = self.gateway.get_latest_prices(
-                symbols=top_selections
-            )
-            if not latest_prices.empty:
-                self._update_hold_market_value(latest_prices)
-
-            short_candidates = self.gateway.get_short_candidates(
-                start_date=price_start,
-                end_date=cycle_date,
-                price=price,
-                frequency=self.config.frequency,
-                reference_time=cycle_date,
-            )
-            executed_sells = []
-            if not short_candidates.empty:
-                executed_sells = self.gateway.execute_short(short_candidates, self.config.price_slippage)
-
-            long_candidates = self.gateway.get_long_candidates(
-                start_date=price_start,
-                end_date=cycle_date,
-                max_candidates=self.config.max_candidates,
-                price=price,
-                frequency=self.config.frequency,
-                reference_time=cycle_date,
-            )
-            executed_buys = []
-            if not long_candidates.empty:
-                executed_buys = self.gateway.execute_long(long_candidates, self.config.price_slippage)
 
             result = TradingCycleResult(
                 session_id=self.config.session_id,
@@ -322,7 +326,16 @@ class SignalGatewayService:
             self._persist_runtime_state(extra={"selection_metadata": selection_meta})
             return result
 
-    def _loop(self):
+    def _run_scheduler(self):
+        """基于 cron 或 interval 的调度循环"""
+        use_cron = bool(self.config.cron_expression)
+        scheduler: Optional[CronScheduler] = None
+        if use_cron:
+            scheduler = CronScheduler(
+                self.config.cron_expression,
+                self.config.timezone,
+            )
+
         while not self._stop_event.is_set():
             try:
                 self.run_once()
@@ -343,17 +356,20 @@ class SignalGatewayService:
                 try:
                     self._persist_runtime_state(extra={"event": "cycle_error"})
                 except Exception:
-                    pass  # swallow to avoid nested exception corruption
-            try:
-                self._stop_event.wait(self.config.interval_seconds)
-            except BaseException:
-                break  # exit gracefully on shutdown or other base exceptions
+                    pass
+            if use_cron and scheduler is not None:
+                scheduler.wait(self._stop_event)
+            else:
+                try:
+                    self._stop_event.wait(self.config.interval_seconds)
+                except BaseException:
+                    break
 
     def start(self):
         if self._running:
             return
         self._stop_event.clear()
-        self._thread = Thread(target=self._loop, daemon=False)
+        self._thread = Thread(target=self._run_scheduler, daemon=False)
         self._thread.start()
         self._running = True
         self._persist_runtime_state(extra={"event": "service_started"})

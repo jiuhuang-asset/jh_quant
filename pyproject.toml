@@ -21,6 +21,7 @@ dependencies = [
     "uvicorn>=0.35.0",
     "psycopg[binary]>=3.2.9",
     "tortoise-orm>=0.25.1",
+    "croniter>=1.4.0",
 ]
 
 [build-system]

@@ -523,3 +523,63 @@ class SignalGateway:
         self.oms.save_state_snapshot()
         return executed_trades
 
+    def execute_cycle(
+        self,
+        top_selections: List[str],
+        price_start: str,
+        cycle_date: str,
+        frequency: Frequency | str = Frequency.DAILY,
+        max_candidates: int = 10,
+        price_slippage: float = 0.0,
+    ) -> tuple[List[Trade], List[Trade], pd.DataFrame, pd.DataFrame]:
+        """
+        执行完整交易周期：卖出 -> 买入
+
+        Args:
+            top_selections: 候选股票列表
+            price_start: 价格数据起始日期
+            cycle_date: 结算日期
+            frequency: 数据频率
+            max_candidates: 最大买入候选数
+            price_slippage: 滑点
+
+        Returns:
+            (executed_buys, executed_sells, long_candidates, short_candidates)
+        """
+        price = self.get_price_data(
+            symbols=top_selections or None,
+            start_date=price_start,
+            end_date=cycle_date,
+            frequency=frequency,
+        )
+
+        latest_prices = self.get_latest_prices(symbols=top_selections)
+        if not latest_prices.empty:
+            prices_dict = latest_prices.to_dict()
+            if hasattr(self.oms, "update_position_market_value"):
+                self.oms.update_position_market_value(prices_dict)
+
+        short_candidates = self.get_short_candidates(
+            start_date=price_start,
+            end_date=cycle_date,
+            price=price,
+            frequency=frequency,
+            reference_time=cycle_date,
+        )
+        executed_sells: List[Trade] = []
+        if not short_candidates.empty:
+            executed_sells = self.execute_short(short_candidates, price_slippage)
+
+        long_candidates = self.get_long_candidates(
+            start_date=price_start,
+            end_date=cycle_date,
+            max_candidates=max_candidates,
+            price=price,
+            frequency=frequency,
+            reference_time=cycle_date,
+        )
+        executed_buys: List[Trade] = []
+        if not long_candidates.empty:
+            executed_buys = self.execute_long(long_candidates, price_slippage)
+
+        return executed_buys, executed_sells, long_candidates, short_candidates

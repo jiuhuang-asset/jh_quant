@@ -60,12 +60,15 @@ class Frequency(Enum):
 class ServiceConfig(BaseModel):
     session_id: Optional[str] = None
     mode: Literal["paper", "live"] = "paper"
-    interval_seconds: int = 300
     price_lookback_days: int = 180
     max_candidates: int = 10
     auto_start: bool = False
     frequency: Frequency = Frequency.DAILY
     price_slippage: float = 0.0
+    interval_seconds: int = 300
+    # Cron 调度配置
+    cron_expression: Optional[str] = None  # e.g. "0 9 * * 1-5" (工作日 9:00)
+    timezone: str = "Asia/Shanghai"
 
     @field_validator("frequency", mode="before")
     @classmethod
