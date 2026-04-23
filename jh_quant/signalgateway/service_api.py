@@ -15,8 +15,6 @@ except ImportError:  # pragma: no cover - optional dependency at runtime
 from dataclasses import asdict
 
 from .service import (
-    DummySelectionConfig,
-    FixedUniverseSelectionConfig,
     LLMCommandRequest,
     SignalGatewayService,
     StrategySpec,
@@ -49,7 +47,7 @@ def create_service_app(service: SignalGatewayService):
     def service_config():
         return {
             "service_config": service.config.model_dump(),
-            "selection_config": service.selection_provider.config.model_dump(),
+            # "selection_config": service.selection_provider.config.model_dump(),
             "strategy_specs": [spec.model_dump() for spec in service.strategy_specs],
         }
 
@@ -72,16 +70,6 @@ def create_service_app(service: SignalGatewayService):
     def update_strategy_config(strategy_specs: List[StrategySpec]):
         service.configure_strategies(strategy_specs)
         return {"status": "updated", "count": len(strategy_specs)}
-
-    @app.post("/service/selection-config/fixed")
-    def update_fixed_selection(config: FixedUniverseSelectionConfig):
-        service.configure_selection(config)
-        return {"status": "updated", "mode": config.mode}
-
-    @app.post("/service/selection-config/dummy")
-    def update_dummy_selection(config: DummySelectionConfig):
-        service.configure_selection(config)
-        return {"status": "updated", "mode": config.mode}
 
     @app.post("/service/llm/command")
     def llm_command(request: LLMCommandRequest):

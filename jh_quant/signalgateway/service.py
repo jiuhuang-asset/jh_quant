@@ -1,32 +1,15 @@
 from __future__ import annotations
-
 import traceback
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from threading import Event, Lock, Thread
-from typing import Any, Callable, Dict, List, Literal, Optional
-
+from typing import Any, Callable, Dict, List, Optional
 import pandas as pd
-from pydantic import BaseModel, Field, field_serializer, field_validator
+from pydantic import BaseModel, Field
+from typing import Protocol, runtime_checkable
 
-from jh_quant.backtest.strategy import (
-    Strategy,
-    StrategyBollingerBands,
-    StrategyBreakout,
-    StrategyBuyAndHold,
-    StrategyDualThrust,
-    StrategyMeanReversion,
-    StrategyMomentum,
-    StrategyMovingAverageCrossover,
-    StrategyRSI,
-    StrategyTurtle,
-    StrategyVolumeDivergence,
-    StrategyVolumeTrend,
-)
-
-from .market_data import Frequency, JHMarketData
-from .oms import OMS
+from .config import Frequency, ServiceConfig, STRATEGY_REGISTRY
 from .performance import (
     calculate_holding_returns,
     calculate_turnover,
@@ -35,42 +18,6 @@ from .performance import (
 from .signalgateway import SignalGateway
 
 
-STRATEGY_REGISTRY: Dict[str, type] = {
-    "turtle": StrategyTurtle,
-    "moving_average_crossover": StrategyMovingAverageCrossover,
-    "buy_and_hold": StrategyBuyAndHold,
-    "volume_trend": StrategyVolumeTrend,
-    "volume_divergence": StrategyVolumeDivergence,
-    "mean_reversion": StrategyMeanReversion,
-    "rsi": StrategyRSI,
-    "bollinger_bands": StrategyBollingerBands,
-    "momentum": StrategyMomentum,
-    "breakout": StrategyBreakout,
-    "dual_thrust": StrategyDualThrust,
-}
-
-
-def register_strategy(name: str, strategy_cls: type) -> None:
-    """注册自定义策略到全局注册表
-
-    用户实现的 Strategy 子类可通过此函数注册，
-    注册后可在 StrategySpec 中通过 name 引用。
-
-    Example:
-        from jh_quant.backtest.strategy import Strategy
-
-        class MyStrategy(Strategy):
-            ...
-
-        register_strategy("my_strategy", MyStrategy)
-
-        # 然后在 StrategySpec 中使用:
-        # StrategySpec(name="my_strategy", ...)
-    """
-    if not issubclass(strategy_cls, Strategy):
-        raise TypeError(f"{strategy_cls} must inherit from Strategy")
-    STRATEGY_REGISTRY[name] = strategy_cls
-
 
 class StrategySpec(BaseModel):
     name: str
@@ -78,41 +25,6 @@ class StrategySpec(BaseModel):
     params: Dict[str, Any] = Field(default_factory=dict)
     alias: Optional[str] = None
 
-
-class FixedUniverseSelectionConfig(BaseModel):
-    """固定股票池选股配置"""
-    mode: Literal["fixed"] = "fixed"
-    symbols: List[str]
-
-
-class DummySelectionConfig(BaseModel):
-    """Dummy 选股配置 - 默认从预定义股票池随机/顺序选择"""
-    mode: Literal["dummy"] = "dummy"
-    symbols: List[str] = Field(default_factory=list)
-    top_n: int = 100
-
-
-SelectionConfig = FixedUniverseSelectionConfig | DummySelectionConfig
-
-
-class ServiceConfig(BaseModel):
-    session_id: Optional[str] = None
-    mode: Literal["paper", "live"] = "paper"
-    interval_seconds: int = 300
-    price_lookback_days: int = 180
-    max_candidates: int = 10
-    auto_start: bool = False
-    frequency: Frequency = Frequency.DAILY
-    price_slippage: float = 0.0
-
-    @field_validator("frequency", mode="before")
-    @classmethod
-    def _normalize_frequency(cls, value: Frequency | str) -> Frequency:
-        return Frequency.from_value(value)
-
-    @field_serializer("frequency")
-    def _serialize_frequency(self, value: Frequency) -> str:
-        return value.value
 
 
 class LLMCommandRequest(BaseModel):
@@ -123,7 +35,7 @@ class LLMCommandRequest(BaseModel):
 @dataclass
 class SelectionSnapshot:
     top_selections: List[str]
-    bottom_selections: List[str] = field(default_factory=list)
+    bottom_selections: Optional[List[str]] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -144,51 +56,18 @@ class TradingCycleResult:
     error: Optional[str] = None
 
 
-class SelectionProvider:
+@runtime_checkable
+class SelectionProvider(Protocol):
     """选股提供者协议，支持自定义 Selector 实现"""
 
     def select(self, as_of_date: str) -> SelectionSnapshot:
-        raise NotImplementedError
+        raise NotImplementedError("SelectionProvider subclasses must implement the select method")
+    
+    @property
+    def config(self) -> Dict[str, Any]: 
+        return {}
 
-
-class FixedUniverseSelectionProvider(SelectionProvider):
-    def __init__(self, config: FixedUniverseSelectionConfig):
-        self.config = config
-
-    def select(self, as_of_date: str) -> SelectionSnapshot:
-        return SelectionSnapshot(
-            top_selections=self.config.symbols,
-            metadata={"mode": self.config.mode, "as_of_date": as_of_date},
-        )
-
-
-class DummySelectionProvider(SelectionProvider):
-    """默认 Dummy 选股提供者 - 直接返回配置的 symbols 或自动生成
-
-    用户可以通过 FixedUniverseSelectionConfig 指定股票池，
-    也可以注入自定义 SelectionProvider 实现自己的选股逻辑。
-    """
-
-    def __init__(self, config: DummySelectionConfig):
-        self.config = config
-
-    def select(self, as_of_date: str) -> SelectionSnapshot:
-        symbols = self.config.symbols
-        if not symbols:
-            symbols = [f"DUMMY{i:04d}" for i in range(1, self.config.top_n + 1)]
-        else:
-            symbols = symbols[:self.config.top_n]
-        return SelectionSnapshot(
-            top_selections=symbols,
-            metadata={"mode": self.config.mode, "as_of_date": as_of_date, "count": len(symbols)},
-        )
-
-
-def build_selection_provider(config: SelectionConfig) -> SelectionProvider:
-    if config.mode == "fixed":
-        return FixedUniverseSelectionProvider(config)
-    return DummySelectionProvider(config)
-
+    
 
 class SignalGatewayService:
     def __init__(
@@ -259,12 +138,6 @@ class SignalGatewayService:
             self.strategy_specs = strategy_specs
             self._persist_runtime_state(extra={"event": "strategy_config_updated"})
 
-    def configure_selection(self, config: SelectionConfig):
-        """动态更换选股提供者"""
-        with self._lock:
-            self.selection_provider = build_selection_provider(config)
-            self._persist_runtime_state(extra={"event": "selection_config_updated", "mode": config.mode})
-
     def _as_of_date(self, as_of_date: Optional[str] = None) -> str:
         return as_of_date or datetime.now().strftime("%Y-%m-%d")
 
@@ -299,7 +172,8 @@ class SignalGatewayService:
 
     def _update_hold_market_value(self, latest_prices: pd.Series):
         if hasattr(self.gateway.oms, "update_position_market_value"):
-            self.gateway.oms.update_position_market_value(latest_prices.to_dict())
+            prices_dict = latest_prices.to_dict()
+            self.gateway.oms.update_position_market_value(prices_dict)
 
     def _apply_slippage(self, price: float, trade_type: str) -> float:
         """应用价格滑点"""
@@ -381,7 +255,7 @@ class SignalGatewayService:
 
             selection = self.selection_provider.select(as_of_date=cycle_date)
             top_selections = selection.top_selections
-            bottom_selections = getattr(selection, "bottom_selections", [])
+            # bottom_selections = getattr(selection, "bottom_selections", [])
             # 动态生成 metadata（用户自定义 Provider 可能没有此属性）
             if hasattr(selection, "metadata") and selection.metadata:
                 selection_meta = selection.metadata
@@ -394,9 +268,6 @@ class SignalGatewayService:
                         v = getattr(selection, k, None)
                         if not callable(v):
                             selection_meta[k] = v
-
-            if isinstance(self.gateway.market_data_provider, JHMarketData):
-                self.gateway.market_data_provider.default_symbols = top_selections
 
             price = self.gateway.get_price_data(
                 symbols=top_selections or None,

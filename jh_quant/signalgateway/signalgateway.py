@@ -21,6 +21,7 @@ from .oms import OMS
 from .position_sizer import ATRPositionSizer, PositionSizer
 from .strategy import Strategy
 from .utils import rprint
+from .config import Frequency
 
 
 class SignalGateway:
@@ -106,34 +107,17 @@ class SignalGateway:
             positions = self.oms.get_positions()
             position_symbols = [h.symbol for h in positions.holds]
             symbols = position_symbols or None
-        
-        resolved_frequency = Frequency.from_value(frequency)
 
-        bars_dict = self.market_data_provider.get_bars(
+        price_df = self.market_data_provider.get_price_data(
             symbols=symbols,
             start_date=start_date or "1900-01-01",
             end_date=end_date or "2099-12-31",
-            frequency=resolved_frequency,
         )
-        dfs = []
-        for symbol, bars in bars_dict.items():
-            for bar in bars:
-                dfs.append({
-                    "symbol": bar.symbol,
-                    "date": bar.datetime,
-                    "price": bar.price,
-                    "open": bar.open,
-                    "high": bar.high,
-                    "low": bar.low,
-                    "close": bar.close,
-                    "volume": bar.volume,
-                    "amount": bar.amount,
-                })
 
-        if not dfs:
+        if price_df is None or price_df.empty:
             return pd.DataFrame()
 
-        return pd.DataFrame(dfs)
+        return price_df.sort_values(["symbol", "date"]).reset_index(drop=True)
 
     def _normalize_frequency(self, frequency: Frequency | str | None) -> Frequency:
         return Frequency.from_value(frequency)
@@ -197,10 +181,22 @@ class SignalGateway:
             return False
         return True
 
+    def _filter_to_symbol_latest_window(
+        self, signal_df: pd.DataFrame, frequency: Frequency | str
+    ) -> pd.DataFrame:
+        if signal_df.empty or "symbol" not in signal_df.columns or "date" not in signal_df.columns:
+            return signal_df
+
+        normalized = signal_df.copy()
+        normalized["date"] = pd.to_datetime(normalized["date"])
+        latest_by_symbol = normalized.groupby("symbol")["date"].transform("max")
+        max_age = self._frequency_max_age(frequency)
+        return normalized.loc[normalized["date"] >= (latest_by_symbol - max_age)].copy()
+
     def aggregate_signals(
         self,
         price: pd.DataFrame,
-        latest_timeindex: str,
+        frequency: Frequency | str = Frequency.DAILY,
         signal_type: str = "buy",
     ) -> pd.DataFrame:
         """
@@ -208,7 +204,7 @@ class SignalGateway:
 
         Args:
             price: 股票价格数据
-            latest_timeindex: 最新时间戳
+            frequency: 用于按每个symbol自己的最新时间窗口过滤信号的频率
             signal_type: 信号类型 "buy" 或 "sell"
 
         Returns:
@@ -224,8 +220,8 @@ class SignalGateway:
         all_signals = []
         for strat in self.strategy_pool:
             signal_df = strat["strategy"](price)
+            signal_df = self._filter_to_symbol_latest_window(signal_df, frequency)
             signal_df[weighted_column] = signal_df[signal_column] * strat["weight"]
-            signal_df = signal_df.loc[signal_df["date"] >= pd.to_datetime(latest_timeindex)]
             all_signals.append(signal_df[["symbol", weighted_column]])
 
         if not all_signals:
@@ -241,16 +237,16 @@ class SignalGateway:
         return combined
 
     def aggregate_buy_signals(
-        self, price: pd.DataFrame, latest_timeindex: str
+        self, price: pd.DataFrame, frequency: Frequency | str = Frequency.DAILY
     ) -> pd.DataFrame:
         """聚合买入信号"""
-        return self.aggregate_signals(price, latest_timeindex, "buy")
+        return self.aggregate_signals(price, frequency, "buy")
 
     def aggregate_sell_signals(
-        self, price: pd.DataFrame, latest_timeindex: str
+        self, price: pd.DataFrame, frequency: Frequency | str = Frequency.DAILY
     ) -> pd.DataFrame:
         """聚合卖出信号"""
-        return self.aggregate_signals(price, latest_timeindex, "sell")
+        return self.aggregate_signals(price, frequency, "sell")
 
     def get_latest_prices(self, symbols: List[str] = None) -> pd.Series:
         """
@@ -331,7 +327,10 @@ class SignalGateway:
         )
 
         if price is None:
-            price = self.get_price_data(start_date=start_date, end_date=end_date)
+            price = self.get_price_data(
+                start_date=start_date,
+                end_date=end_date,
+            )
 
         if price.empty:
             rprint(label="Warning:", content="无法获取价格数据")
@@ -344,9 +343,8 @@ class SignalGateway:
         ):
             return pd.DataFrame()
 
-        latest_timeindex = price["date"].max()  # 拿到最新的价格
 
-        raw_signals = self.aggregate_buy_signals(price=price, latest_timeindex=latest_timeindex)
+        raw_signals = self.aggregate_buy_signals(price=price, frequency=frequency)
 
         if raw_signals.empty:
             rprint(label="Info:", content="没有买入信号")
@@ -392,7 +390,11 @@ class SignalGateway:
         hold_symbols = [h.symbol for h in self.oms.executable_holds]
 
         if price is None:
-            price = self.get_price_data(symbols=hold_symbols, start_date=start_date, end_date=end_date)
+            price = self.get_price_data(
+                symbols=hold_symbols,
+                start_date=start_date,
+                end_date=end_date,
+            )
         else:
             price = price[price["symbol"].isin(hold_symbols)].copy()
 
@@ -406,9 +408,8 @@ class SignalGateway:
         ):
             return pd.DataFrame()
 
-        latest_timeindex = price["date"].max()
 
-        sell_signals = self.aggregate_sell_signals(price=price, latest_timeindex=latest_timeindex)
+        sell_signals = self.aggregate_sell_signals(price=price, frequency=frequency)
 
         if sell_signals.empty:
             rprint(label="Info:", content="没有卖出信号")

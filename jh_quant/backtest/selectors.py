@@ -18,7 +18,7 @@ class SelectionResult:
         bottom_selections: 评分最低的标的代码列表
     """
     top_selections: List[str]
-    bottom_selections: List[str] = field(default_factory=list)
+    bottom_selections: Optional[List[str]] = field(default_factory=list)
 
 
 @dataclass

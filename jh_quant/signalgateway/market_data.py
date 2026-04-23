@@ -6,11 +6,9 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Callable, Dict, List, Optional
-from enum import Enum
 import pandas as pd
-
 from jh_quant.data import DataTypes, JHData
-
+from .config import Frequency
 
 @dataclass
 class RealtimeQuote:
@@ -43,43 +41,7 @@ class BarData:
         return float(self.close)
 
 
-class Frequency(Enum):
-    DAILY = "1d"
-    MINUTE_1 = "1min"
-    MINUTE_5 = "5min"
-    MINUTE_15 = "15min"
-    MINUTE_30 = "30min"
-    MINUTE_60 = "60min"
-    HOUR_1 = "1hour"
 
-    @classmethod
-    def from_value(cls, value: "Frequency | str | None") -> "Frequency":
-        if isinstance(value, cls):
-            return value
-
-        mapping = {
-            None: cls.DAILY,
-            "daily": cls.DAILY,
-            "day": cls.DAILY,
-            "1day": cls.DAILY,
-            "1d": cls.DAILY,
-            "1min": cls.MINUTE_1,
-            "1m": cls.MINUTE_1,
-            "5min": cls.MINUTE_5,
-            "5m": cls.MINUTE_5,
-            "15min": cls.MINUTE_15,
-            "15m": cls.MINUTE_15,
-            "30min": cls.MINUTE_30,
-            "30m": cls.MINUTE_30,
-            "60min": cls.MINUTE_60,
-            "60m": cls.MINUTE_60,
-            "1hour": cls.HOUR_1,
-            "1h": cls.HOUR_1,
-        }
-        normalized = mapping.get(str(value).lower() if value is not None else None)
-        if normalized is None:
-            raise ValueError(f"Unsupported frequency: {value}")
-        return normalized
 
 class MarketDataProvider(ABC):
     @abstractmethod
@@ -88,14 +50,22 @@ class MarketDataProvider(ABC):
         pass
 
     @abstractmethod
-    def get_bars(
+    def get_price_data(
         self,
         symbols: List[str],
         start_date: str,
         end_date: str,
         frequency: Frequency = Frequency.DAILY,
-    ) -> Dict[str, List[BarData]]:
-        pass
+    ) -> pd.DataFrame:
+        data = self.get_price_data(
+            symbols=symbols,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        if "symbol" not in data.columns or "date" not in data.columns:
+            raise ValueError("Price data must contain 'symbol' and 'date' columns")
+        return data
+
 
     @abstractmethod
     def subscribe(self, symbols: List[str]) -> None:
@@ -125,15 +95,15 @@ class WebSocketMarketDataProvider(MarketDataProvider):
             if symbol in symbols
         }
 
-    def get_bars(
+    def get_price_data(
         self,
         symbols: List[str],
         start_date: str,
         end_date: str,
         frequency: Frequency = Frequency.DAILY,
-    ) -> Dict[str, List[BarData]]:
+    ) -> pd.DataFrame:
         raise NotImplementedError(
-            "WebSocket provider doesn't support historical bars. "
+            "WebSocket provider doesn't support historical price data. "
             "Use a historical data provider for backtesting."
         )
 
@@ -177,41 +147,25 @@ class HistoricalDataProvider(MarketDataProvider):
             .to_dict()
         )
 
-    def get_bars(
+    def get_price_data(
         self,
         symbols: List[str],
         start_date: str,
         end_date: str,
         frequency: Frequency = Frequency.DAILY,
-    ) -> Dict[str, List[BarData]]:
+    ) -> pd.DataFrame:
         if self.data_getter is None:
-            return {}
+            return pd.DataFrame()
 
         price_data = self.data_getter.get_data(
             start_date=start_date,
             end_date=end_date,
         )
         if price_data is None or price_data.empty:
-            return {}
+            return pd.DataFrame()
 
         price_data = price_data[price_data["symbol"].isin(symbols)]
-        result: Dict[str, List[BarData]] = {}
-        for symbol in symbols:
-            symbol_data = price_data[price_data["symbol"] == symbol].sort_values("date")
-            result[symbol] = [
-                BarData(
-                    symbol=row["symbol"],
-                    datetime=pd.to_datetime(row["date"]),
-                    open=row["open"],
-                    high=row["high"],
-                    low=row["low"],
-                    close=row["close"],
-                    volume=row["volume"],
-                    amount=row["amount"],
-                )
-                for _, row in symbol_data.iterrows()
-            ]
-        return result
+        return price_data.sort_values(["symbol", "date"]).copy()
 
     def subscribe(self, symbols: List[str]) -> None:
         raise NotImplementedError(
@@ -235,7 +189,8 @@ class JHMarketData(MarketDataProvider):
         default_symbols: Optional[List[str]] = None,
     ):
         self.jhd = jhd or JHData()
-        if frequency  != Frequency.DAILY:
+        self.frequency = Frequency.from_value(frequency)
+        if self.frequency != Frequency.DAILY:
             self.data_type = DataTypes.AK_STOCK_ZH_A_SPOT
         else:
             self.data_type = DataTypes.AK_STOCK_ZH_A_HIST
@@ -265,9 +220,8 @@ class JHMarketData(MarketDataProvider):
             start=api_start,
             end=api_end,
         )
-
-        code_col, date_col = data.code_dt_col 
-        
+        code_col, date_col = data.code_date_col 
+        data = data.to_df()
         # symbol, date 是标准列名，适配不同数据源的列名差异
         if "symbol" not in data.columns:
             data = data.rename(columns={code_col: "symbol"})
@@ -275,7 +229,7 @@ class JHMarketData(MarketDataProvider):
             data = data.rename(columns={date_col: "date"})
         if "price" not in data.columns and "close" in data.columns:
             data["price"] = data["close"]
-
+       
         return data 
     def _normalize_api_datetime(self, value: str, *, is_end: bool) -> str:
         timestamp = pd.Timestamp(value)
@@ -294,29 +248,12 @@ class JHMarketData(MarketDataProvider):
             return timestamp.strftime("%Y-%m-%d %H:%M:%S")
         return timestamp.strftime("%Y-%m-%d")
 
-    def _row_to_bar(self, row: pd.Series) -> BarData:
-        close_price = float(row.get("close", row.get("price", 0.0)))
-        open_price = float(row.get("open", close_price))
-        high_price = float(row.get("high", max(open_price, close_price)))
-        low_price = float(row.get("low", min(open_price, close_price)))
-        volume = int(row.get("volume", 0) or 0)
-        amount = float(row.get("amount", close_price * volume))
-        return BarData(
-            symbol=row["symbol"],
-            datetime=pd.to_datetime(row["date"]),
-            open=open_price,
-            high=high_price,
-            low=low_price,
-            close=close_price,
-            volume=volume,
-            amount=amount,
-        )
-
     def get_latest_prices(self, symbols: List[str]) -> Dict[str, float]:
         price_df = self._get_price_df(
             symbols=symbols,
             start_date="1900-01-01",
             end_date="2099-12-31",
+            frequency=self.frequency,
         )
         if price_df is None or price_df.empty:
             return {}
@@ -328,28 +265,20 @@ class JHMarketData(MarketDataProvider):
             .to_dict()
         )
 
-    def get_bars(
+    def get_price_data(
         self,
         symbols: List[str],
         start_date: str,
         end_date: str,
-        frequency: Frequency = Frequency.DAILY,
-    ) -> Dict[str, List[BarData]]:
+    ) -> pd.DataFrame:
         price_df = self._get_price_df(
             symbols=symbols,
             start_date=start_date,
             end_date=end_date,
-            frequency=frequency,
         )
         if price_df is None or price_df.empty:
-            return {}
-
-        result: Dict[str, List[BarData]] = {}
-        ordered_symbols = self._resolve_symbols(symbols)
-        for symbol in ordered_symbols:
-            symbol_data = price_df[price_df["symbol"] == symbol].sort_values("date")
-            result[symbol] = [self._row_to_bar(row) for _, row in symbol_data.iterrows()]
-        return result
+            return pd.DataFrame()
+        return price_df.sort_values(["symbol", "date"]).copy()
 
     def subscribe(self, symbols: List[str]) -> None:
         raise NotImplementedError("JHMarketData doesn't support real-time subscription")
