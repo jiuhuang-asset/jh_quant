@@ -89,7 +89,7 @@ class OrderRecorder(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def save_daily_performance(self, perf: DailyPerformance):
+    def save_daily_snapshot(self, perf: DailyPerformance):
         raise NotImplementedError
 
     @abstractmethod
@@ -173,13 +173,37 @@ class TortoiseOrderRecorder(OrderRecorder):
     async def _save_trade(self, trade: Trade):
         await self._upsert(TradeRecord, "trade_id", trade.to_record_payload())
 
-    def save_daily_performance(self, perf: DailyPerformance):
-        self._runner.run(self._save_daily_performance(perf))
+    def save_daily_snapshot(self, perf: DailyPerformance):
+        self._runner.run(self._save_daily_snapshot(perf))
 
-    async def _save_daily_performance(self, perf: DailyPerformance):
+    async def _save_daily_snapshot(self, perf: DailyPerformance):
         payload = perf.to_record_payload()
-        payload["trade_date"] = _as_date(payload["trade_date"])
-        await self._upsert(DailyPerformanceRecord, "performance_id", payload)
+        trade_date = _as_date(payload["trade_date"])
+        session_id = payload["session_id"]
+
+        # Upsert by (session_id, trade_date) - one record per day per session
+        existing = await DailyPerformanceRecord.filter(
+            session_id=session_id, trade_date=trade_date
+        ).first()
+
+        if existing:
+            # Update existing record, keep the same performance_id
+            update_payload = {
+                "portfolio_value": payload["portfolio_value"],
+                "cash_balance": payload["cash_balance"],
+                "position_value": payload["position_value"],
+                "daily_return": payload.get("daily_return"),
+                "cumulative_return": payload.get("cumulative_return"),
+                "daily_pnl": payload.get("daily_pnl"),
+                "num_positions": payload["num_positions"],
+            }
+            await DailyPerformanceRecord.filter(
+                session_id=session_id, trade_date=trade_date
+            ).update(**update_payload)
+        else:
+            # Create new record
+            payload["trade_date"] = trade_date
+            await DailyPerformanceRecord.create(**payload)
 
     def save_position_snapshot(self, snapshot: PositionSnapshot):
         self._runner.run(self._save_position_snapshot(snapshot))

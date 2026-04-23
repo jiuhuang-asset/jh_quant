@@ -41,18 +41,18 @@ class OMS(ABC):
         ...
 
     @abstractmethod
-    def record_trade(self, trade: Trade):
-        """记录交易到数据库"""
+    def save_trade(self, trade: Trade):
+        """保存交易到数据库"""
         ...
 
     @abstractmethod
-    def record_daily_performance(self, daily_perf: DailyPerformance):
-        """记录日度表现"""
+    def save_daily_performance(self, daily_perf: DailyPerformance):
+        """保存日度表现"""
         ...
 
     @abstractmethod
-    def record_position_snapshot(self, snapshot: PositionSnapshot):
-        """记录持仓快照"""
+    def save_position_snapshot(self, snapshot: PositionSnapshot):
+        """保存持仓快照"""
         ...
 
     @abstractmethod
@@ -331,7 +331,7 @@ class MockOMS(OMS):
 
         # 记录交易
         self.trades.append(trade)
-        self.record_trade(trade)
+        self.save_trade(trade)
 
         # 立即保存更新后的持仓快照，防止数据不一致
         current_hold = next((h for h in self.holds if h.symbol == order.symbol), None)
@@ -398,7 +398,7 @@ class MockOMS(OMS):
 
         # 记录交易
         self.trades.append(trade)
-        self.record_trade(trade)
+        self.save_trade(trade)
 
         # 立即保存更新后的持仓快照，防止数据不一致
         # 注意：卖出后hold可能被移除，但需要在移除前保存
@@ -408,35 +408,35 @@ class MockOMS(OMS):
 
         return trade
 
-    def record_trade(self, trade: Trade):
-        """记录交易到数据库"""
+    def save_trade(self, trade: Trade):
+        """保存交易到数据库"""
         if self.recorder is None:
             return
 
         try:
             self.recorder.save_trade(trade)
         except Exception as e:
-            print(f"Failed to record trade: {e}")
+            print(f"Failed to save trade: {e}")
 
-    def record_daily_performance(self, daily_perf: DailyPerformance):
-        """记录日度表现"""
+    def save_daily_performance(self, daily_perf: DailyPerformance):
+        """保存日度表现"""
         if self.recorder is None:
             return
 
         try:
-            self.recorder.save_daily_performance(daily_perf)
+            self.recorder.save_daily_snapshot(daily_perf)
         except Exception as e:
-            print(f"Failed to record daily performance: {e}")
+            print(f"Failed to save daily performance: {e}")
 
-    def record_position_snapshot(self, snapshot: PositionSnapshot):
-        """记录持仓快照"""
+    def save_position_snapshot(self, snapshot: PositionSnapshot):
+        """保存持仓快照"""
         if self.recorder is None:
             return
 
         try:
             self.recorder.save_position_snapshot(snapshot)
         except Exception as e:
-            print(f"Failed to record position snapshot: {e}")
+            print(f"Failed to save position snapshot: {e}")
 
     def _save_position_snapshot(
         self, hold: StockHoldRecord, trade_date: datetime = None
@@ -469,7 +469,7 @@ class MockOMS(OMS):
             pnl_pct=pnl_pct,
         )
 
-        self.record_position_snapshot(snapshot)
+        self.save_position_snapshot(snapshot)
 
     def save_daily_snapshot(
         self, trade_date: datetime, close_prices: Dict[str, float] = None
@@ -520,7 +520,7 @@ class MockOMS(OMS):
             num_positions=len(self.holds),
         )
 
-        self.record_daily_performance(daily_perf)
+        self.save_daily_performance(daily_perf)
 
         # 为每个持仓保存快照
         for hold in self.holds:
@@ -542,7 +542,7 @@ class MockOMS(OMS):
                 pnl_pct=pnl_pct,
             )
 
-            self.record_position_snapshot(snapshot)
+            self.save_position_snapshot(snapshot)
 
         # 重置日盈利
         self.daily_profit = 0.0

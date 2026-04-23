@@ -582,4 +582,8 @@ class SignalGateway:
         if not long_candidates.empty:
             executed_buys = self.execute_long(long_candidates, price_slippage)
 
+        # 保存日度表现快照（upsert模式，每天每session只有一条记录）
+        if hasattr(self.oms, "save_daily_snapshot"):
+            self.oms.save_daily_snapshot(cycle_date, prices_dict if not latest_prices.empty else None)
+
         return executed_buys, executed_sells, long_candidates, short_candidates
