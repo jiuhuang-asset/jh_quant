@@ -5,12 +5,13 @@ import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from threading import Event, Lock, Thread
-from typing import Any, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 import pandas as pd
 from pydantic import BaseModel, Field
 from typing import Protocol, runtime_checkable
 
 from .config import Frequency, ServiceConfig, STRATEGY_REGISTRY
+from .persistence_coordinator import PersistenceCoordinator
 from .performance import (
     calculate_holding_returns,
     calculate_turnover,
@@ -107,12 +108,22 @@ class SignalGatewayService:
         selection_provider: SelectionProvider,
         strategy_specs: List[StrategySpec],
         llm_handler: Optional[Callable[[str, Dict[str, Any]], Dict[str, Any]]] = None,
+        recorder: Optional[Any] = None,
+        persistence: Optional[PersistenceCoordinator] = None,
     ):
         self.gateway = gateway
         self.config = config
         self.selection_provider = selection_provider
         self.strategy_specs = strategy_specs
         self.llm_handler = llm_handler
+
+        # Persistence coordinator - accepts recorder directly or pre-built coordinator
+        if persistence is not None:
+            self.persistence = persistence
+        elif recorder is not None:
+            self.persistence = PersistenceCoordinator(recorder=recorder)
+        else:
+            self.persistence = PersistenceCoordinator(recorder=None)
 
         # Keep service session_id aligned with OMS when callers omit one side.
         oms_session_id = getattr(self.gateway.oms, "session_id", None)
@@ -130,7 +141,7 @@ class SignalGatewayService:
 
         self.configure_strategies(strategy_specs)
 
-        # Restore OMS state from recorder on startup
+        # Restore OMS state from persistence on startup
         self._restore_oms_state()
 
         if self.config.auto_start:
@@ -138,13 +149,10 @@ class SignalGatewayService:
 
     def _restore_oms_state(self):
         """从 recorder 恢复 OMS 状态（如果有）"""
-        recorder = getattr(self.gateway.oms, "recorder", None)
-        if recorder is None:
-            return
-        if not hasattr(recorder, "load_latest_session_state"):
+        if self.persistence.recorder is None:
             return
         try:
-            saved = recorder.load_latest_session_state(self.config.session_id)
+            saved = self.persistence.load_latest_session_state(self.config.session_id)
             if saved:
                 self.gateway.oms.import_state(saved)
         except Exception:
@@ -211,9 +219,6 @@ class SignalGatewayService:
             return price * (1 - self.config.price_slippage)
 
     def _persist_runtime_state(self, extra: Optional[Dict[str, Any]] = None):
-        recorder = getattr(self.gateway.oms, "recorder", None)
-        if recorder is None or not hasattr(recorder, "save_service_state"):
-            return
         payload = {
             "session_id": self.config.session_id,
             "export_time": datetime.now().isoformat(),
@@ -227,7 +232,7 @@ class SignalGatewayService:
         }
         if extra:
             payload["service"]["extra"] = extra
-        recorder.save_service_state(payload)
+        self.persistence.save_service_state(payload)
 
     def get_status(self) -> Dict[str, Any]:
         return {
@@ -243,8 +248,7 @@ class SignalGatewayService:
         }
 
     def get_performance_snapshot(self) -> Dict[str, Any]:
-        recorder = getattr(self.gateway.oms, "recorder", None)
-        if recorder is None:
+        if self.persistence.recorder is None:
             return {
                 "session_id": self.config.session_id,
                 "summary": {},
@@ -252,6 +256,7 @@ class SignalGatewayService:
                 "turnover": [],
             }
 
+        recorder = self.persistence.recorder
         return {
             "session_id": self.config.session_id,
             "summary": get_performance_summary(recorder, self.config.session_id),
@@ -303,6 +308,20 @@ class SignalGatewayService:
                     price_slippage=self.config.price_slippage,
                 )
             )
+
+            # Compute and persist daily metrics (service layer responsibility)
+            if hasattr(self.gateway.oms, "compute_daily_metrics"):
+                cycle_dt = datetime.strptime(cycle_date, "%Y-%m-%d")
+                latest_prices = (
+                    self.gateway.get_latest_prices(top_selections)
+                    if hasattr(self.gateway, "get_latest_prices")
+                    else pd.Series(dtype=float)
+                )
+                close_prices = latest_prices.to_dict() if not latest_prices.empty else None
+                perf, snapshots = self.gateway.oms.compute_daily_metrics(
+                    trade_date=cycle_dt, close_prices=close_prices
+                )
+                self.persistence.persist_daily_metrics(perf, snapshots)
 
             result = TradingCycleResult(
                 session_id=self.config.session_id,

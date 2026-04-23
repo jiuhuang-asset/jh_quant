@@ -467,7 +467,6 @@ class SignalGateway:
                 rprint(label="Error:", content=f"买入 {symbol} 失败: {e}")
                 continue
 
-        self.oms.save_state_snapshot()
         return executed_trades
 
     def execute_short(
@@ -520,7 +519,6 @@ class SignalGateway:
                 continue
 
         rprint(label="Info:", content=f"成功执行 {len(executed_trades)} 个卖出订单")
-        self.oms.save_state_snapshot()
         return executed_trades
 
     def execute_cycle(
@@ -581,9 +579,5 @@ class SignalGateway:
         executed_buys: List[Trade] = []
         if not long_candidates.empty:
             executed_buys = self.execute_long(long_candidates, price_slippage)
-
-        # 保存日度表现快照（upsert模式，每天每session只有一条记录）
-        if hasattr(self.oms, "save_daily_snapshot"):
-            self.oms.save_daily_snapshot(cycle_date, prices_dict if not latest_prices.empty else None)
 
         return executed_buys, executed_sells, long_candidates, short_candidates

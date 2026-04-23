@@ -26,6 +26,13 @@ from .models import (
     normalize_jsonable_value,
     require_tortoise_orm,
 )
+from .persistence_protocols import (
+    PerformancePersistence,
+    PositionPersistence,
+    ServiceStatePersistence,
+    SessionStatePersistence,
+    TradePersistence,
+)
 
 
 def _module_path() -> str:
@@ -77,7 +84,14 @@ class _AsyncLoopRunner:
         self._loop.close()
 
 
-class OrderRecorder(ABC):
+class OrderRecorder(
+    TradePersistence,
+    PerformancePersistence,
+    PositionPersistence,
+    SessionStatePersistence,
+    ServiceStatePersistence,
+    ABC,
+):
     """Abstract recorder for trading artifacts."""
 
     @abstractmethod
