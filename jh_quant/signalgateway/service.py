@@ -8,7 +8,7 @@ from threading import Event, Lock, Thread
 from typing import Any, Callable, Dict, List, Literal, Optional
 
 import pandas as pd
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer, field_validator
 
 from jh_quant.backtest.strategy import (
     Strategy,
@@ -25,7 +25,7 @@ from jh_quant.backtest.strategy import (
     StrategyVolumeTrend,
 )
 
-from .market_data import JHMarketData
+from .market_data import Frequency, JHMarketData
 from .oms import OMS
 from .performance import (
     calculate_holding_returns,
@@ -102,8 +102,17 @@ class ServiceConfig(BaseModel):
     price_lookback_days: int = 180
     max_candidates: int = 10
     auto_start: bool = False
-    period: Literal["daily", "1min", "5min", "15min", "30min", "60min"] = "daily"
+    frequency: Frequency = Frequency.DAILY
     price_slippage: float = 0.0
+
+    @field_validator("frequency", mode="before")
+    @classmethod
+    def _normalize_frequency(cls, value: Frequency | str) -> Frequency:
+        return Frequency.from_value(value)
+
+    @field_serializer("frequency")
+    def _serialize_frequency(self, value: Frequency) -> str:
+        return value.value
 
 
 class LLMCommandRequest(BaseModel):
@@ -263,17 +272,9 @@ class SignalGatewayService:
         dt = datetime.strptime(as_of_date, "%Y-%m-%d")
         return (dt - timedelta(days=self.config.price_lookback_days)).strftime("%Y-%m-%d")
 
-    def _frequency_for_period(self) -> str:
-        """根据 period 返回 MarketDataProvider 的 frequency 参数"""
-        mapping = {
-            "daily": "1d",
-            "1min": "1m",
-            "5min": "5m",
-            "15min": "15m",
-            "30min": "30m",
-            "60min": "60m",
-        }
-        return mapping.get(self.config.period, "1d")
+    def _configured_frequency(self) -> Frequency:
+        """返回当前服务配置使用的 Frequency。"""
+        return self.config.frequency
 
     def _latest_prices_from_price(self, price: pd.DataFrame) -> pd.Series:
         if price.empty:
@@ -376,7 +377,7 @@ class SignalGatewayService:
         with self._lock:
             cycle_date = self._as_of_date(as_of_date)
             price_start = self._price_start_date(cycle_date)
-            frequency = self._frequency_for_period()
+            frequency = self._configured_frequency()
 
             selection = self.selection_provider.select(as_of_date=cycle_date)
             top_selections = selection.top_selections
@@ -412,7 +413,7 @@ class SignalGatewayService:
                 start_date=price_start,
                 end_date=cycle_date,
                 price=price,
-                period=self.config.period,
+                frequency=self.config.frequency,
                 reference_time=cycle_date,
             )
             executed_sells = []
@@ -424,7 +425,7 @@ class SignalGatewayService:
                 end_date=cycle_date,
                 max_candidates=self.config.max_candidates,
                 price=price,
-                period=self.config.period,
+                frequency=self.config.frequency,
                 reference_time=cycle_date,
             )
             executed_buys = []

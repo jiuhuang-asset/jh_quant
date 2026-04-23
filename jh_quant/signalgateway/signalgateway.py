@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, List, Optional, Union
 
 import pandas as pd
 
-from .market_data import MarketDataProvider
+from .market_data import Frequency, MarketDataProvider
 from .models import Order, Trade
 from .oms import OMS
 from .position_sizer import ATRPositionSizer, PositionSizer
@@ -36,7 +36,7 @@ class SignalGateway:
         oms: OMS,
         market_data_provider: MarketDataProvider = None,
         position_sizer: PositionSizer = None,
-        strict_mode: bool = False,
+        strict_mode: bool = True,
     ):
         """
         初始化信号网关
@@ -86,7 +86,7 @@ class SignalGateway:
         symbols: List[str] = None,
         start_date: str = None,
         end_date: str = None,
-        frequency: str = "1d",
+        frequency: Frequency | str = Frequency.DAILY,
     ) -> pd.DataFrame:
         """
         从数据提供者获取股票价格数据
@@ -107,11 +107,13 @@ class SignalGateway:
             position_symbols = [h.symbol for h in positions.holds]
             symbols = position_symbols or None
         
+        resolved_frequency = Frequency.from_value(frequency)
+
         bars_dict = self.market_data_provider.get_bars(
             symbols=symbols,
             start_date=start_date or "1900-01-01",
             end_date=end_date or "2099-12-31",
-            frequency=frequency,
+            frequency=resolved_frequency,
         )
         dfs = []
         for symbol, bars in bars_dict.items():
@@ -133,20 +135,21 @@ class SignalGateway:
 
         return pd.DataFrame(dfs)
 
-    def _period_max_age(self, period: str) -> timedelta:
+    def _normalize_frequency(self, frequency: Frequency | str | None) -> Frequency:
+        return Frequency.from_value(frequency)
+
+    def _frequency_max_age(self, frequency: Frequency | str) -> timedelta:
+        frequency = self._normalize_frequency(frequency)
         mapping = {
-            "daily": timedelta(hours=24),
-            "day": timedelta(hours=24),
-            "1d": timedelta(hours=24),
-            "60min": timedelta(hours=1),
-            "1hour": timedelta(hours=1),
-            "1h": timedelta(hours=1),
-            "30min": timedelta(minutes=30),
-            "15min": timedelta(minutes=15),
-            "5min": timedelta(minutes=5),
-            "1min": timedelta(minutes=1),
+            Frequency.DAILY: timedelta(hours=24),
+            Frequency.HOUR_1: timedelta(hours=1),
+            Frequency.MINUTE_60: timedelta(hours=1),
+            Frequency.MINUTE_30: timedelta(minutes=30),
+            Frequency.MINUTE_15: timedelta(minutes=15),
+            Frequency.MINUTE_5: timedelta(minutes=5),
+            Frequency.MINUTE_1: timedelta(minutes=1),
         }
-        return mapping.get((period or "daily").lower(), timedelta(hours=24))
+        return mapping.get(frequency, timedelta(hours=24))
 
     def _normalize_reference_time(
         self, value: Optional[Union[str, datetime, pd.Timestamp]]
@@ -161,7 +164,7 @@ class SignalGateway:
     def validate_price_freshness(
         self,
         price: pd.DataFrame,
-        period: str = "daily",
+        frequency: Frequency | str = Frequency.DAILY,
         reference_time: Optional[Union[str, datetime, pd.Timestamp]] = None,
         strict_mode: Optional[bool] = None,
     ) -> bool:
@@ -180,12 +183,13 @@ class SignalGateway:
             latest_timeindex = latest_timeindex.tz_localize(None)
 
         reference_ts = self._normalize_reference_time(reference_time)
-        max_age = self._period_max_age(period)
+        frequency = self._normalize_frequency(frequency)
+        max_age = self._frequency_max_age(frequency)
         if reference_ts - latest_timeindex > max_age:
             rprint(
                 label="Warning:",
                 content=(
-                    f"Latest market data is stale for period={period}. "
+                    f"Latest market data is stale for frequency={frequency.value}. "
                     f"latest={latest_timeindex}, reference={reference_ts}, max_age={max_age}. "
                     "Skip current execution."
                 ),
@@ -306,7 +310,7 @@ class SignalGateway:
         end_date: str = None,
         max_candidates: int = 5,
         price: pd.DataFrame = None,
-        period: str = "daily",
+        frequency: Frequency | str = Frequency.DAILY,
         reference_time: Optional[Union[str, datetime, pd.Timestamp]] = None,
     ) -> pd.DataFrame:
         """
@@ -335,7 +339,7 @@ class SignalGateway:
 
         if not self.validate_price_freshness(
             price=price,
-            period=period,
+            frequency=frequency,
             reference_time=reference_time or end_date,
         ):
             return pd.DataFrame()
@@ -369,7 +373,7 @@ class SignalGateway:
         start_date: str = None,
         end_date: str = None,
         price: pd.DataFrame = None,
-        period: str = "daily",
+        frequency: Frequency | str = Frequency.DAILY,
         reference_time: Optional[Union[str, datetime, pd.Timestamp]] = None,
     ) -> pd.DataFrame:
         """
@@ -397,7 +401,7 @@ class SignalGateway:
 
         if not self.validate_price_freshness(
             price=price,
-            period=period,
+            frequency=frequency,
             reference_time=reference_time or end_date,
         ):
             return pd.DataFrame()

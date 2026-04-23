@@ -169,6 +169,10 @@ class _JHDataWrapper:
     @property
     def code_col(self) -> str:
         return get_code_col(self._df)
+    
+    @property
+    def date_col(self) -> str:
+        return get_date_col(self._df)
 
     @property
     def code_date_col(self) -> Tuple[str, str]:
@@ -209,6 +213,10 @@ def get_code_col(df: pd.DataFrame) -> str:
     code_col, _ = get_code_date_col(df)
     return code_col
 
+def get_date_col(df: pd.DataFrame) -> str:
+    """获取DataFrame的date列名"""
+    _, date_col = get_code_date_col(df)
+    return date_col 
 
 def get_code_date_col(df:pd.DataFrame) -> Tuple[str, str]:
     datatype = getattr(df, "_jh_dt", None)

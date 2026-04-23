@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Callable, Dict, List, Optional
-
+from enum import Enum
 import pandas as pd
 
 from jh_quant.data import DataTypes, JHData
@@ -43,9 +43,48 @@ class BarData:
         return float(self.close)
 
 
+class Frequency(Enum):
+    DAILY = "1d"
+    MINUTE_1 = "1min"
+    MINUTE_5 = "5min"
+    MINUTE_15 = "15min"
+    MINUTE_30 = "30min"
+    MINUTE_60 = "60min"
+    HOUR_1 = "1hour"
+
+    @classmethod
+    def from_value(cls, value: "Frequency | str | None") -> "Frequency":
+        if isinstance(value, cls):
+            return value
+
+        mapping = {
+            None: cls.DAILY,
+            "daily": cls.DAILY,
+            "day": cls.DAILY,
+            "1day": cls.DAILY,
+            "1d": cls.DAILY,
+            "1min": cls.MINUTE_1,
+            "1m": cls.MINUTE_1,
+            "5min": cls.MINUTE_5,
+            "5m": cls.MINUTE_5,
+            "15min": cls.MINUTE_15,
+            "15m": cls.MINUTE_15,
+            "30min": cls.MINUTE_30,
+            "30m": cls.MINUTE_30,
+            "60min": cls.MINUTE_60,
+            "60m": cls.MINUTE_60,
+            "1hour": cls.HOUR_1,
+            "1h": cls.HOUR_1,
+        }
+        normalized = mapping.get(str(value).lower() if value is not None else None)
+        if normalized is None:
+            raise ValueError(f"Unsupported frequency: {value}")
+        return normalized
+
 class MarketDataProvider(ABC):
     @abstractmethod
     def get_latest_prices(self, symbols: List[str]) -> Dict[str, float]:
+        "方便交易策略获取最新价格"
         pass
 
     @abstractmethod
@@ -54,7 +93,7 @@ class MarketDataProvider(ABC):
         symbols: List[str],
         start_date: str,
         end_date: str,
-        frequency: str = "1d",
+        frequency: Frequency = Frequency.DAILY,
     ) -> Dict[str, List[BarData]]:
         pass
 
@@ -91,7 +130,7 @@ class WebSocketMarketDataProvider(MarketDataProvider):
         symbols: List[str],
         start_date: str,
         end_date: str,
-        frequency: str = "1d",
+        frequency: Frequency = Frequency.DAILY,
     ) -> Dict[str, List[BarData]]:
         raise NotImplementedError(
             "WebSocket provider doesn't support historical bars. "
@@ -143,7 +182,7 @@ class HistoricalDataProvider(MarketDataProvider):
         symbols: List[str],
         start_date: str,
         end_date: str,
-        frequency: str = "1d",
+        frequency: Frequency = Frequency.DAILY,
     ) -> Dict[str, List[BarData]]:
         if self.data_getter is None:
             return {}
@@ -192,12 +231,14 @@ class JHMarketData(MarketDataProvider):
     def __init__(
         self,
         jhd: Optional[JHData] = None,
-        # data_type: DataTypes = DataTypes.AK_STOCK_ZH_A_SPOT,
-        data_type: DataTypes = DataTypes.AK_STOCK_ZH_A_HIST,
+        frequency: Frequency = Frequency.DAILY,
         default_symbols: Optional[List[str]] = None,
     ):
         self.jhd = jhd or JHData()
-        self.data_type = data_type
+        if frequency  != Frequency.DAILY:
+            self.data_type = DataTypes.AK_STOCK_ZH_A_SPOT
+        else:
+            self.data_type = DataTypes.AK_STOCK_ZH_A_HIST
         self.default_symbols = default_symbols or []
         self._callbacks: List[Callable[[RealtimeQuote], None]] = []
 
@@ -210,12 +251,7 @@ class JHMarketData(MarketDataProvider):
         symbols: Optional[List[str]],
         start_date: str,
         end_date: str,
-        frequency: str = "1d",
     ) -> pd.DataFrame:
-        normalized_frequency = self._normalize_frequency(frequency)
-        if normalized_frequency != "1d":
-            raise NotImplementedError("JHMarketData currently supports daily bars only")
-
         resolved_symbols = self._resolve_symbols(symbols)
         if not resolved_symbols:
             return pd.DataFrame()
@@ -223,22 +259,24 @@ class JHMarketData(MarketDataProvider):
         api_start = self._normalize_api_datetime(start_date, is_end=False)
         api_end = self._normalize_api_datetime(end_date, is_end=True)
 
-        return self.jhd.get_data(
+        data =  self.jhd.get_data(
             self.data_type,
             symbol=",".join(resolved_symbols),
             start=api_start,
             end=api_end,
         )
 
-    def _normalize_frequency(self, frequency: str) -> str:
-        mapping = {
-            "daily": "1d",
-            "day": "1d",
-            "1day": "1d",
-            "1d": "1d",
-        }
-        return mapping.get((frequency or "1d").lower(), frequency)
+        code_col, date_col = data.code_dt_col 
+        
+        # symbol, date 是标准列名，适配不同数据源的列名差异
+        if "symbol" not in data.columns:
+            data = data.rename(columns={code_col: "symbol"})
+        if "date" not in data.columns:
+            data = data.rename(columns={date_col: "date"})
+        if "price" not in data.columns and "close" in data.columns:
+            data["price"] = data["close"]
 
+        return data 
     def _normalize_api_datetime(self, value: str, *, is_end: bool) -> str:
         timestamp = pd.Timestamp(value)
         if timestamp.tzinfo is not None:
@@ -274,27 +312,6 @@ class JHMarketData(MarketDataProvider):
             amount=amount,
         )
 
-    def get_price_df(
-        self,
-        symbols: Optional[List[str]],
-        start_date: str,
-        end_date: str,
-        frequency: str = "1d",
-    ) -> pd.DataFrame:
-        price_df = self._get_price_df(
-            symbols=symbols,
-            start_date=start_date,
-            end_date=end_date,
-            frequency=frequency,
-        )
-        if price_df is None or price_df.empty:
-            return pd.DataFrame()
-
-        price_df = price_df.copy()
-        if "close" in price_df.columns and "price" not in price_df.columns:
-            price_df["price"] = price_df["close"]
-        return price_df
-
     def get_latest_prices(self, symbols: List[str]) -> Dict[str, float]:
         price_df = self._get_price_df(
             symbols=symbols,
@@ -316,7 +333,7 @@ class JHMarketData(MarketDataProvider):
         symbols: List[str],
         start_date: str,
         end_date: str,
-        frequency: str = "1d",
+        frequency: Frequency = Frequency.DAILY,
     ) -> Dict[str, List[BarData]]:
         price_df = self._get_price_df(
             symbols=symbols,

@@ -215,4 +215,4 @@ def adjust_buy_score_by_fundamentals(
     return adjust_score_func
 
 
-# 设计一个奖励 industry的ajuster?
+
