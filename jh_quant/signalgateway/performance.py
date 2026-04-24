@@ -64,7 +64,8 @@ def _empty_frame(columns: list[str]) -> pd.DataFrame:
 
 
 def _normalize_trade_dates(frame: pd.DataFrame, column: str) -> pd.Series:
-    return pd.to_datetime(frame[column], errors="coerce")
+    series = pd.to_datetime(frame[column], errors="coerce", utc=True)
+    return series.dt.tz_localize(None)
 
 
 def _load_daily_position_values(
@@ -76,7 +77,7 @@ def _load_daily_position_values(
     daily_perf = source.query_daily_performance(session_id) if daily_perf is None else daily_perf
     if not daily_perf.empty:
         daily_perf = daily_perf.copy()
-        daily_perf["trade_date"] = pd.to_datetime(daily_perf["trade_date"], errors="coerce")
+        daily_perf["trade_date"] = _normalize_trade_dates(daily_perf, "trade_date")
         return daily_perf[["trade_date", "position_value", "portfolio_value"]].dropna(
             subset=["trade_date"]
         )
@@ -86,7 +87,7 @@ def _load_daily_position_values(
         return _empty_frame(["trade_date", "position_value", "portfolio_value"])
 
     snaps = snaps.copy()
-    snaps["trade_date"] = pd.to_datetime(snaps["trade_date"], errors="coerce")
+    snaps["trade_date"] = _normalize_trade_dates(snaps, "trade_date")
     snaps["trade_day"] = snaps["trade_date"].dt.normalize()
     daily_positions = (
         snaps.sort_values("trade_date")
@@ -110,7 +111,7 @@ def calculate_holding_returns(
         return _empty_frame(HOLDING_RETURN_COLUMNS)
 
     snaps = snaps.copy()
-    snaps["trade_date"] = pd.to_datetime(snaps["trade_date"], errors="coerce")
+    snaps["trade_date"] = _normalize_trade_dates(snaps, "trade_date")
     latest = snaps.sort_values("trade_date").groupby("symbol").last().reset_index()
     latest.rename(columns={"trade_date": "latest_date"}, inplace=True)
     return latest[
@@ -175,7 +176,7 @@ def calculate_equity_curve(
     daily_perf = source.query_daily_performance(session_id) if daily_perf is None else daily_perf
     if not daily_perf.empty:
         result = daily_perf.copy()
-        result["trade_date"] = pd.to_datetime(result["trade_date"], errors="coerce")
+        result["trade_date"] = _normalize_trade_dates(result, "trade_date")
         result = result.sort_values("trade_date")
         peak = result["portfolio_value"].astype(float).cummax()
         result["drawdown"] = (
