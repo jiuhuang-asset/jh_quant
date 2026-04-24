@@ -15,10 +15,20 @@ except ImportError:  # pragma: no cover - optional dependency at runtime
 from dataclasses import asdict
 
 from .service import (
+    AnalyticsSnapshotResponse,
+    HealthResponse,
     LLMCommandRequest,
+    PerformanceSnapshotResponse,
+    RuntimeSnapshotResponse,
+    ServiceActionResponse,
+    ServiceConfigResponse,
+    ServiceStatusResponse,
     SignalGatewayService,
+    StrategyConfigUpdateResponse,
     StrategySpec,
+    TradingCycleResultResponse,
 )
+from .utils import print_service_startup_summary
 
 
 def create_service_app(service: SignalGatewayService):
@@ -27,53 +37,49 @@ def create_service_app(service: SignalGatewayService):
 
     app = FastAPI(title="jh-quant SignalGateway Service")
 
-    @app.get("/health")
+    @app.get("/health", response_model=HealthResponse)
     def health():
-        return {"status": "ok"}
+        return HealthResponse(status="ok")
 
-    @app.get("/service/status")
+    @app.get("/service/status", response_model=ServiceStatusResponse)
     def service_status():
         return service.get_status()
 
-    @app.get("/service/runtime")
+    @app.get("/service/runtime", response_model=RuntimeSnapshotResponse)
     def service_runtime():
         return service.get_runtime_snapshot()
 
-    @app.get("/service/performance")
+    @app.get("/service/performance", response_model=PerformanceSnapshotResponse)
     def service_performance():
         return service.get_performance_snapshot()
 
-    @app.get("/service/analytics")
+    @app.get("/service/analytics", response_model=AnalyticsSnapshotResponse)
     def service_analytics():
         return service.get_analysis_snapshot()
 
-    @app.get("/service/config")
+    @app.get("/service/config", response_model=ServiceConfigResponse)
     def service_config():
-        return {
-            "service_config": service.config.model_dump(),
-            "selection_config": service.selection_provider.config,
-            "strategy_specs": [spec.model_dump() for spec in service.strategy_specs],
-        }
+        return service.get_config_snapshot()
 
-    @app.post("/service/start")
+    @app.post("/service/start", response_model=ServiceActionResponse)
     def service_start():
         service.start()
-        return {"status": "started", "session_id": service.config.session_id}
+        return ServiceActionResponse(status="started", session_id=service.config.session_id)
 
-    @app.post("/service/stop")
+    @app.post("/service/stop", response_model=ServiceActionResponse)
     def service_stop():
         service.stop()
-        return {"status": "stopped"}
+        return ServiceActionResponse(status="stopped", session_id=service.config.session_id)
 
-    @app.post("/service/run-once")
+    @app.post("/service/run-once", response_model=TradingCycleResultResponse)
     def run_once():
         result = service.run_once()
-        return asdict(result)
+        return TradingCycleResultResponse(**asdict(result))
 
-    @app.post("/service/strategy-config")
+    @app.post("/service/strategy-config", response_model=StrategyConfigUpdateResponse)
     def update_strategy_config(strategy_specs: List[StrategySpec]):
         service.configure_strategies(strategy_specs)
-        return {"status": "updated", "count": len(strategy_specs)}
+        return StrategyConfigUpdateResponse(status="updated", count=len(strategy_specs))
 
     @app.post("/service/llm/command")
     def llm_command(request: LLMCommandRequest):
@@ -90,4 +96,14 @@ def run_service_app(
     if uvicorn is None:
         raise ImportError("uvicorn is required to run the service API")
     app = create_service_app(service)
+    print_service_startup_summary(
+        session_id=service.config.session_id or "unknown",
+        mode=service.config.mode,
+        host=host,
+        port=port,
+        timezone=service.config.timezone,
+        auto_start=service.config.auto_start,
+        interval_seconds=service.config.interval_seconds,
+        cron_expression=service.config.cron_expression,
+    )
     uvicorn.run(app, host=host, port=port)

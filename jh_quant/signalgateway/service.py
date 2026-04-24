@@ -49,6 +49,89 @@ class LLMCommandRequest(BaseModel):
     context: Dict[str, Any] = Field(default_factory=dict)
 
 
+class HealthResponse(BaseModel):
+    status: str = Field(description="服务健康状态，通常为 ok")
+
+
+class SchedulerStatus(BaseModel):
+    interval_seconds: int = Field(description="轮询调度间隔，单位为秒")
+    cron_expression: Optional[str] = Field(default=None, description="Cron 调度表达式，为空表示使用固定间隔调度")
+    timezone: str = Field(description="调度器使用的时区")
+
+
+class TradingCycleResultResponse(BaseModel):
+    session_id: str = Field(description="当前交易会话 ID")
+    mode: str = Field(description="服务运行模式，例如 paper 或 live")
+    cycle_time: str = Field(description="本次交易周期执行完成时间")
+    selection_count: int = Field(description="本次选股结果中的证券数量")
+    long_candidate_count: int = Field(description="本次识别出的做多候选数量")
+    short_candidate_count: int = Field(description="本次识别出的做空或卖出候选数量")
+    executed_buy_count: int = Field(description="本次实际执行的买单数量")
+    executed_sell_count: int = Field(description="本次实际执行的卖单数量")
+    selected_symbols: List[str] = Field(default_factory=list, description="本次选中的证券代码列表")
+    long_symbols: List[str] = Field(default_factory=list, description="本次做多候选证券代码列表")
+    short_symbols: List[str] = Field(default_factory=list, description="本次做空或卖出候选证券代码列表")
+    status: str = Field(default="success", description="本次交易周期执行状态，如 success 或 error")
+    error: Optional[str] = Field(default=None, description="执行失败时的错误信息或堆栈摘要")
+
+
+class ServiceStatusResponse(BaseModel):
+    session_id: str = Field(description="当前服务对应的交易会话 ID")
+    mode: str = Field(description="服务运行模式，例如 paper 或 live")
+    running: bool = Field(description="调度器当前是否处于运行状态")
+    scheduler: SchedulerStatus = Field(description="调度配置与调度状态摘要")
+    last_error: Optional[str] = Field(default=None, description="最近一次运行错误信息，没有错误时为空")
+    last_result: Optional[TradingCycleResultResponse] = Field(
+        default=None,
+        description="最近一次交易周期执行结果，没有执行记录时为空",
+    )
+
+
+class RuntimeSnapshotResponse(BaseModel):
+    session_id: str = Field(description="当前运行态所属的交易会话 ID")
+    generated_at: str = Field(description="运行态快照生成时间")
+    positions: Dict[str, Any] = Field(description="当前持仓与挂单等运行态头寸信息")
+    oms_state: Optional[Dict[str, Any]] = Field(default=None, description="OMS 导出的完整内部状态快照")
+
+
+class PerformanceSnapshotResponse(BaseModel):
+    session_id: str = Field(description="当前绩效快照所属的交易会话 ID")
+    generated_at: str = Field(description="绩效快照生成时间")
+    summary: Dict[str, Any] = Field(description="绩效汇总指标，如收益、回撤、胜率等")
+    holding_returns: List[Dict[str, Any]] = Field(default_factory=list, description="最新持仓收益明细列表")
+    turnover: List[Dict[str, Any]] = Field(default_factory=list, description="按日统计的换手率与成交金额明细")
+    equity_curve: List[Dict[str, Any]] = Field(default_factory=list, description="按日统计的权益曲线明细")
+    trade_activity: List[Dict[str, Any]] = Field(default_factory=list, description="按日统计的交易活跃度明细")
+    position_exposure: Dict[str, Any] = Field(default_factory=dict, description="仓位暴露与集中度分析结果")
+    latest_portfolio: Dict[str, Any] = Field(default_factory=dict, description="组合最新资产快照")
+
+
+class ServiceConfigResponse(BaseModel):
+    session_id: str = Field(description="当前配置所属的交易会话 ID")
+    service: Dict[str, Any] = Field(description="服务级配置，如模式、调度、频率、候选数等")
+    selection_provider: Dict[str, Any] = Field(default_factory=dict, description="选股器或信号提供器配置")
+    strategies: List[StrategySpec] = Field(default_factory=list, description="当前启用的策略配置列表")
+
+
+class AnalyticsSnapshotResponse(BaseModel):
+    session_id: str = Field(description="当前分析快照所属的交易会话 ID")
+    generated_at: str = Field(description="分析快照生成时间")
+    status: ServiceStatusResponse = Field(description="服务状态摘要")
+    runtime: RuntimeSnapshotResponse = Field(description="运行态快照")
+    performance: PerformanceSnapshotResponse = Field(description="绩效分析快照")
+    config: ServiceConfigResponse = Field(description="服务与策略配置快照")
+
+
+class ServiceActionResponse(BaseModel):
+    status: str = Field(description="服务动作执行结果，例如 started 或 stopped")
+    session_id: Optional[str] = Field(default=None, description="服务动作关联的交易会话 ID")
+
+
+class StrategyConfigUpdateResponse(BaseModel):
+    status: str = Field(description="策略配置更新结果")
+    count: int = Field(description="本次生效的策略配置数量")
+
+
 @dataclass
 class SelectionSnapshot:
     top_selections: List[str]
@@ -214,58 +297,72 @@ class SignalGatewayService:
         for trade in trades:
             self.persistence.persist_trade(trade)
 
+    def _serialize_result(self, result: Optional[TradingCycleResult]) -> Optional[TradingCycleResultResponse]:
+        if result is None:
+            return None
+        return TradingCycleResultResponse(**asdict(result))
+
+    def get_config_snapshot(self) -> Dict[str, Any]:
+        return ServiceConfigResponse(
+            session_id=self.config.session_id,
+            service=self.config.model_dump(),
+            selection_provider=self._normalize_jsonable(getattr(self.selection_provider, "config", {})),
+            strategies=list(self.strategy_specs),
+        ).model_dump()
+
     def get_status(self) -> Dict[str, Any]:
-        return {
-            "session_id": self.config.session_id,
-            "mode": self.config.mode,
-            "running": self._running,
-            "interval_seconds": self.config.interval_seconds,
-            "cron_expression": self.config.cron_expression,
-            "timezone": self.config.timezone,
-            "strategy_specs": [spec.model_dump() for spec in self.strategy_specs],
-            "last_error": self._last_error,
-            "last_result": asdict(self._last_result) if self._last_result else None,
-        }
+        return ServiceStatusResponse(
+            session_id=self.config.session_id,
+            mode=self.config.mode,
+            running=self._running,
+            scheduler=SchedulerStatus(
+                interval_seconds=self.config.interval_seconds,
+                cron_expression=self.config.cron_expression,
+                timezone=self.config.timezone,
+            ),
+            last_error=self._last_error,
+            last_result=self._serialize_result(self._last_result),
+        ).model_dump()
+
+    def get_runtime_state(self) -> Dict[str, Any]:
+        positions = self.gateway.oms.get_positions()
+        return RuntimeSnapshotResponse(
+            session_id=self.config.session_id,
+            generated_at=datetime.now().isoformat(),
+            positions=self._normalize_jsonable(positions.model_dump()),
+            oms_state=(
+                self._normalize_jsonable(self.gateway.oms.export_state())
+                if hasattr(self.gateway.oms, "export_state")
+                else None
+            ),
+        ).model_dump()
 
     def get_performance_snapshot(self) -> Dict[str, Any]:
         report = self.persistence.get_performance_report(self.config.session_id)
-        return {
-            "session_id": self.config.session_id,
-            "summary": report["summary"],
-            "holding_returns": self._records_from_frame(report["holding_returns"]),
-            "turnover": self._records_from_frame(report["turnover"]),
-            "equity_curve": self._records_from_frame(report["equity_curve"]),
-            "trade_activity": self._records_from_frame(report["trade_activity"]),
-            "position_exposure": self._normalize_jsonable(report["position_exposure"]),
-            "latest_portfolio": self._normalize_jsonable(report["latest_portfolio"]),
-        }
+        return PerformanceSnapshotResponse(
+            session_id=self.config.session_id,
+            generated_at=datetime.now().isoformat(),
+            summary=self._normalize_jsonable(report["summary"]),
+            holding_returns=self._records_from_frame(report["holding_returns"]),
+            turnover=self._records_from_frame(report["turnover"]),
+            equity_curve=self._records_from_frame(report["equity_curve"]),
+            trade_activity=self._records_from_frame(report["trade_activity"]),
+            position_exposure=self._normalize_jsonable(report["position_exposure"]),
+            latest_portfolio=self._normalize_jsonable(report["latest_portfolio"]),
+        ).model_dump()
 
     def get_analysis_snapshot(self) -> Dict[str, Any]:
-        positions = self.gateway.oms.get_positions()
-        snapshot = {
-            "session_id": self.config.session_id,
-            "generated_at": datetime.now().isoformat(),
-            "status": self.get_status(),
-            "positions": positions.model_dump(),
-            "performance": self.get_performance_snapshot(),
-            "selection_provider": self._normalize_jsonable(getattr(self.selection_provider, "config", {})),
-            "strategy_specs": [spec.model_dump() for spec in self.strategy_specs],
-        }
-        if hasattr(self.gateway.oms, "export_state"):
-            snapshot["oms_state"] = self._normalize_jsonable(self.gateway.oms.export_state())
-        return snapshot
+        return AnalyticsSnapshotResponse(
+            session_id=self.config.session_id,
+            generated_at=datetime.now().isoformat(),
+            status=ServiceStatusResponse.model_validate(self.get_status()),
+            runtime=RuntimeSnapshotResponse.model_validate(self.get_runtime_state()),
+            performance=PerformanceSnapshotResponse.model_validate(self.get_performance_snapshot()),
+            config=ServiceConfigResponse.model_validate(self.get_config_snapshot()),
+        ).model_dump()
 
     def get_runtime_snapshot(self) -> Dict[str, Any]:
-        positions = self.gateway.oms.get_positions()
-        runtime = {
-            "status": self.get_status(),
-            "positions": positions.model_dump(),
-            "performance": self.get_performance_snapshot(),
-        }
-
-        if hasattr(self.gateway.oms, "export_state"):
-            runtime["oms_state"] = self.gateway.oms.export_state()
-        return runtime
+        return self.get_runtime_state()
 
     def run_once(self, as_of_date: Optional[str] = None) -> TradingCycleResult:
         with self._lock:
