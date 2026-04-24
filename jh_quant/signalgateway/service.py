@@ -1,48 +1,40 @@
 from __future__ import annotations
+
 import traceback
 import uuid
-import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from threading import Event, Lock, Thread
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Protocol, runtime_checkable
+from zoneinfo import ZoneInfo
+
 import pandas as pd
 from pydantic import BaseModel, Field
-from typing import Protocol, runtime_checkable
 
-from .config import ServiceConfig, STRATEGY_REGISTRY
+from .config import STRATEGY_REGISTRY, ServiceConfig
 from .persistence_coordinator import PersistenceCoordinator
 from .signalgateway import SignalGateway
 
 
 class CronScheduler:
-    """
-    跨平台 cron 调度器，使用 croniter 实现。
-
-    支持标准 5 字段 cron 表达式，自动处理时区。
-    """
+    """Simple cron-based scheduler backed by croniter."""
 
     def __init__(self, cron_expression: str, timezone: str = "Asia/Shanghai"):
         from croniter import croniter
+
         self.cron_expr = cron_expression
         self.timezone = timezone
-        self._iter = croniter(cron_expression, time.time(), tz=timezone)
+        self._tzinfo = ZoneInfo(timezone)
+        self._iter = croniter(cron_expression, datetime.now(self._tzinfo))
 
     def get_next_timeout(self) -> float:
-        """返回距离下次执行的秒数（timeout）"""
-        next_tick = self._iter.get_next(time.time)
-        return max(0.0, next_tick - time.time())
+        next_tick = self._iter.get_next(datetime)
+        return max(0.0, (next_tick - datetime.now(self._tzinfo)).total_seconds())
 
     def wait(self, stop_event: Event) -> bool:
-        """
-        阻塞等待直到下次执行时间或 stop_event 被设置。
-
-        Returns:
-            True if next execution time was reached, False if stopped early.
-        """
+        """Return True when the next tick is reached, False if stopped early."""
         timeout = self.get_next_timeout()
         return not stop_event.wait(timeout=timeout)
-
 
 
 class StrategySpec(BaseModel):
@@ -50,7 +42,6 @@ class StrategySpec(BaseModel):
     weight: float = 1.0
     params: Dict[str, Any] = Field(default_factory=dict)
     alias: Optional[str] = None
-
 
 
 class LLMCommandRequest(BaseModel):
@@ -84,16 +75,13 @@ class TradingCycleResult:
 
 @runtime_checkable
 class SelectionProvider(Protocol):
-    """选股提供者协议，支持自定义 Selector 实现"""
-
     def select(self, as_of_date: str) -> SelectionSnapshot:
         raise NotImplementedError("SelectionProvider subclasses must implement the select method")
-    
+
     @property
-    def config(self) -> Dict[str, Any]: 
+    def config(self) -> Dict[str, Any]:
         return {}
 
-    
 
 class SignalGatewayService:
     def __init__(
@@ -110,10 +98,8 @@ class SignalGatewayService:
         self.selection_provider = selection_provider
         self.strategy_specs = strategy_specs
         self.llm_handler = llm_handler
-
         self.persistence = persistence or PersistenceCoordinator()
 
-        # Keep service session_id aligned with OMS when callers omit one side.
         oms_session_id = getattr(self.gateway.oms, "session_id", None)
         if self.config.session_id is None:
             self.config.session_id = oms_session_id or str(uuid.uuid4())
@@ -127,16 +113,13 @@ class SignalGatewayService:
         self._last_result: Optional[TradingCycleResult] = None
         self._last_error: Optional[str] = None
 
-        # Restore OMS state from persistence on startup
         self._restore_oms_state()
-
         self.configure_strategies(strategy_specs)
 
         if self.config.auto_start:
             self.start()
 
     def _restore_oms_state(self):
-        """从 recorder 恢复 OMS 状态（如果有）"""
         try:
             saved = self.persistence.load_latest_session_state(self.config.session_id)
             if saved:
@@ -172,11 +155,7 @@ class SignalGatewayService:
     def _latest_prices_from_price(self, price: pd.DataFrame) -> pd.Series:
         if price.empty:
             return pd.Series(dtype=float)
-        return (
-            price.sort_values(["symbol", "date"])
-            .groupby("symbol")["close"]
-            .last()
-        )
+        return price.sort_values(["symbol", "date"]).groupby("symbol")["close"].last()
 
     def _records_from_frame(self, frame: pd.DataFrame) -> List[Dict[str, Any]]:
         if frame is None or frame.empty:
@@ -207,13 +186,11 @@ class SignalGatewayService:
             self.gateway.oms.update_position_market_value(prices_dict)
 
     def _apply_slippage(self, price: float, trade_type: str) -> float:
-        """应用价格滑点"""
         if self.config.price_slippage <= 0:
             return price
         if trade_type == "BUY":
             return price * (1 + self.config.price_slippage)
-        else:
-            return price * (1 - self.config.price_slippage)
+        return price * (1 - self.config.price_slippage)
 
     def _persist_runtime_state(self, extra: Optional[Dict[str, Any]] = None):
         payload = {
@@ -302,27 +279,24 @@ class SignalGatewayService:
             else:
                 selection_meta = {"as_of_date": cycle_date}
                 known = {"top_selections", "bottom_selections", "metadata"}
-                for k in dir(selection):
-                    if not k.startswith("_") and k not in known:
-                        v = getattr(selection, k, None)
-                        if not callable(v):
-                            selection_meta[k] = v
+                for key in dir(selection):
+                    if not key.startswith("_") and key not in known:
+                        value = getattr(selection, key, None)
+                        if not callable(value):
+                            selection_meta[key] = value
 
-            executed_buys, executed_sells, long_candidates, short_candidates = (
-                self.gateway.execute_cycle(
-                    top_selections=top_selections,
-                    price_start=price_start,
-                    cycle_date=cycle_date,
-                    frequency=self.config.frequency,
-                    max_candidates=self.config.max_candidates,
-                    price_slippage=self.config.price_slippage,
-                )
+            executed_buys, executed_sells, long_candidates, short_candidates = self.gateway.execute_cycle(
+                top_selections=top_selections,
+                price_start=price_start,
+                cycle_date=cycle_date,
+                frequency=self.config.frequency,
+                max_candidates=self.config.max_candidates,
+                price_slippage=self.config.price_slippage,
             )
 
             self._persist_trades(executed_sells)
             self._persist_trades(executed_buys)
 
-            # Compute and persist daily metrics (service layer responsibility)
             if hasattr(self.gateway.oms, "compute_daily_metrics"):
                 cycle_dt = datetime.strptime(cycle_date, "%Y-%m-%d")
                 latest_prices = (
@@ -332,7 +306,8 @@ class SignalGatewayService:
                 )
                 close_prices = latest_prices.to_dict() if not latest_prices.empty else None
                 perf, snapshots = self.gateway.oms.compute_daily_metrics(
-                    trade_date=cycle_dt, close_prices=close_prices
+                    trade_date=cycle_dt,
+                    close_prices=close_prices,
                 )
                 self.persistence.persist_daily_metrics(perf, snapshots)
 
@@ -346,12 +321,8 @@ class SignalGatewayService:
                 executed_buy_count=len(executed_buys),
                 executed_sell_count=len(executed_sells),
                 selected_symbols=top_selections,
-                long_symbols=[]
-                if long_candidates.empty
-                else long_candidates["symbol"].tolist(),
-                short_symbols=[]
-                if short_candidates.empty
-                else short_candidates["symbol"].tolist(),
+                long_symbols=[] if long_candidates.empty else long_candidates["symbol"].tolist(),
+                short_symbols=[] if short_candidates.empty else short_candidates["symbol"].tolist(),
             )
             self._last_result = result
             self._last_error = None
@@ -359,9 +330,9 @@ class SignalGatewayService:
             return result
 
     def _run_scheduler(self):
-        """基于 cron 或 interval 的调度循环"""
         use_cron = bool(self.config.cron_expression)
         scheduler: Optional[CronScheduler] = None
+        first_iteration = True
         if use_cron:
             scheduler = CronScheduler(
                 self.config.cron_expression,
@@ -369,6 +340,16 @@ class SignalGatewayService:
             )
 
         while not self._stop_event.is_set():
+            if use_cron and scheduler is not None:
+                if not scheduler.wait(self._stop_event):
+                    break
+            elif not first_iteration:
+                try:
+                    if self._stop_event.wait(self.config.interval_seconds):
+                        break
+                except BaseException:
+                    break
+
             try:
                 self.run_once()
             except BaseException as exc:
@@ -389,21 +370,15 @@ class SignalGatewayService:
                     self._persist_runtime_state(extra={"event": "cycle_error"})
                 except Exception:
                     pass
-            if use_cron and scheduler is not None:
-                scheduler.wait(self._stop_event)
-            else:
-                try:
-                    self._stop_event.wait(self.config.interval_seconds)
-                except BaseException:
-                    break
+            first_iteration = False
 
     def start(self):
         if self._running:
             return
         self._stop_event.clear()
+        self._running = True
         self._thread = Thread(target=self._run_scheduler, daemon=False)
         self._thread.start()
-        self._running = True
         self._persist_runtime_state(extra={"event": "service_started"})
 
     def stop(self):

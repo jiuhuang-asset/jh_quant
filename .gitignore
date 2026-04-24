@@ -24,3 +24,5 @@ specs
 
 
 .env
+
+*.log
