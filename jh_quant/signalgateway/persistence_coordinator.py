@@ -135,5 +135,9 @@ class PersistenceCoordinator:
                 "summary": {},
                 "holding_returns": pd.DataFrame(),
                 "turnover": pd.DataFrame(),
+                "equity_curve": pd.DataFrame(),
+                "trade_activity": pd.DataFrame(),
+                "position_exposure": {},
+                "latest_portfolio": {},
             }
         return build_performance_report(self, session_id)

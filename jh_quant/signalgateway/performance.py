@@ -28,6 +28,28 @@ TURNOVER_COLUMNS = [
     "turnover_ratio",
 ]
 
+EQUITY_CURVE_COLUMNS = [
+    "trade_date",
+    "portfolio_value",
+    "cash_balance",
+    "position_value",
+    "daily_return",
+    "cumulative_return",
+    "daily_pnl",
+    "num_positions",
+    "drawdown",
+]
+
+TRADE_ACTIVITY_COLUMNS = [
+    "trade_date",
+    "trade_count",
+    "buy_count",
+    "sell_count",
+    "buy_amount",
+    "sell_amount",
+    "net_amount",
+]
+
 
 class PerformanceDataSource(Protocol):
     def query_trades(self, session_id: str) -> pd.DataFrame: ...
@@ -142,6 +164,151 @@ def calculate_turnover(
     denominator = result["portfolio_value"].where(result["portfolio_value"] > 0)
     result["turnover_ratio"] = (result["trade_amount"] / denominator).fillna(0.0)
     return result[TURNOVER_COLUMNS]
+
+
+def calculate_equity_curve(
+    source: PerformanceDataSource,
+    session_id: str,
+    daily_perf: Optional[pd.DataFrame] = None,
+    snaps: Optional[pd.DataFrame] = None,
+) -> pd.DataFrame:
+    daily_perf = source.query_daily_performance(session_id) if daily_perf is None else daily_perf
+    if not daily_perf.empty:
+        result = daily_perf.copy()
+        result["trade_date"] = pd.to_datetime(result["trade_date"], errors="coerce")
+        result = result.sort_values("trade_date")
+        peak = result["portfolio_value"].astype(float).cummax()
+        result["drawdown"] = (
+            (result["portfolio_value"].astype(float) - peak) / peak.replace(0, pd.NA)
+        ).fillna(0.0)
+        for column in EQUITY_CURVE_COLUMNS:
+            if column not in result.columns:
+                result[column] = 0.0 if column != "trade_date" else pd.NaT
+        return result[EQUITY_CURVE_COLUMNS]
+
+    daily_values = _load_daily_position_values(
+        source,
+        session_id,
+        daily_perf=daily_perf,
+        snaps=snaps,
+    )
+    if daily_values.empty:
+        return _empty_frame(EQUITY_CURVE_COLUMNS)
+
+    result = daily_values.copy().sort_values("trade_date")
+    result["cash_balance"] = 0.0
+    result["daily_return"] = 0.0
+    result["cumulative_return"] = 0.0
+    result["daily_pnl"] = 0.0
+    result["num_positions"] = 0
+    peak = result["portfolio_value"].astype(float).cummax()
+    result["drawdown"] = (
+        (result["portfolio_value"].astype(float) - peak) / peak.replace(0, pd.NA)
+    ).fillna(0.0)
+    return result[EQUITY_CURVE_COLUMNS]
+
+
+def calculate_trade_activity(
+    source: PerformanceDataSource,
+    session_id: str,
+    trades: Optional[pd.DataFrame] = None,
+) -> pd.DataFrame:
+    trades = source.query_trades(session_id) if trades is None else trades
+    if trades.empty:
+        return _empty_frame(TRADE_ACTIVITY_COLUMNS)
+
+    normalized = trades.copy()
+    normalized["trade_date"] = _normalize_trade_dates(normalized, "trade_date")
+    normalized["trade_day"] = normalized["trade_date"].dt.normalize()
+    normalized["buy_amount"] = normalized["amount"].where(
+        normalized["trade_type"] == "BUY",
+        0.0,
+    )
+    normalized["sell_amount"] = normalized["amount"].where(
+        normalized["trade_type"] == "SELL",
+        0.0,
+    )
+    grouped = (
+        normalized.groupby("trade_day", as_index=False)
+        .agg(
+            trade_count=("trade_id", "count"),
+            buy_count=("trade_type", lambda values: int((values == "BUY").sum())),
+            sell_count=("trade_type", lambda values: int((values == "SELL").sum())),
+            buy_amount=("buy_amount", "sum"),
+            sell_amount=("sell_amount", "sum"),
+        )
+        .rename(columns={"trade_day": "trade_date"})
+    )
+    grouped["net_amount"] = grouped["buy_amount"] - grouped["sell_amount"]
+    return grouped[TRADE_ACTIVITY_COLUMNS]
+
+
+def summarize_position_exposure(
+    holding_returns: pd.DataFrame,
+    equity_curve: Optional[pd.DataFrame] = None,
+) -> Dict[str, Any]:
+    if holding_returns.empty:
+        return {
+            "position_count": 0,
+            "gross_market_value": 0.0,
+            "cash_ratio": 1.0,
+            "invested_ratio": 0.0,
+            "max_position_weight": 0.0,
+            "top3_concentration": 0.0,
+            "top_positions": [],
+        }
+
+    latest = holding_returns.copy().sort_values("market_value", ascending=False)
+    gross_market_value = float(latest["market_value"].fillna(0.0).sum())
+    latest_portfolio_value = gross_market_value
+    latest_cash_balance = 0.0
+
+    if equity_curve is not None and not equity_curve.empty:
+        last_row = equity_curve.sort_values("trade_date").iloc[-1]
+        latest_portfolio_value = float(last_row.get("portfolio_value", gross_market_value) or 0.0)
+        latest_cash_balance = float(last_row.get("cash_balance", 0.0) or 0.0)
+
+    denominator = latest_portfolio_value if latest_portfolio_value > 0 else gross_market_value
+    weights = (
+        latest["market_value"].astype(float) / denominator
+        if denominator > 0
+        else pd.Series([0.0] * len(latest))
+    )
+    latest["weight"] = weights.fillna(0.0)
+
+    top_positions = latest.head(5)[
+        ["symbol", "market_value", "pnl", "pnl_pct", "weight"]
+    ].to_dict(orient="records")
+
+    invested_ratio = gross_market_value / latest_portfolio_value if latest_portfolio_value > 0 else 0.0
+    cash_ratio = latest_cash_balance / latest_portfolio_value if latest_portfolio_value > 0 else 1.0
+    return {
+        "position_count": int(len(latest)),
+        "gross_market_value": gross_market_value,
+        "cash_ratio": float(cash_ratio),
+        "invested_ratio": float(invested_ratio),
+        "max_position_weight": float(latest["weight"].max()) if not latest.empty else 0.0,
+        "top3_concentration": float(latest["weight"].head(3).sum()) if not latest.empty else 0.0,
+        "top_positions": top_positions,
+    }
+
+
+def summarize_latest_portfolio(equity_curve: pd.DataFrame) -> Dict[str, Any]:
+    if equity_curve.empty:
+        return {}
+
+    last_row = equity_curve.sort_values("trade_date").iloc[-1]
+    portfolio_value = float(last_row.get("portfolio_value", 0.0) or 0.0)
+    cash_balance = float(last_row.get("cash_balance", 0.0) or 0.0)
+    position_value = float(last_row.get("position_value", 0.0) or 0.0)
+    return {
+        "trade_date": last_row.get("trade_date"),
+        "portfolio_value": portfolio_value,
+        "cash_balance": cash_balance,
+        "position_value": position_value,
+        "cash_ratio": (cash_balance / portfolio_value) if portfolio_value > 0 else 1.0,
+        "invested_ratio": (position_value / portfolio_value) if portfolio_value > 0 else 0.0,
+    }
 
 
 def _realized_pnl_from_trades(trades: pd.DataFrame) -> list[float]:
@@ -263,6 +430,17 @@ def build_performance_report(
     daily_perf = source.query_daily_performance(session_id)
     snaps = source.query_position_snapshots(session_id)
     holding_returns = calculate_holding_returns(source, session_id, snaps=snaps)
+    equity_curve = calculate_equity_curve(
+        source,
+        session_id,
+        daily_perf=daily_perf,
+        snaps=snaps,
+    )
+    trade_activity = calculate_trade_activity(
+        source,
+        session_id,
+        trades=trades,
+    )
     turnover = calculate_turnover(
         source,
         session_id,
@@ -278,8 +456,17 @@ def build_performance_report(
         snaps=snaps,
         holding_returns=holding_returns,
     )
+    position_exposure = summarize_position_exposure(
+        holding_returns,
+        equity_curve=equity_curve,
+    )
+    latest_portfolio = summarize_latest_portfolio(equity_curve)
     return {
         "summary": summary,
         "holding_returns": holding_returns,
         "turnover": turnover,
+        "equity_curve": equity_curve,
+        "trade_activity": trade_activity,
+        "position_exposure": position_exposure,
+        "latest_portfolio": latest_portfolio,
     }

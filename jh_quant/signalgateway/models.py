@@ -173,8 +173,8 @@ class PositionSnapshot(PersistenceModel):
 if TORTOISE_ORM_AVAILABLE:
 
     class TradeRecord(TortoiseModel):
-        trade_id = fields.CharField(max_length=128, pk=True)
-        session_id = fields.CharField(max_length=128, index=True)
+        trade_id = fields.CharField(max_length=128, primary_key=True)
+        session_id = fields.CharField(max_length=128, db_index=True)
         trade_date = fields.DatetimeField()
         symbol = fields.CharField(max_length=32)
         trade_type = fields.CharField(max_length=16)
@@ -195,8 +195,8 @@ if TORTOISE_ORM_AVAILABLE:
 
 
     class DailyPerformanceRecord(TortoiseModel):
-        performance_id = fields.CharField(max_length=128, pk=True)
-        session_id = fields.CharField(max_length=128, index=True)
+        performance_id = fields.CharField(max_length=128, primary_key=True)
+        session_id = fields.CharField(max_length=128, db_index=True)
         trade_date = fields.DateField()
         portfolio_value = fields.FloatField()
         cash_balance = fields.FloatField()
@@ -215,8 +215,8 @@ if TORTOISE_ORM_AVAILABLE:
 
 
     class PositionSnapshotRecord(TortoiseModel):
-        snapshot_id = fields.CharField(max_length=128, pk=True)
-        session_id = fields.CharField(max_length=128, index=True)
+        snapshot_id = fields.CharField(max_length=128, primary_key=True)
+        session_id = fields.CharField(max_length=128, db_index=True)
         trade_date = fields.DatetimeField()
         symbol = fields.CharField(max_length=32)
         quantity = fields.IntField()
@@ -234,8 +234,8 @@ if TORTOISE_ORM_AVAILABLE:
 
 
     class SessionStateRecord(TortoiseModel):
-        id = fields.IntField(pk=True)
-        session_id = fields.CharField(max_length=128, index=True)
+        id = fields.IntField(primary_key=True)
+        session_id = fields.CharField(max_length=128, db_index=True)
         state_data = fields.JSONField()
         export_time = fields.DatetimeField()
         created_at = fields.DatetimeField(auto_now_add=True)
@@ -248,7 +248,7 @@ if TORTOISE_ORM_AVAILABLE:
 
 
     class ServiceStateRecord(TortoiseModel):
-        session_id = fields.CharField(max_length=128, pk=True)
+        session_id = fields.CharField(max_length=128, primary_key=True)
         state_data = fields.JSONField()
         export_time = fields.DatetimeField()
         created_at = fields.DatetimeField(auto_now_add=True)

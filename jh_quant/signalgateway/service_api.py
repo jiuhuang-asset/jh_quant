@@ -43,6 +43,10 @@ def create_service_app(service: SignalGatewayService):
     def service_performance():
         return service.get_performance_snapshot()
 
+    @app.get("/service/analytics")
+    def service_analytics():
+        return service.get_analysis_snapshot()
+
     @app.get("/service/config")
     def service_config():
         return {

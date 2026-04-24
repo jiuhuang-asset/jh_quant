@@ -127,10 +127,10 @@ class SignalGatewayService:
         self._last_result: Optional[TradingCycleResult] = None
         self._last_error: Optional[str] = None
 
-        self.configure_strategies(strategy_specs)
-
         # Restore OMS state from persistence on startup
         self._restore_oms_state()
+
+        self.configure_strategies(strategy_specs)
 
         if self.config.auto_start:
             self.start()
@@ -190,6 +190,17 @@ class SignalGatewayService:
                 )
         return normalized.to_dict(orient="records")
 
+    def _normalize_jsonable(self, value: Any) -> Any:
+        if isinstance(value, dict):
+            return {key: self._normalize_jsonable(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [self._normalize_jsonable(item) for item in value]
+        if isinstance(value, pd.Timestamp):
+            return value.isoformat()
+        if isinstance(value, datetime):
+            return value.isoformat()
+        return value
+
     def _update_hold_market_value(self, latest_prices: pd.Series):
         if hasattr(self.gateway.oms, "update_position_market_value"):
             prices_dict = latest_prices.to_dict()
@@ -219,6 +230,12 @@ class SignalGatewayService:
         if extra:
             payload["service"]["extra"] = extra
         self.persistence.save_service_state(payload)
+        if hasattr(self.gateway.oms, "export_state"):
+            self.persistence.save_session_state(self.gateway.oms.export_state())
+
+    def _persist_trades(self, trades: List[Any]) -> None:
+        for trade in trades:
+            self.persistence.persist_trade(trade)
 
     def get_status(self) -> Dict[str, Any]:
         return {
@@ -240,7 +257,26 @@ class SignalGatewayService:
             "summary": report["summary"],
             "holding_returns": self._records_from_frame(report["holding_returns"]),
             "turnover": self._records_from_frame(report["turnover"]),
+            "equity_curve": self._records_from_frame(report["equity_curve"]),
+            "trade_activity": self._records_from_frame(report["trade_activity"]),
+            "position_exposure": self._normalize_jsonable(report["position_exposure"]),
+            "latest_portfolio": self._normalize_jsonable(report["latest_portfolio"]),
         }
+
+    def get_analysis_snapshot(self) -> Dict[str, Any]:
+        positions = self.gateway.oms.get_positions()
+        snapshot = {
+            "session_id": self.config.session_id,
+            "generated_at": datetime.now().isoformat(),
+            "status": self.get_status(),
+            "positions": positions.model_dump(),
+            "performance": self.get_performance_snapshot(),
+            "selection_provider": self._normalize_jsonable(getattr(self.selection_provider, "config", {})),
+            "strategy_specs": [spec.model_dump() for spec in self.strategy_specs],
+        }
+        if hasattr(self.gateway.oms, "export_state"):
+            snapshot["oms_state"] = self._normalize_jsonable(self.gateway.oms.export_state())
+        return snapshot
 
     def get_runtime_snapshot(self) -> Dict[str, Any]:
         positions = self.gateway.oms.get_positions()
@@ -282,6 +318,9 @@ class SignalGatewayService:
                     price_slippage=self.config.price_slippage,
                 )
             )
+
+            self._persist_trades(executed_sells)
+            self._persist_trades(executed_buys)
 
             # Compute and persist daily metrics (service layer responsibility)
             if hasattr(self.gateway.oms, "compute_daily_metrics"):
