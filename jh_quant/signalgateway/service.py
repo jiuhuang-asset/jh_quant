@@ -5,18 +5,13 @@ import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from threading import Event, Lock, Thread
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 import pandas as pd
 from pydantic import BaseModel, Field
 from typing import Protocol, runtime_checkable
 
-from .config import Frequency, ServiceConfig, STRATEGY_REGISTRY
+from .config import ServiceConfig, STRATEGY_REGISTRY
 from .persistence_coordinator import PersistenceCoordinator
-from .performance import (
-    calculate_holding_returns,
-    calculate_turnover,
-    get_performance_summary,
-)
 from .signalgateway import SignalGateway
 
 
@@ -108,7 +103,6 @@ class SignalGatewayService:
         selection_provider: SelectionProvider,
         strategy_specs: List[StrategySpec],
         llm_handler: Optional[Callable[[str, Dict[str, Any]], Dict[str, Any]]] = None,
-        recorder: Optional[Any] = None,
         persistence: Optional[PersistenceCoordinator] = None,
     ):
         self.gateway = gateway
@@ -117,13 +111,7 @@ class SignalGatewayService:
         self.strategy_specs = strategy_specs
         self.llm_handler = llm_handler
 
-        # Persistence coordinator - accepts recorder directly or pre-built coordinator
-        if persistence is not None:
-            self.persistence = persistence
-        elif recorder is not None:
-            self.persistence = PersistenceCoordinator(recorder=recorder)
-        else:
-            self.persistence = PersistenceCoordinator(recorder=None)
+        self.persistence = persistence or PersistenceCoordinator()
 
         # Keep service session_id aligned with OMS when callers omit one side.
         oms_session_id = getattr(self.gateway.oms, "session_id", None)
@@ -149,8 +137,6 @@ class SignalGatewayService:
 
     def _restore_oms_state(self):
         """从 recorder 恢复 OMS 状态（如果有）"""
-        if self.persistence.recorder is None:
-            return
         try:
             saved = self.persistence.load_latest_session_state(self.config.session_id)
             if saved:
@@ -248,24 +234,12 @@ class SignalGatewayService:
         }
 
     def get_performance_snapshot(self) -> Dict[str, Any]:
-        if self.persistence.recorder is None:
-            return {
-                "session_id": self.config.session_id,
-                "summary": {},
-                "holding_returns": [],
-                "turnover": [],
-            }
-
-        recorder = self.persistence.recorder
+        report = self.persistence.get_performance_report(self.config.session_id)
         return {
             "session_id": self.config.session_id,
-            "summary": get_performance_summary(recorder, self.config.session_id),
-            "holding_returns": self._records_from_frame(
-                calculate_holding_returns(recorder, self.config.session_id)
-            ),
-            "turnover": self._records_from_frame(
-                calculate_turnover(recorder, self.config.session_id)
-            ),
+            "summary": report["summary"],
+            "holding_returns": self._records_from_frame(report["holding_returns"]),
+            "turnover": self._records_from_frame(report["turnover"]),
         }
 
     def get_runtime_snapshot(self) -> Dict[str, Any]:

@@ -6,7 +6,9 @@ delegating to an underlying OrderRecorder (or doing nothing if None).
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Any, List, Optional
+
+from .performance import build_performance_report
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -33,6 +35,9 @@ class PersistenceCoordinator:
 
     def __init__(self, recorder: Optional["OrderRecorder"] = None):
         self.recorder = recorder
+
+    def has_persistence(self) -> bool:
+        return self.recorder is not None
 
     # --- TradePersistence ---
 
@@ -121,3 +126,14 @@ class PersistenceCoordinator:
     def persist_trade(self, trade: "Trade") -> None:
         """Alias for save_trade for API clarity."""
         self.save_trade(trade)
+
+    def get_performance_report(self, session_id: str) -> dict[str, Any]:
+        import pandas as pd
+
+        if self.recorder is None:
+            return {
+                "summary": {},
+                "holding_returns": pd.DataFrame(),
+                "turnover": pd.DataFrame(),
+            }
+        return build_performance_report(self, session_id)

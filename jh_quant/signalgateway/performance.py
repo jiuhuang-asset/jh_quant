@@ -1,16 +1,40 @@
 """
-Performance analytics helpers for recorder-backed trading sessions.
+Performance analytics helpers for persistence-backed trading sessions.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import TYPE_CHECKING, Any, Dict
+from typing import Any, Dict, Optional, Protocol
 
 import pandas as pd
 
-if TYPE_CHECKING:
-    from .order_recorder import OrderRecorder
+HOLDING_RETURN_COLUMNS = [
+    "symbol",
+    "quantity",
+    "avg_cost",
+    "current_price",
+    "market_value",
+    "pnl",
+    "pnl_pct",
+    "latest_date",
+]
+
+TURNOVER_COLUMNS = [
+    "trade_date",
+    "position_value",
+    "portfolio_value",
+    "trade_amount",
+    "turnover_ratio",
+]
+
+
+class PerformanceDataSource(Protocol):
+    def query_trades(self, session_id: str) -> pd.DataFrame: ...
+
+    def query_daily_performance(self, session_id: str) -> pd.DataFrame: ...
+
+    def query_position_snapshots(self, session_id: str) -> pd.DataFrame: ...
 
 
 def _empty_frame(columns: list[str]) -> pd.DataFrame:
@@ -21,8 +45,13 @@ def _normalize_trade_dates(frame: pd.DataFrame, column: str) -> pd.Series:
     return pd.to_datetime(frame[column], errors="coerce")
 
 
-def _load_daily_position_values(recorder: "OrderRecorder", session_id: str) -> pd.DataFrame:
-    daily_perf = recorder.query_daily_performance(session_id)
+def _load_daily_position_values(
+    source: PerformanceDataSource,
+    session_id: str,
+    daily_perf: Optional[pd.DataFrame] = None,
+    snaps: Optional[pd.DataFrame] = None,
+) -> pd.DataFrame:
+    daily_perf = source.query_daily_performance(session_id) if daily_perf is None else daily_perf
     if not daily_perf.empty:
         daily_perf = daily_perf.copy()
         daily_perf["trade_date"] = pd.to_datetime(daily_perf["trade_date"], errors="coerce")
@@ -30,7 +59,7 @@ def _load_daily_position_values(recorder: "OrderRecorder", session_id: str) -> p
             subset=["trade_date"]
         )
 
-    snaps = recorder.query_position_snapshots(session_id)
+    snaps = source.query_position_snapshots(session_id) if snaps is None else snaps
     if snaps.empty:
         return _empty_frame(["trade_date", "position_value", "portfolio_value"])
 
@@ -49,21 +78,14 @@ def _load_daily_position_values(recorder: "OrderRecorder", session_id: str) -> p
     return daily_positions
 
 
-def calculate_holding_returns(recorder: "OrderRecorder", session_id: str) -> pd.DataFrame:
-    snaps = recorder.query_position_snapshots(session_id)
+def calculate_holding_returns(
+    source: PerformanceDataSource,
+    session_id: str,
+    snaps: Optional[pd.DataFrame] = None,
+) -> pd.DataFrame:
+    snaps = source.query_position_snapshots(session_id) if snaps is None else snaps
     if snaps.empty:
-        return _empty_frame(
-            [
-                "symbol",
-                "quantity",
-                "avg_cost",
-                "current_price",
-                "market_value",
-                "pnl",
-                "pnl_pct",
-                "latest_date",
-            ]
-        )
+        return _empty_frame(HOLDING_RETURN_COLUMNS)
 
     snaps = snaps.copy()
     snaps["trade_date"] = pd.to_datetime(snaps["trade_date"], errors="coerce")
@@ -83,21 +105,28 @@ def calculate_holding_returns(recorder: "OrderRecorder", session_id: str) -> pd.
     ]
 
 
-def calculate_turnover(recorder: "OrderRecorder", session_id: str) -> pd.DataFrame:
-    daily_values = _load_daily_position_values(recorder, session_id)
+def calculate_turnover(
+    source: PerformanceDataSource,
+    session_id: str,
+    trades: Optional[pd.DataFrame] = None,
+    daily_perf: Optional[pd.DataFrame] = None,
+    snaps: Optional[pd.DataFrame] = None,
+) -> pd.DataFrame:
+    daily_values = _load_daily_position_values(
+        source,
+        session_id,
+        daily_perf=daily_perf,
+        snaps=snaps,
+    )
     if daily_values.empty:
-        return _empty_frame(
-            ["trade_date", "position_value", "portfolio_value", "trade_amount", "turnover_ratio"]
-        )
+        return _empty_frame(TURNOVER_COLUMNS)
 
-    trades = recorder.query_trades(session_id)
+    trades = source.query_trades(session_id) if trades is None else trades
     if trades.empty:
         result = daily_values.copy()
         result["trade_amount"] = 0.0
         result["turnover_ratio"] = 0.0
-        return result[
-            ["trade_date", "position_value", "portfolio_value", "trade_amount", "turnover_ratio"]
-        ]
+        return result[TURNOVER_COLUMNS]
 
     trades = trades.copy()
     trades["trade_date"] = _normalize_trade_dates(trades, "trade_date")
@@ -112,9 +141,7 @@ def calculate_turnover(recorder: "OrderRecorder", session_id: str) -> pd.DataFra
     result["trade_amount"] = result["trade_amount"].fillna(0.0)
     denominator = result["portfolio_value"].where(result["portfolio_value"] > 0)
     result["turnover_ratio"] = (result["trade_amount"] / denominator).fillna(0.0)
-    return result[
-        ["trade_date", "position_value", "portfolio_value", "trade_amount", "turnover_ratio"]
-    ]
+    return result[TURNOVER_COLUMNS]
 
 
 def _realized_pnl_from_trades(trades: pd.DataFrame) -> list[float]:
@@ -154,10 +181,26 @@ def _realized_pnl_from_trades(trades: pd.DataFrame) -> list[float]:
     return realized
 
 
-def get_performance_summary(recorder: "OrderRecorder", session_id: str) -> Dict[str, Any]:
-    trades = recorder.query_trades(session_id)
-    daily_values = _load_daily_position_values(recorder, session_id)
-    holding_returns = calculate_holding_returns(recorder, session_id)
+def get_performance_summary(
+    source: PerformanceDataSource,
+    session_id: str,
+    trades: Optional[pd.DataFrame] = None,
+    daily_perf: Optional[pd.DataFrame] = None,
+    snaps: Optional[pd.DataFrame] = None,
+    holding_returns: Optional[pd.DataFrame] = None,
+) -> Dict[str, Any]:
+    trades = source.query_trades(session_id) if trades is None else trades
+    daily_values = _load_daily_position_values(
+        source,
+        session_id,
+        daily_perf=daily_perf,
+        snaps=snaps,
+    )
+    holding_returns = (
+        calculate_holding_returns(source, session_id, snaps=snaps)
+        if holding_returns is None
+        else holding_returns
+    )
 
     result: Dict[str, Any] = {
         "total_trades": 0,
@@ -210,3 +253,33 @@ def get_performance_summary(recorder: "OrderRecorder", session_id: str) -> Dict[
         result["max_drawdown"] = float(drawdown.min())
 
     return result
+
+
+def build_performance_report(
+    source: PerformanceDataSource,
+    session_id: str,
+) -> Dict[str, Any]:
+    trades = source.query_trades(session_id)
+    daily_perf = source.query_daily_performance(session_id)
+    snaps = source.query_position_snapshots(session_id)
+    holding_returns = calculate_holding_returns(source, session_id, snaps=snaps)
+    turnover = calculate_turnover(
+        source,
+        session_id,
+        trades=trades,
+        daily_perf=daily_perf,
+        snaps=snaps,
+    )
+    summary = get_performance_summary(
+        source,
+        session_id,
+        trades=trades,
+        daily_perf=daily_perf,
+        snaps=snaps,
+        holding_returns=holding_returns,
+    )
+    return {
+        "summary": summary,
+        "holding_returns": holding_returns,
+        "turnover": turnover,
+    }

@@ -210,6 +210,7 @@ if TORTOISE_ORM_AVAILABLE:
         class Meta:
             table = "daily_performances"
             ordering = ["trade_date"]
+            unique_together = (("session_id", "trade_date"),)
             indexes = [("session_id", "trade_date")]
 
 
