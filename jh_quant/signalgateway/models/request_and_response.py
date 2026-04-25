@@ -98,10 +98,23 @@ class StrategyConfigUpdateResponse(BaseModel):
 
 
 class SchedulerConfigUpdateRequest(BaseModel):
-    interval_seconds: Optional[int] = Field(default=None, ge=1)
-    cron_expression: Optional[str] = Field(default=None)
-    timezone: Optional[str] = Field(default=None)
-    auto_start: Optional[bool] = Field(default=None)
+    interval_seconds: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="固定轮询调度间隔，单位为秒。设置后可替代 cron_expression。",
+    )
+    cron_expression: Optional[str] = Field(
+        default=None,
+        description="Cron 调度表达式。设置后服务将按 cron 规则触发交易周期。",
+    )
+    timezone: Optional[str] = Field(
+        default=None,
+        description="调度器使用的时区，例如 Asia/Shanghai。",
+    )
+    auto_start: Optional[bool] = Field(
+        default=None,
+        description="服务初始化后是否自动启动调度器。",
+    )
 
 
 class SchedulerConfigUpdateResponse(BaseModel):
@@ -145,7 +158,10 @@ class TradingCycleResult:
 
 
 class CloseAllPositionsRequest(BaseModel):
-    slippage: float = Field(default=0.0, description="平仓滑点比例")
+    slippage: float = Field(
+        default=0.0,
+        description="批量平仓时使用的滑点比例，例如 0.001 表示 0.1%。",
+    )
 
 
 class CloseAllPositionsResponse(BaseModel):
@@ -156,8 +172,14 @@ class CloseAllPositionsResponse(BaseModel):
 
 class SingleSymbolTradeRequest(BaseModel):
     symbol: str = Field(description="股票代码")
-    target_qty: Optional[int] = Field(default=None, description="目标数量，不填则使用可用持仓或全部")
-    slippage: float = Field(default=0.0, description="交易滑点比例")
+    target_qty: Optional[int] = Field(
+        default=None,
+        description="目标交易数量；买入时表示计划买入股数，卖出时为空则按可卖持仓全部卖出。",
+    )
+    slippage: float = Field(
+        default=0.0,
+        description="单笔交易使用的滑点比例，例如 0.001 表示 0.1%。",
+    )
 
 
 class SingleSymbolTradeResponse(BaseModel):

@@ -18,6 +18,7 @@ dependencies = [
     "pywebview>=6.1",
     "pydantic>=2.13.3",
     "fastapi>=0.116.1",
+    "fastapi-mcp>=0.4.0",
     "uvicorn>=0.35.0",
     "psycopg[binary]>=3.2.9",
     "tortoise-orm>=0.25.1",

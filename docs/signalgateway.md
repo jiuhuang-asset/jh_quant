@@ -6,7 +6,7 @@
 - **订单管理**: OMS（Order Management System）模拟或实盘订单执行
 - **持久化**: 支持 SQLite 和 PostgreSQL 存储交易记录和持仓状态
 - **定时任务**: 支持 Cron 表达式调度，可定时执行交易循环
-- **FastAPI 接口**: 提供 HTTP API 用于服务控制
+- **FastAPI + MCP 接口**: 提供 HTTP API 用于服务控制，并可通过 MCP 对接 agent
 
 ## 安装
 
@@ -61,14 +61,15 @@ service = SignalGatewayService(
 service.start()
 ```
 
-### FastAPI 服务
+### FastAPI / MCP 服务
 
 ```python
 from jh_quant.signalgateway.service_api import run_service_app
 
-# 启动 FastAPI 服务
-app = run_service_app()
-# 访问 http://localhost:8000/docs 查看 API 文档
+# 启动服务
+run_service_app(service)
+# 访问 http://localhost:8000/docs 查看 HTTP API 文档
+# MCP endpoint 默认挂载在 http://localhost:8000/mcp
 ```
 
 ## 核心组件
