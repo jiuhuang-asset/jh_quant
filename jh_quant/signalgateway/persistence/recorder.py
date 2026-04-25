@@ -14,7 +14,7 @@ from typing import Any, Awaitable, Dict, Optional
 
 import pandas as pd
 
-from .models import (
+from ..models import (
     DailyPerformance,
     DailyPerformanceRecord,
     PositionSnapshot,
@@ -26,7 +26,7 @@ from .models import (
     normalize_jsonable_value,
     require_tortoise_orm,
 )
-from .persistence_protocols import (
+from .protocols import (
     PerformancePersistence,
     PositionPersistence,
     ServiceStatePersistence,

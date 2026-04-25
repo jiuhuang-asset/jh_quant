@@ -82,7 +82,7 @@ class FactorSelector(Selector):
 
     def select(
         self,
-        factor: FactorType,
+        factor: FactorType | str,
         start: str,
         end: str,
         top_n: int = 100,
@@ -104,7 +104,7 @@ class FactorSelector(Selector):
         不显著因子：使用 default_weight * avg(|mean_lambda|) * ratio 作为权重
 
         Args:
-            factor: 因子类型 (FactorType枚举)
+            factor: 因子类型 (FactorType枚举或字符串，如"ROE", "BM", " momentum")
             start: 股票数据开始日期，格式"2015-01-01"
             end: 股票数据结束日期，格式"2016-01-01"
             top_n: 选取评分最高的股票数量
@@ -119,6 +119,9 @@ class FactorSelector(Selector):
         Returns:
             FactorSelectionResult: 包含top_selections(List[str]), bottom_selections(List[str]), weights, fm_result
         """
+        # 兼容字符串和 FactorType
+        if isinstance(factor, str):
+            factor = FactorType(factor)
         factor_names = FACTOR_CONFIGS[factor]["factors"]
 
         # 获取对应的DataType
@@ -262,6 +265,3 @@ class FactorSelector(Selector):
             bottom_scores=bottom_stocks['score'].tolist(),
         )
 
-    def select_by_factor(self, **kwargs) -> FactorSelectionResult:
-        """select的别名，保持向后兼容"""
-        return self.select(**kwargs)

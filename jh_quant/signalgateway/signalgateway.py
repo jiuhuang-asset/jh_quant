@@ -19,10 +19,9 @@ from .market_data import Frequency, MarketDataProvider
 from .models import Order, Trade
 from .oms import OMS
 from .position_sizer import ATRPositionSizer, PositionSizer
-from .strategy import Strategy
 from .utils import rprint
 from .config import Frequency
-
+from jh_quant.backtest.strategy import Strategy
 
 class SignalGateway:
     """

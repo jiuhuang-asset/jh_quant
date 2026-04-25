@@ -8,14 +8,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, List, Optional
 
-from .performance import build_performance_report
+from ..performance import build_performance_report
 
 if TYPE_CHECKING:
     import pandas as pd
 
-    from .models import DailyPerformance, PositionSnapshot, Trade
-    from .order_recorder import OrderRecorder
-    from .persistence_protocols import (
+    from ..models import DailyPerformance, PositionSnapshot, Trade
+    from .recorder import OrderRecorder
+    from .protocols import (
         PerformancePersistence,
         PositionPersistence,
         ServiceStatePersistence,

@@ -19,22 +19,23 @@ except ImportError:  # pragma: no cover - optional dependency at runtime
 
 from dataclasses import asdict
 
-from .service import (
+from .config import StrategySpec, SelectionSpec
+from .models import (
     AnalyticsSnapshotResponse,
     HealthResponse,
-    LLMCommandRequest,
     PerformanceSnapshotResponse,
     RuntimeSnapshotResponse,
+    SchedulerConfigUpdateRequest,
+    SchedulerConfigUpdateResponse,
+    SelectionConfigUpdateResponse,
+    SelectionSpec,
     ServiceActionResponse,
     ServiceConfigResponse,
     ServiceStatusResponse,
-    SchedulerConfigUpdateRequest,
-    SchedulerConfigUpdateResponse,
-    SignalGatewayService,
     StrategyConfigUpdateResponse,
-    StrategySpec,
     TradingCycleResultResponse,
 )
+from .service import SignalGatewayService
 from .utils import print_service_startup_summary
 
 
@@ -95,6 +96,22 @@ def create_service_app(service: SignalGatewayService):
     def update_strategy_config(strategy_specs: List[StrategySpec]):
         service.configure_strategies(strategy_specs)
         return StrategyConfigUpdateResponse(status="updated", count=len(strategy_specs))
+
+    @app.post("/service/selection-config", response_model=SelectionConfigUpdateResponse)
+    def update_selection_config(selection_spec: SelectionSpec):
+        service.configure_selection(selection_spec)
+        return SelectionConfigUpdateResponse(
+            status="updated",
+            name=selection_spec.name,
+            alias=selection_spec.alias,
+        )
+
+    @app.get("/service/selection-config")
+    def get_selection_config():
+        """Get current selection provider configuration"""
+        return {
+            "selection_provider": getattr(service.selection_provider, "config", {}),
+        }
 
     @app.post("/service/scheduler-config", response_model=SchedulerConfigUpdateResponse)
     def update_scheduler_config(request: SchedulerConfigUpdateRequest):

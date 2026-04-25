@@ -1,5 +1,6 @@
-from typing import  Dict, Literal, Optional
-from pydantic import BaseModel, field_serializer, field_validator
+from enum import Enum
+from typing import Any, Dict, Literal, Optional, runtime_checkable, Protocol
+from pydantic import BaseModel, Field, field_serializer, field_validator
 from jh_quant.backtest.strategy import (
     Strategy,
     StrategyBollingerBands,
@@ -14,8 +15,10 @@ from jh_quant.backtest.strategy import (
     StrategyVolumeDivergence,
     StrategyVolumeTrend,
 )
+from jh_quant.backtest.selectors import FactorSelector,FactorType
+from jh_quant.data import JHData
+from .models import SelectionSnapshot
 
-from enum import Enum
 
 class Frequency(Enum):
     DAILY = "1d"
@@ -81,7 +84,7 @@ class ServiceConfig(BaseModel):
     
 
 
-STRATEGY_REGISTRY: Dict[str, type] = {
+STRATEGY_REGISTRY: Dict[str, Strategy] = {
     "turtle": StrategyTurtle,
     "moving_average_crossover": StrategyMovingAverageCrossover,
     "buy_and_hold": StrategyBuyAndHold,
@@ -94,7 +97,6 @@ STRATEGY_REGISTRY: Dict[str, type] = {
     "breakout": StrategyBreakout,
     "dual_thrust": StrategyDualThrust,
 }
-
 
 def register_strategy(name: str, strategy_cls: type) -> None:
     """注册自定义策略到全局注册表
@@ -116,3 +118,87 @@ def register_strategy(name: str, strategy_cls: type) -> None:
     if not issubclass(strategy_cls, Strategy):
         raise TypeError(f"{strategy_cls} must inherit from Strategy")
     STRATEGY_REGISTRY[name] = strategy_cls
+
+
+class StrategySpec(BaseModel):
+    name: str
+    weight: float = 1.0
+    params: Dict[str, Any] = Field(default_factory=dict)
+    alias: Optional[str] = None
+
+
+
+
+@runtime_checkable
+class SelectionProvider(Protocol):
+    def select(self, as_of_date: str) -> "SelectionSnapshot":
+        raise NotImplementedError("SelectionProvider subclasses must implement the select method")
+
+    @property
+    def config(self) -> Dict[str, Any]:
+        return {}
+
+
+class SelectionSpec(BaseModel):
+    """Specification for creating a SelectionProvider instance."""
+    name: str
+    params: Dict[str, Any] = Field(default_factory=dict)
+    alias: Optional[str] = None
+
+
+from dataclasses import dataclass
+
+@dataclass
+class FactorSelectionConfig:
+    factor: str
+    start: str
+    top_n: int = 100
+    bottom_n: int = 100
+    factor_alpha: float = 0.10
+    default_weight: float = 0.1
+    period: str = "M"
+    insignificant_weight_ratio: float = 0.5
+    missing_data_threshold: float = 0.10
+    test_window: int = 36
+    verbose: bool = True
+
+
+class FactorSelectionProviderAdptor(SelectionProvider):
+    def __init__(self, jh_data: JHData, config: FactorSelectionConfig):
+        self.factor_selector = FactorSelector(jh_data=jh_data)
+        self.config = config
+
+    def select(self, as_of_date: str) -> "SelectionSnapshot":
+        return self.factor_selector.select(
+            **self.config,
+            end=as_of_date,
+        )
+
+    @property
+    def config(self) -> Dict[str, Any]:
+        return self.config
+
+
+
+SELECTION_PROVIDER_REGISTRY: Dict[str, type] = {
+     "factor_selector": FactorSelectionProviderAdptor,
+}
+
+
+def register_selection_provider(name: str, provider_cls: type) -> None:
+    """注册自定义 SelectionProvider 到全局注册表
+
+    用户实现的 SelectionProvider 子类可通过此函数注册，
+    注册后可在 SelectionSpec 中通过 name 引用。
+    """
+    if not issubclass(provider_cls, SelectionProvider):
+        raise TypeError(f"{provider_cls} must inherit from SelectionProvider")
+    SELECTION_PROVIDER_REGISTRY[name] = provider_cls
+
+
+def create_selection_provider(spec: SelectionSpec, **init_kwargs) -> SelectionProvider:
+    """根据 SelectionSpec 创建 SelectionProvider 实例"""
+    if spec.name not in SELECTION_PROVIDER_REGISTRY:
+        raise ValueError(f"Unsupported selection provider name: {spec.name}")
+    provider_cls = SELECTION_PROVIDER_REGISTRY[spec.name]
+    return provider_cls(**spec.params, **init_kwargs)
