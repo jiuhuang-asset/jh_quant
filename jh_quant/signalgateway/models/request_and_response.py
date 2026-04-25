@@ -142,3 +142,28 @@ class TradingCycleResult:
 
     def serialize(self) -> TradingCycleResultResponse:
         return TradingCycleResultResponse(**asdict(self))
+
+
+class CloseAllPositionsRequest(BaseModel):
+    slippage: float = Field(default=0.0, description="平仓滑点比例")
+
+
+class CloseAllPositionsResponse(BaseModel):
+    status: str = Field(description="操作结果")
+    closed_count: int = Field(description="平仓持仓数量")
+    executed_trades: List[Dict[str, Any]] = Field(default_factory=list, description="执行的交易列表")
+
+
+class SingleSymbolTradeRequest(BaseModel):
+    symbol: str = Field(description="股票代码")
+    target_qty: Optional[int] = Field(default=None, description="目标数量，不填则使用可用持仓或全部")
+    slippage: float = Field(default=0.0, description="交易滑点比例")
+
+
+class SingleSymbolTradeResponse(BaseModel):
+    status: str = Field(description="操作结果")
+    action: str = Field(description="操作类型: signal_buy 或 signal_sell")
+    symbol: str = Field(description="股票代码")
+    executed: bool = Field(description="是否成功执行")
+    trade: Optional[Dict[str, Any]] = Field(default=None, description="交易详情")
+    message: str = Field(description="结果描述")

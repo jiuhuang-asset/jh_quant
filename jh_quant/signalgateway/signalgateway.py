@@ -520,6 +520,41 @@ class SignalGateway:
         rprint(label="Info:", content=f"成功执行 {len(executed_trades)} 个卖出订单")
         return executed_trades
 
+    def close_all_positions(
+        self,
+        slippage: float = 0.0,
+    ) -> List[Trade]:
+        """
+        清空所有可执行持仓
+
+        Args:
+            slippage: 滑点比例
+
+        Returns:
+            执行的交易列表
+        """
+        if not self.oms.executable_holds:
+            rprint(label="Info:", content="没有可执行持仓")
+            return []
+
+        holdings = self.oms.executable_holds
+        close_orders = pd.DataFrame([
+            {"symbol": h.symbol, "target_qty": h.volume}
+            for h in holdings
+        ])
+
+        rprint(
+            label="Info:",
+            content=f"正在清空 {len(holdings)} 个持仓",
+        )
+
+        executed_trades = self.execute_short(close_orders, slippage)
+        rprint(
+            label="Info:",
+            content=f"已清空 {len(executed_trades)} 个持仓",
+        )
+        return executed_trades
+
     def execute_cycle(
         self,
         top_selections: List[str],

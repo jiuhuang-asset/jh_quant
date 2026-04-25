@@ -34,6 +34,10 @@ from .models import (
     ServiceStatusResponse,
     StrategyConfigUpdateResponse,
     TradingCycleResultResponse,
+    CloseAllPositionsRequest,
+    CloseAllPositionsResponse,
+    SingleSymbolTradeRequest,
+    SingleSymbolTradeResponse,
 )
 from .service import SignalGatewayService
 from .utils import print_service_startup_summary
@@ -120,6 +124,26 @@ def create_service_app(service: SignalGatewayService):
             cron_expression=request.cron_expression,
             timezone=request.timezone,
             auto_start=request.auto_start,
+        )
+
+    @app.post("/service/close-all-positions", response_model=CloseAllPositionsResponse)
+    def close_all_positions(request: CloseAllPositionsRequest):
+        return service.close_all_positions(slippage=request.slippage)
+
+    @app.post("/service/signal-buy", response_model=SingleSymbolTradeResponse)
+    def signal_buy_symbol(request: SingleSymbolTradeRequest):
+        return service.signal_buy_symbol(
+            symbol=request.symbol,
+            target_qty=request.target_qty,
+            slippage=request.slippage,
+        )
+
+    @app.post("/service/signal-sell", response_model=SingleSymbolTradeResponse)
+    def signal_sell_symbol(request: SingleSymbolTradeRequest):
+        return service.signal_sell_symbol(
+            symbol=request.symbol,
+            target_qty=request.target_qty,
+            slippage=request.slippage,
         )
 
 

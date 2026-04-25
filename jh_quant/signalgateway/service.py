@@ -22,6 +22,7 @@ from .config import (
 from .models import (
     AnalyticsSnapshotResponse,
     HealthResponse,
+    Order,
     PerformanceSnapshotResponse,
     RuntimeSnapshotResponse,
     SchedulerConfigUpdateRequest,
@@ -34,6 +35,8 @@ from .models import (
     StrategyConfigUpdateResponse,
     TradingCycleResult,
     TradingCycleResultResponse,
+    CloseAllPositionsResponse,
+    SingleSymbolTradeResponse,
 )
 from .models.db import (
     TORTOISE_ORM_AVAILABLE,
@@ -547,5 +550,180 @@ class SignalGatewayService:
             self._thread.join(timeout=5)
         self._running = False
         self._persist_runtime_state(extra={"event": "service_stopped"})
+
+    def close_all_positions(self, slippage: float = 0.0) -> CloseAllPositionsResponse:
+        """
+        清空所有可执行持仓
+
+        Args:
+            slippage: 滑点比例
+
+        Returns:
+            CloseAllPositionsResponse
+        """
+        with self._lock:
+            holdings = self.gateway.oms.executable_holds
+            if not holdings:
+                return CloseAllPositionsResponse(
+                    status="no_holdings",
+                    closed_count=0,
+                    executed_trades=[],
+                )
+
+            trades = self.gateway.close_all_positions(slippage=slippage)
+            self._persist_trades(trades)
+
+            return CloseAllPositionsResponse(
+                status="success",
+                closed_count=len(trades),
+                executed_trades=[asdict(t) for t in trades],
+            )
+
+    def signal_buy_symbol(
+        self,
+        symbol: str,
+        target_qty: Optional[int] = None,
+        slippage: float = 0.0,
+    ) -> SingleSymbolTradeResponse:
+        """
+        对指定股票执行买入信号
+
+        Args:
+            symbol: 股票代码
+            target_qty: 目标数量，默认使用头寸计算器计算
+            slippage: 滑点比例
+
+        Returns:
+            SingleSymbolTradeResponse
+        """
+        with self._lock:
+            latest_prices = self.gateway.get_latest_prices([symbol])
+            if latest_prices.empty or symbol not in latest_prices.index:
+                return SingleSymbolTradeResponse(
+                    status="error",
+                    action="signal_buy",
+                    symbol=symbol,
+                    executed=False,
+                    message=f"无法获取 {symbol} 的最新价格",
+                )
+
+            price = latest_prices[symbol]
+            exec_price = self._apply_slippage(price, "BUY") if slippage > 0 else price
+
+            if target_qty is None:
+                positions = self.gateway.oms.get_positions()
+                available_balance = positions.available_balance
+                if available_balance <= 0:
+                    return SingleSymbolTradeResponse(
+                        status="error",
+                        action="signal_buy",
+                        symbol=symbol,
+                        executed=False,
+                        message=f"可用资金不足: {available_balance}",
+                    )
+                target_qty = int(available_balance // exec_price)
+                if target_qty <= 0:
+                    return SingleSymbolTradeResponse(
+                        status="error",
+                        action="signal_buy",
+                        symbol=symbol,
+                        executed=False,
+                        message=f"可用资金不足以买入至少1股 (价格: {exec_price})",
+                    )
+
+            try:
+                order = Order(symbol=symbol, price=exec_price, volume=target_qty)
+                trade = self.gateway.oms.signal_buy(order)
+                self._persist_trades([trade])
+
+                return SingleSymbolTradeResponse(
+                    status="success",
+                    action="signal_buy",
+                    symbol=symbol,
+                    executed=True,
+                    trade=asdict(trade),
+                    message=f"买入 {symbol} {target_qty} 股 @ {exec_price:.2f}",
+                )
+            except Exception as e:
+                return SingleSymbolTradeResponse(
+                    status="error",
+                    action="signal_buy",
+                    symbol=symbol,
+                    executed=False,
+                    message=f"买入失败: {e}",
+                )
+
+    def signal_sell_symbol(
+        self,
+        symbol: str,
+        target_qty: Optional[int] = None,
+        slippage: float = 0.0,
+    ) -> SingleSymbolTradeResponse:
+        """
+        对指定股票执行卖出信号
+
+        Args:
+            symbol: 股票代码
+            target_qty: 目标数量，不填则卖出全部持仓
+            slippage: 滑点比例
+
+        Returns:
+            SingleSymbolTradeResponse
+        """
+        with self._lock:
+            positions = self.gateway.oms.get_positions()
+            holdings_map = {h.symbol: h for h in positions.holds}
+
+            if symbol not in holdings_map:
+                return SingleSymbolTradeResponse(
+                    status="error",
+                    action="signal_sell",
+                    symbol=symbol,
+                    executed=False,
+                    message=f"没有 {symbol} 的持仓",
+                )
+
+            holding = holdings_map[symbol]
+            latest_prices = self.gateway.get_latest_prices([symbol])
+            if latest_prices.empty or symbol not in latest_prices.index:
+                return SingleSymbolTradeResponse(
+                    status="error",
+                    action="signal_sell",
+                    symbol=symbol,
+                    executed=False,
+                    message=f"无法获取 {symbol} 的最新价格",
+                )
+
+            price = latest_prices[symbol]
+            exec_price = self._apply_slippage(price, "SELL") if slippage > 0 else price
+
+            sell_qty = target_qty if target_qty else holding.volume
+            if sell_qty > holding.volume:
+                sell_qty = holding.volume
+
+            try:
+                order = Order(symbol=symbol, price=exec_price, volume=sell_qty)
+                trade = self.gateway.oms.signal_sell(order)
+                self._persist_trades([trade])
+
+                pnl = (exec_price - holding.avg_cost) * sell_qty
+                pnl_pct = (pnl / (holding.avg_cost * sell_qty) * 100) if holding.avg_cost > 0 else 0
+
+                return SingleSymbolTradeResponse(
+                    status="success",
+                    action="signal_sell",
+                    symbol=symbol,
+                    executed=True,
+                    trade=asdict(trade),
+                    message=f"卖出 {symbol} {sell_qty} 股 @ {exec_price:.2f}, PnL: {pnl:.2f} ({pnl_pct:.2f}%)",
+                )
+            except Exception as e:
+                return SingleSymbolTradeResponse(
+                    status="error",
+                    action="signal_sell",
+                    symbol=symbol,
+                    executed=False,
+                    message=f"卖出失败: {e}",
+                )
 
 
