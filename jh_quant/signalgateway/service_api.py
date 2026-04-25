@@ -8,6 +8,11 @@ except ImportError:  # pragma: no cover - optional dependency at runtime
     FastAPI = None
 
 try:
+    from fastapi.middleware.cors import CORSMiddleware
+except ImportError:  # pragma: no cover - optional dependency at runtime
+    CORSMiddleware = None
+
+try:
     import uvicorn
 except ImportError:  # pragma: no cover - optional dependency at runtime
     uvicorn = None
@@ -23,6 +28,8 @@ from .service import (
     ServiceActionResponse,
     ServiceConfigResponse,
     ServiceStatusResponse,
+    SchedulerConfigUpdateRequest,
+    SchedulerConfigUpdateResponse,
     SignalGatewayService,
     StrategyConfigUpdateResponse,
     StrategySpec,
@@ -36,6 +43,14 @@ def create_service_app(service: SignalGatewayService):
         raise ImportError("fastapi is required to create the service API")
 
     app = FastAPI(title="jh-quant SignalGateway Service")
+    if CORSMiddleware is not None:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
 
     @app.get("/health", response_model=HealthResponse)
     def health():
@@ -81,11 +96,15 @@ def create_service_app(service: SignalGatewayService):
         service.configure_strategies(strategy_specs)
         return StrategyConfigUpdateResponse(status="updated", count=len(strategy_specs))
 
-    @app.post("/service/llm/command")
-    def llm_command(request: LLMCommandRequest):
-        return service.handle_llm_command(request.command, request.context)
+    @app.post("/service/scheduler-config", response_model=SchedulerConfigUpdateResponse)
+    def update_scheduler_config(request: SchedulerConfigUpdateRequest):
+        return service.update_scheduler_config(
+            interval_seconds=request.interval_seconds,
+            cron_expression=request.cron_expression,
+            timezone=request.timezone,
+            auto_start=request.auto_start,
+        )
 
-    return app
 
 
 def run_service_app(

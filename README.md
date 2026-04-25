@@ -40,11 +40,6 @@ stock_price = jh.get_data(
 更多功能请查看各自模块文档或者访问逛网。
 
 
-## 捐助
-开发不易，欢迎打赏。
-![支付宝二维码](./assets/zhifubao.jpg)
-
-
 ## License
 This project is licensed under the BSD 3-Clause License - see the [LICENSE](LICENSE) file for details.
 

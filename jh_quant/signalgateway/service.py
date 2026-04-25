@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import traceback
 import uuid
@@ -31,6 +31,18 @@ class CronScheduler:
         next_tick = self._iter.get_next(datetime)
         return max(0.0, (next_tick - datetime.now(self._tzinfo)).total_seconds())
 
+    def peek_next_tick(self) -> datetime:
+        from croniter import croniter
+
+        preview_iter = croniter(self.cron_expr, datetime.now(self._tzinfo))
+        return preview_iter.get_next(datetime)
+
+    def peek_next_ticks(self, count: int = 3) -> List[datetime]:
+        from croniter import croniter
+
+        preview_iter = croniter(self.cron_expr, datetime.now(self._tzinfo))
+        return [preview_iter.get_next(datetime) for _ in range(max(0, count))]
+
     def wait(self, stop_event: Event) -> bool:
         """Return True when the next tick is reached, False if stopped early."""
         timeout = self.get_next_timeout()
@@ -57,80 +69,96 @@ class SchedulerStatus(BaseModel):
     interval_seconds: int = Field(description="轮询调度间隔，单位为秒")
     cron_expression: Optional[str] = Field(default=None, description="Cron 调度表达式，为空表示使用固定间隔调度")
     timezone: str = Field(description="调度器使用的时区")
-
+    schedule_type: str = Field(default="interval", description="当前调度模式")
+    next_run_at: Optional[str] = Field(default=None, description="下一次预计触发时间")
+    next_run_in_seconds: Optional[float] = Field(default=None, description="距离下一次触发的秒数")
+    next_runs: List[str] = Field(default_factory=list, description="未来几次预计触发时间")
 
 class TradingCycleResultResponse(BaseModel):
-    session_id: str = Field(description="当前交易会话 ID")
-    mode: str = Field(description="服务运行模式，例如 paper 或 live")
-    cycle_time: str = Field(description="本次交易周期执行完成时间")
-    selection_count: int = Field(description="本次选股结果中的证券数量")
-    long_candidate_count: int = Field(description="本次识别出的做多候选数量")
-    short_candidate_count: int = Field(description="本次识别出的做空或卖出候选数量")
-    executed_buy_count: int = Field(description="本次实际执行的买单数量")
-    executed_sell_count: int = Field(description="本次实际执行的卖单数量")
-    selected_symbols: List[str] = Field(default_factory=list, description="本次选中的证券代码列表")
-    long_symbols: List[str] = Field(default_factory=list, description="本次做多候选证券代码列表")
-    short_symbols: List[str] = Field(default_factory=list, description="本次做空或卖出候选证券代码列表")
-    status: str = Field(default="success", description="本次交易周期执行状态，如 success 或 error")
-    error: Optional[str] = Field(default=None, description="执行失败时的错误信息或堆栈摘要")
+    session_id: str = Field(description="Current service session ID")
+    mode: str = Field(description="Service running mode, such as paper or live")
+    cycle_time: str = Field(description="Completed time for the latest trading cycle")
+    selection_count: int = Field(description="Number of selected securities in the latest cycle")
+    long_candidate_count: int = Field(description="Number of long candidates identified in the latest cycle")
+    short_candidate_count: int = Field(description="Number of short or sell candidates identified in the latest cycle")
+    executed_buy_count: int = Field(description="Number of buy orders executed in the latest cycle")
+    executed_sell_count: int = Field(description="Number of sell orders executed in the latest cycle")
+    selected_symbols: List[str] = Field(default_factory=list, description="Selected symbols in the latest cycle")
+    long_symbols: List[str] = Field(default_factory=list, description="Long candidate symbols in the latest cycle")
+    short_symbols: List[str] = Field(default_factory=list, description="Short candidate symbols in the latest cycle")
+    status: str = Field(default="success", description="Execution status for the latest trading cycle")
+    error: Optional[str] = Field(default=None, description="Error text when the latest trading cycle fails")
 
 
 class ServiceStatusResponse(BaseModel):
-    session_id: str = Field(description="当前服务对应的交易会话 ID")
-    mode: str = Field(description="服务运行模式，例如 paper 或 live")
-    running: bool = Field(description="调度器当前是否处于运行状态")
-    scheduler: SchedulerStatus = Field(description="调度配置与调度状态摘要")
-    last_error: Optional[str] = Field(default=None, description="最近一次运行错误信息，没有错误时为空")
+    session_id: str = Field(description="Current service session ID")
+    mode: str = Field(description="Service running mode")
+    running: bool = Field(description="Whether the scheduler is currently running")
+    scheduler: SchedulerStatus = Field(description="Scheduler configuration and status summary")
+    last_error: Optional[str] = Field(default=None, description="Most recent runtime error")
     last_result: Optional[TradingCycleResultResponse] = Field(
         default=None,
-        description="最近一次交易周期执行结果，没有执行记录时为空",
+        description="Most recent trading cycle result",
     )
 
 
 class RuntimeSnapshotResponse(BaseModel):
-    session_id: str = Field(description="当前运行态所属的交易会话 ID")
-    generated_at: str = Field(description="运行态快照生成时间")
-    positions: Dict[str, Any] = Field(description="当前持仓与挂单等运行态头寸信息")
-    oms_state: Optional[Dict[str, Any]] = Field(default=None, description="OMS 导出的完整内部状态快照")
+    session_id: str = Field(description="Session ID for the runtime snapshot")
+    generated_at: str = Field(description="Snapshot generation time")
+    positions: Dict[str, Any] = Field(description="Current positions and runtime state")
+    oms_state: Optional[Dict[str, Any]] = Field(default=None, description="Full OMS exported state")
 
 
 class PerformanceSnapshotResponse(BaseModel):
-    session_id: str = Field(description="当前绩效快照所属的交易会话 ID")
-    generated_at: str = Field(description="绩效快照生成时间")
-    summary: Dict[str, Any] = Field(description="绩效汇总指标，如收益、回撤、胜率等")
-    holding_returns: List[Dict[str, Any]] = Field(default_factory=list, description="最新持仓收益明细列表")
-    turnover: List[Dict[str, Any]] = Field(default_factory=list, description="按日统计的换手率与成交金额明细")
-    equity_curve: List[Dict[str, Any]] = Field(default_factory=list, description="按日统计的权益曲线明细")
-    trade_activity: List[Dict[str, Any]] = Field(default_factory=list, description="按日统计的交易活跃度明细")
-    position_exposure: Dict[str, Any] = Field(default_factory=dict, description="仓位暴露与集中度分析结果")
-    latest_portfolio: Dict[str, Any] = Field(default_factory=dict, description="组合最新资产快照")
+    session_id: str = Field(description="Session ID for the performance snapshot")
+    generated_at: str = Field(description="Snapshot generation time")
+    summary: Dict[str, Any] = Field(description="Summary performance metrics")
+    holding_returns: List[Dict[str, Any]] = Field(default_factory=list, description="Latest holding return rows")
+    turnover: List[Dict[str, Any]] = Field(default_factory=list, description="Turnover rows grouped by trade date")
+    equity_curve: List[Dict[str, Any]] = Field(default_factory=list, description="Equity curve rows grouped by trade date")
+    trade_activity: List[Dict[str, Any]] = Field(default_factory=list, description="Trade activity rows grouped by trade date")
+    position_exposure: Dict[str, Any] = Field(default_factory=dict, description="Position exposure analysis")
+    latest_portfolio: Dict[str, Any] = Field(default_factory=dict, description="Latest portfolio snapshot")
 
 
 class ServiceConfigResponse(BaseModel):
-    session_id: str = Field(description="当前配置所属的交易会话 ID")
-    service: Dict[str, Any] = Field(description="服务级配置，如模式、调度、频率、候选数等")
-    selection_provider: Dict[str, Any] = Field(default_factory=dict, description="选股器或信号提供器配置")
-    strategies: List[StrategySpec] = Field(default_factory=list, description="当前启用的策略配置列表")
+    session_id: str = Field(description="Session ID for the service configuration snapshot")
+    service: Dict[str, Any] = Field(description="Service-level configuration")
+    selection_provider: Dict[str, Any] = Field(default_factory=dict, description="Selection provider configuration")
+    strategies: List[StrategySpec] = Field(default_factory=list, description="Configured strategies")
 
 
 class AnalyticsSnapshotResponse(BaseModel):
-    session_id: str = Field(description="当前分析快照所属的交易会话 ID")
-    generated_at: str = Field(description="分析快照生成时间")
-    status: ServiceStatusResponse = Field(description="服务状态摘要")
-    runtime: RuntimeSnapshotResponse = Field(description="运行态快照")
-    performance: PerformanceSnapshotResponse = Field(description="绩效分析快照")
-    config: ServiceConfigResponse = Field(description="服务与策略配置快照")
+    session_id: str = Field(description="Session ID for the analytics snapshot")
+    generated_at: str = Field(description="Snapshot generation time")
+    status: ServiceStatusResponse = Field(description="Service status snapshot")
+    runtime: RuntimeSnapshotResponse = Field(description="Runtime snapshot")
+    performance: PerformanceSnapshotResponse = Field(description="Performance snapshot")
+    config: ServiceConfigResponse = Field(description="Config snapshot")
 
 
 class ServiceActionResponse(BaseModel):
-    status: str = Field(description="服务动作执行结果，例如 started 或 stopped")
-    session_id: Optional[str] = Field(default=None, description="服务动作关联的交易会话 ID")
+    status: str = Field(description="Result of the service action")
+    session_id: Optional[str] = Field(default=None, description="Related session ID for the service action")
 
 
 class StrategyConfigUpdateResponse(BaseModel):
-    status: str = Field(description="策略配置更新结果")
-    count: int = Field(description="本次生效的策略配置数量")
+    status: str = Field(description="Strategy configuration update result")
+    count: int = Field(description="Number of strategy configs applied")
 
+
+class SchedulerConfigUpdateRequest(BaseModel):
+    interval_seconds: Optional[int] = Field(default=None, ge=1)
+    cron_expression: Optional[str] = Field(default=None)
+    timezone: Optional[str] = Field(default=None)
+    auto_start: Optional[bool] = Field(default=None)
+
+
+class SchedulerConfigUpdateResponse(BaseModel):
+    status: str = Field(description="Scheduler configuration update result")
+    running: bool = Field(description="Whether the scheduler is running after the update")
+    scheduler: SchedulerStatus = Field(description="Updated scheduler configuration")
+    auto_start: bool = Field(description="Updated auto-start configuration")
 
 @dataclass
 class SelectionSnapshot:
@@ -228,6 +256,125 @@ class SignalGatewayService:
             self.strategy_specs = strategy_specs
             self._persist_runtime_state(extra={"event": "strategy_config_updated"})
 
+    def _validate_scheduler_inputs(
+        self,
+        *,
+        interval_seconds: Optional[int] = None,
+        cron_expression: Optional[str] = None,
+        timezone: Optional[str] = None,
+    ) -> None:
+        if interval_seconds is not None and interval_seconds <= 0:
+            raise ValueError("interval_seconds must be a positive integer")
+
+        if timezone is not None:
+            ZoneInfo(timezone)
+
+        if cron_expression:
+            from croniter import croniter
+
+            tzinfo = ZoneInfo(timezone or self.config.timezone)
+            croniter(cron_expression, datetime.now(tzinfo))
+
+    def _build_scheduler_status(self) -> SchedulerStatus:
+        schedule_type = "cron" if self.config.cron_expression else "interval"
+        next_run_at: Optional[str] = None
+        next_run_in_seconds: Optional[float] = None
+        next_runs: List[str] = []
+
+        if self.config.cron_expression:
+            try:
+                scheduler = CronScheduler(
+                    cron_expression=self.config.cron_expression,
+                    timezone=self.config.timezone,
+                )
+                next_ticks = scheduler.peek_next_ticks(count=3)
+                next_tick = next_ticks[0] if next_ticks else None
+                next_runs = [tick.isoformat() for tick in next_ticks]
+                if next_tick is None:
+                    raise ValueError("cron preview returned no next tick")
+                next_run_at = next_tick.isoformat()
+                next_run_in_seconds = round(
+                    max(0.0, (next_tick - datetime.now(ZoneInfo(self.config.timezone))).total_seconds()),
+                    2,
+                )
+            except Exception:
+                next_run_at = None
+                next_run_in_seconds = None
+                next_runs = []
+        elif self._last_result and self._running:
+            try:
+                base_time = datetime.fromisoformat(self._last_result.cycle_time)
+                next_tick = base_time + timedelta(seconds=self.config.interval_seconds)
+                next_run_at = next_tick.isoformat()
+                next_run_in_seconds = round(max(0.0, (next_tick - datetime.now()).total_seconds()), 2)
+                next_runs = [
+                    (next_tick + timedelta(seconds=self.config.interval_seconds * offset)).isoformat()
+                    for offset in range(3)
+                ]
+            except Exception:
+                next_run_at = None
+                next_run_in_seconds = None
+                next_runs = []
+
+        return SchedulerStatus(
+            interval_seconds=self.config.interval_seconds,
+            cron_expression=self.config.cron_expression,
+            timezone=self.config.timezone,
+            schedule_type=schedule_type,
+            next_run_at=next_run_at,
+            next_run_in_seconds=next_run_in_seconds,
+            next_runs=next_runs,
+        )
+
+    def update_scheduler_config(
+        self,
+        *,
+        interval_seconds: Optional[int] = None,
+        cron_expression: Optional[str] = None,
+        timezone: Optional[str] = None,
+        auto_start: Optional[bool] = None,
+    ) -> Dict[str, Any]:
+        self._validate_scheduler_inputs(
+            interval_seconds=interval_seconds,
+            cron_expression=cron_expression,
+            timezone=timezone,
+        )
+
+        was_running = self._running
+        if was_running:
+            self.stop()
+
+        with self._lock:
+            if interval_seconds is not None:
+                self.config.interval_seconds = interval_seconds
+            self.config.cron_expression = cron_expression
+            if timezone is not None:
+                self.config.timezone = timezone
+            if auto_start is not None:
+                self.config.auto_start = auto_start
+
+            self._persist_runtime_state(
+                extra={
+                    "event": "scheduler_config_updated",
+                    "scheduler": {
+                        "interval_seconds": self.config.interval_seconds,
+                        "cron_expression": self.config.cron_expression,
+                        "timezone": self.config.timezone,
+                        "auto_start": self.config.auto_start,
+                    },
+                }
+            )
+
+        if was_running:
+            self.start()
+
+        return SchedulerConfigUpdateResponse(
+            status="updated",
+            running=self._running,
+            scheduler=self._build_scheduler_status(),
+            auto_start=self.config.auto_start,
+        ).model_dump()
+
     def _as_of_date(self, as_of_date: Optional[str] = None) -> str:
         return as_of_date or datetime.now().strftime("%Y-%m-%d")
 
@@ -315,11 +462,7 @@ class SignalGatewayService:
             session_id=self.config.session_id,
             mode=self.config.mode,
             running=self._running,
-            scheduler=SchedulerStatus(
-                interval_seconds=self.config.interval_seconds,
-                cron_expression=self.config.cron_expression,
-                timezone=self.config.timezone,
-            ),
+            scheduler=self._build_scheduler_status(),
             last_error=self._last_error,
             last_result=self._serialize_result(self._last_result),
         ).model_dump()
@@ -487,18 +630,4 @@ class SignalGatewayService:
         self._running = False
         self._persist_runtime_state(extra={"event": "service_stopped"})
 
-    def handle_llm_command(self, command: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        context = context or {}
-        if self.llm_handler is None:
-            response = {
-                "status": "placeholder",
-                "message": "No LLM handler is configured yet.",
-                "command": command,
-                "context": context,
-            }
-        else:
-            response = self.llm_handler(command, context)
-        self._persist_runtime_state(
-            extra={"event": "llm_command", "command": command, "llm_response": response}
-        )
-        return response
+

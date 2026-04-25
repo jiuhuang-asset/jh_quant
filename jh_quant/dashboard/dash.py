@@ -1,15 +1,19 @@
-import webview
-import pandas as pd
 import os
+from pathlib import Path
+
+import pandas as pd
+import webview
 from rich import print as rprint
+
 from jh_quant.data import get_code_date_col
+
 
 class BacktestingView:
     def __init__(
         self,
         trading_hist: pd.DataFrame,
         perf_data: pd.DataFrame,
-    ):  
+    ):
         code_column, dt_column = get_code_date_col(trading_hist)
         self.code_column = code_column
         self.dt_column = dt_column
@@ -28,7 +32,6 @@ class BacktestingView:
             "cumulative_return",
             "drawdown",
         ]
-        # 确保日期列存在
         available_cols = [c for c in cols if c in trading_hist.columns]
         self.trading_hist = (
             trading_hist[available_cols]
@@ -36,7 +39,6 @@ class BacktestingView:
             .assign(date=lambda x: x["date"].astype(str))
             .to_dict(orient="records")
         )
-        # 区分数值字段和非数值字段，分别填充
         non_numeric_cols = ["symbol", "strategy", "name", "industry"]
         numeric_cols = [c for c in perf_data.columns if c not in non_numeric_cols]
         perf_filled = perf_data.copy()
@@ -53,30 +55,15 @@ class BacktestingView:
         }
 
 
-def display_backtesting(
-    trading_hist: pd.DataFrame, perf_data: pd.DataFrame
-):
-    """显示回测结果可视化看板。
-
-    使用 PyWebView 打开本地 HTML 页面展示回测的交易历史和策略表现指标。
-    支持日频和分钟级数据的时间字段。
-
-    Args:
-        trading_hist: 回测交易历史数据 DataFrame，需包含以下列：
-        perf_data: 策略表现指标 DataFrame，包含各策略的绩效指标
-
-    Returns:
-        None: 该函数直接打开可视化窗口，不返回值
-    """
+def display_backtesting(trading_hist: pd.DataFrame, perf_data: pd.DataFrame):
     rprint("[cyan]  Starting backtesting visualization...")
     api = BacktestingView(trading_hist, perf_data)
 
     current_dir = os.path.dirname(os.path.abspath(__file__))
     html_path = os.path.join(current_dir, "front_src", "bt-dash", "index.html")
 
-    window = webview.create_window("回测结果", html_path, js_api=api)
+    webview.create_window("回测结果", html_path, js_api=api)
     webview.start()
-
 
 
 class FactorsView:
@@ -98,17 +85,84 @@ class FactorsView:
     def init_data(self):
         return {
             "factor_returns": self.factor_returns,
-        }   
-    
+        }
 
-def display_factors(
-    factor_returns: pd.DataFrame
-):
+
+def display_factors(factor_returns: pd.DataFrame):
     rprint("[cyan]  Starting factor analysis visualization...")
     api = FactorsView(factor_returns)
 
     current_dir = os.path.dirname(os.path.abspath(__file__))
     html_path = os.path.join(current_dir, "front_src", "factors-dash", "index.html")
 
-    window = webview.create_window("因子分析", html_path, js_api=api)
+    webview.create_window("因子分析", html_path, js_api=api)
+    webview.start()
+
+
+class SignalGatewayView:
+    def __init__(
+        self,
+        host: str = "127.0.0.1",
+        port: int = 8000,
+        protocol: str = "http",
+        title: str = "SignalGateway 量化控制台",
+        refresh_interval_ms: int = 15000,
+    ):
+        self.host = host
+        self.port = port
+        self.protocol = protocol
+        self.title = title
+        self.refresh_interval_ms = refresh_interval_ms
+
+    def get_runtime_config(self):
+        return {
+            "host": self.host,
+            "port": self.port,
+            "protocol": self.protocol,
+            "apiBase": f"{self.protocol}://{self.host}:{self.port}",
+            "title": self.title,
+            "refreshIntervalMs": self.refresh_interval_ms,
+        }
+
+
+def _resolve_signalgateway_dashboard_index(frontend_root: str | None = None) -> str:
+    if frontend_root:
+        html_path = Path(frontend_root) / "dist" / "index.html"
+    else:
+        html_path = (
+            Path(__file__).resolve().parents[3]
+            / "dashboards"
+            / "signalgateway-dashboard"
+            / "dist"
+            / "index.html"
+        )
+
+    if not html_path.exists():
+        raise FileNotFoundError(
+            f"SignalGateway dashboard build not found: {html_path}. "
+            "Build the frontend first with `pnpm install` and `pnpm build`."
+        )
+
+    return str(html_path)
+
+
+def display_signalgateway(
+    host: str = "127.0.0.1",
+    port: int = 8000,
+    protocol: str = "http",
+    title: str = "SignalGateway 量化控制台",
+    refresh_interval_ms: int = 15000,
+    frontend_root: str | None = None,
+):
+    rprint(f"[cyan]  Starting SignalGateway dashboard on {protocol}://{host}:{port} ...")
+    api = SignalGatewayView(
+        host=host,
+        port=port,
+        protocol=protocol,
+        title=title,
+        refresh_interval_ms=refresh_interval_ms,
+    )
+    html_path = _resolve_signalgateway_dashboard_index(frontend_root=frontend_root)
+
+    webview.create_window(title, html_path, js_api=api, width=1540, height=980)
     webview.start()

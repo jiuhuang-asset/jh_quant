@@ -1,0 +1,30 @@
+:root {
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  color: #d9e4f5;
+  background:
+    radial-gradient(circle at top left, rgba(44, 103, 176, 0.28), transparent 30%),
+    radial-gradient(circle at top right, rgba(35, 145, 128, 0.18), transparent 26%),
+    linear-gradient(180deg, #08111f 0%, #0c1728 50%, #101a2f 100%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  min-height: 100vh;
+  margin: 0;
+}
+
+body {
+  min-width: 320px;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
