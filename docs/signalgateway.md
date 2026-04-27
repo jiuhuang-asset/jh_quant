@@ -1,239 +1,345 @@
 # jh_quant.signalgateway
 
-信号网关服务模块，提供量化交易的信号生成、订单管理、持仓记录和绩效分析功能。
+`jh_quant.signalgateway` provides a service-oriented trading gateway with:
 
-- **信号聚合**: 多种选股策略信号聚合，统一输出多空信号
-- **订单管理**: OMS（Order Management System）模拟或实盘订单执行
-- **持久化**: 支持 SQLite 和 PostgreSQL 存储交易记录和持仓状态
-- **定时任务**: 支持 Cron 表达式调度，可定时执行交易循环
-- **FastAPI + MCP 接口**: 提供 HTTP API 用于服务控制，并可通过 MCP 对接 agent
+- signal aggregation from multiple strategies
+- pluggable selection providers
+- OMS-driven execution
+- persistence for trades, snapshots, and service state
+- FastAPI endpoints for runtime inspection and configuration
 
-## 安装
+## Install
 
 ```bash
 pip install -e .
 ```
 
-环境变量（`.env`）:
-- `JIUHUANG_API_KEY` - API令牌
-- `JIUHUANG_API_URL` - 数据API地址（默认: `http://127.0.0.1:8080`）
+Common environment variables:
 
-## 快速开始
+- `JIUHUANG_API_KEY`
+- `JIUHUANG_API_URL`
 
-### 基本使用
+## Package Layout
 
-```python
-from jh_quant.signalgateway import (
-    SignalGatewayService,
-    SignalGateway,
-    StrategySpec,
-)
-
-# 定义策略规格
-strategy_specs = [
-    StrategySpec(name="FamaMacBethSelector", weight=1.0),
-]
-
-# 创建服务
-service = SignalGatewayService(
-    session_id="my_session",
-    strategies=strategy_specs,
-)
-
-# 单次执行
-result = service.run_once()
-print(f"做多候选: {result.long_candidate_count}")
-print(f"做空候选: {result.short_candidate_count}")
+```text
+signalgateway/
+  __init__.py
+  config.py
+  market_data.py
+  models/
+  oms.py
+  persistence/
+    coordinator.py
+    models.py
+    protocols.py
+    recorder.py
+  service/
+    __init__.py
+    api.py
+    core.py
+    schemas.py
+  signalgateway.py
+  performance.py
+  position_sizer.py
+  utils.py
 ```
 
-### 定时运行
-
-```python
-from jh_quant.signalgateway import SignalGatewayService, StrategySpec
-
-service = SignalGatewayService(
-    session_id="daily_trade",
-    strategies=[StrategySpec(name="FamaMacBethSelector")],
-    cron_expression="0 9 * * 1-5",  # 每周一到周五早上9点执行
-)
-
-# 启动服务（会持续运行）
-service.start()
-```
-
-### FastAPI / MCP 服务
-
-```python
-from jh_quant.signalgateway.service_api import run_service_app
-
-# 启动服务
-run_service_app(service)
-# 访问 http://localhost:8000/docs 查看 HTTP API 文档
-# MCP endpoint 默认挂载在 http://localhost:8000/mcp
-```
-
-## 核心组件
-
-### `SignalGatewayService`
-
-主服务类，协调整个交易流程：
-
-```python
-from jh_quant.signalgateway import SignalGatewayService, StrategySpec
-
-service = SignalGatewayService(
-    session_id="my_session",      # 会话ID
-    strategies=[                   # 策略规格列表
-        StrategySpec(name="FamaMacBethSelector", weight=1.0),
-        StrategySpec(name="MomentumSelector", weight=0.5),
-    ],
-    initial_cash=1000000,         # 初始资金
-    cron_expression="0 9 * * 1-5", # Cron表达式（可选）
-)
-```
-
-### `SignalGateway`
-
-信号聚合器，汇总多个策略的信号：
-
-```python
-from jh_quant.signalgateway import SignalGateway
-
-gateway = SignalGateway(
-    strategies=strategy_list,
-    selection_provider=selection_provider,
-)
-
-signals = gateway.aggregate_signals(date)
-```
-
-### `OMS` / `MockOMS`
-
-订单管理系统：
-
-```python
-from jh_quant.signalgateway import MockOMS
-
-oms = MockOMS(initial_cash=1000000)
-
-# 执行交易
-oms.execute_long(symbols=["000001", "600036"], date="2025-01-10")
-oms.execute_short(symbols=["000002"], date="2025-01-10")
-
-# 获取当前持仓
-holds = oms.get_holds()
-```
-
-### `OrderRecorder`
-
-订单记录器接口，支持多种实现：
-
-```python
-from jh_quant.signalgateway import SQLiteOrderRecorder, PostgresOrderRecorder
-
-# SQLite 存储
-recorder = SQLiteOrderRecorder(db_path="trades.db")
-
-# PostgreSQL 存储
-recorder = PostgresOrderRecorder(
-    host="localhost",
-    database="trades",
-    user="user",
-    password="pass",
-)
-```
-
-### `MarketDataProvider`
-
-市场数据提供者：
-
-```python
-from jh_quant.signalgateway import JHMarketData
-
-provider = JHMarketData()
-data = provider.get_data(symbol="000001", start="2025-01-01", end="2025-01-10")
-```
-
-## 配置选项
-
-### `ServiceConfig`
-
-服务配置：
-
-```python
-from jh_quant.signalgateway.config import ServiceConfig, Frequency
-
-config = ServiceConfig(
-    frequency=Frequency.DAILY,     # 执行频率
-    initial_cash=1000000,          # 初始资金
-    max_position=10,              # 最大持仓数量
-    rebalance_threshold=0.1,       # 再平衡阈值
-)
-```
+## Core Concepts
 
 ### `StrategySpec`
 
-策略规格：
+`StrategySpec` describes a strategy by registry name plus user-editable params.
 
 ```python
 from jh_quant.signalgateway import StrategySpec
 
 spec = StrategySpec(
-    name="FamaMacBethSelector",    # 策略名称
-    weight=1.0,                   # 权重
-    params={"lookback": 60},      # 策略参数
-    alias="fm_selector",          # 别名
+    name="moving_average_crossover",
+    alias="sma",
+    weight=1.0,
+    params={
+        "short_window": 5,
+        "long_window": 20,
+    },
 )
 ```
 
-## 持久化协议
+### `SelectionSpec`
+
+`SelectionSpec` does the same thing for selection providers.
+
+```python
+from jh_quant.signalgateway import SelectionSpec
+
+spec = SelectionSpec(
+    name="factor_selector",
+    alias="factor_v1",
+    params={
+        "factor": "CH3",
+        "start": "2020-01-01",
+        "period": "M",
+        "top_n": 100,
+    },
+)
+```
+
+Important: `params` should contain only user-editable config. Runtime dependencies such as `jh_data` are injected by the service when needed.
+
+### `SignalGatewayService`
+
+`SignalGatewayService` coordinates:
+
+- a `SignalGateway`
+- one `selection_spec` or a direct `selection_provider`
+- a list of `strategy_specs`
+- persistence and scheduler state
+
+## Basic Usage
 
 ```python
 from jh_quant.signalgateway import (
-    PositionPersistence,      # 持仓持久化
-    TradePersistence,         # 交易持久化
-    SessionStatePersistence,  # 会话状态持久化
-    ServiceStatePersistence,  # 服务状态持久化
-    PerformancePersistence,   # 绩效持久化
+    JHMarketDataProvider,
+    MockOMS,
+    PersistenceCoordinator,
+    SelectionSpec,
+    ServiceConfig,
+    SignalGateway,
+    SignalGatewayService,
+    StrategySpec,
 )
+
+gateway = SignalGateway(
+    oms=MockOMS(session_id="demo", initial_capital=100000),
+    market_data_provider=JHMarketDataProvider(),
+)
+
+service = SignalGatewayService(
+    gateway=gateway,
+    config=ServiceConfig(
+        session_id="demo",
+        mode="paper",
+        interval_seconds=300,
+        cron_expression="0 9 * * 1-5",
+    ),
+    selection_spec=SelectionSpec(
+        name="factor_selector",
+        params={
+            "factor": "CH3",
+            "start": "2020-01-01",
+            "period": "M",
+        },
+    ),
+    strategy_specs=[
+        StrategySpec(name="turtle"),
+        StrategySpec(
+            name="moving_average_crossover",
+            alias="sma",
+            params={"short_window": 5, "long_window": 20},
+        ),
+    ],
+    persistence=PersistenceCoordinator(),
+)
+
+result = service.run_once()
+print(result.selection_count)
 ```
 
-## 绩效分析
+## Smoke Runner
+
+The repository includes [test_signalgateway.py](/E:/个人/jiuhuang-asset/jh_quant/test_signalgateway.py:1) as a lightweight manual smoke runner.
+
+It demonstrates:
+
+- service construction from `selection_spec`
+- strategy construction from `strategy_specs`
+- a custom registered selection provider
+- a self-contained demo market data provider
+
+## FastAPI Service
 
 ```python
-from jh_quant.signalgateway.performance import (
-    calculate_holding_returns,
-    calculate_turnover,
-    get_performance_summary,
+from jh_quant.signalgateway import run_service_app
+
+run_service_app(service, host="127.0.0.1", port=8000)
+```
+
+If `fastapi-mcp` is installed, MCP routes are mounted automatically. If not, the HTTP API still works normally.
+
+## Dynamic Runtime Configuration
+
+The recommended flow for UI / agent / API clients is:
+
+1. Read the available strategy or selection catalog.
+2. Inspect each component's `params_schema`.
+3. Submit a validated `StrategySpec` list or `SelectionSpec`.
+
+This avoids guessing which keys are supported in `params`.
+
+### Read Current Strategy Config
+
+`GET /service/strategy-config`
+
+Example response shape:
+
+```json
+{
+  "strategy_specs": [
+    {
+      "name": "moving_average_crossover",
+      "weight": 1.0,
+      "params": {
+        "short_window": 5,
+        "long_window": 20
+      },
+      "alias": "sma"
+    }
+  ],
+  "available_strategies": [
+    {
+      "name": "moving_average_crossover",
+      "params_schema": {
+        "type": "object",
+        "properties": {
+          "short_window": {"type": "integer", "default": 50},
+          "long_window": {"type": "integer", "default": 200}
+        }
+      },
+      "runtime_dependencies": []
+    }
+  ]
+}
+```
+
+### Update Strategy Config
+
+`POST /service/strategy-config`
+
+```json
+{
+  "strategy_specs": [
+    {
+      "name": "turtle",
+      "alias": "turtle_fast",
+      "weight": 1.0,
+      "params": {
+        "entry_window": 10,
+        "exit_window": 5
+      }
+    },
+    {
+      "name": "moving_average_crossover",
+      "alias": "sma",
+      "weight": 1.0,
+      "params": {
+        "short_window": 5,
+        "long_window": 20
+      }
+    }
+  ]
+}
+```
+
+### Read Current Selection Config
+
+`GET /service/selection-config`
+
+Example response shape:
+
+```json
+{
+  "selection_spec": {
+    "name": "factor_selector",
+    "params": {
+      "factor": "CH3",
+      "start": "2020-01-01",
+      "period": "M"
+    },
+    "alias": "factor_v1"
+  },
+  "active_selection_config": {
+    "factor": "CH3",
+    "start": "2020-01-01",
+    "period": "M"
+  },
+  "available_selections": [
+    {
+      "name": "factor_selector",
+      "params_schema": {
+        "type": "object",
+        "properties": {
+          "factor": {"type": "string"},
+          "start": {"type": "string"},
+          "period": {"type": "string", "default": "M"}
+        },
+        "required": ["factor", "start"]
+      },
+      "runtime_dependencies": ["jh_data"]
+    }
+  ]
+}
+```
+
+### Update Selection Config
+
+`POST /service/selection-config`
+
+```json
+{
+  "selection_spec": {
+    "name": "factor_selector",
+    "alias": "factor_v2",
+    "params": {
+      "factor": "CH3",
+      "start": "2021-01-01",
+      "period": "M",
+      "top_n": 50
+    }
+  }
+}
+```
+
+## Other Service Endpoints
+
+- `GET /health`
+- `GET /service/status`
+- `GET /service/runtime`
+- `GET /service/performance`
+- `GET /service/analytics`
+- `GET /service/config`
+- `POST /service/start`
+- `POST /service/stop`
+- `POST /service/run-once`
+- `POST /service/scheduler-config`
+- `POST /service/close-all-positions`
+- `POST /service/signal-buy`
+- `POST /service/signal-sell`
+
+## Persistence
+
+Persistence lives under `signalgateway/persistence/`.
+
+Common exports:
+
+```python
+from jh_quant.signalgateway import (
+    PersistenceCoordinator,
+    SQLiteOrderRecorder,
+    PostgresOrderRecorder,
+    TradePersistence,
+    PositionPersistence,
+    SessionStatePersistence,
+    ServiceStatePersistence,
+    PerformancePersistence,
 )
-
-# 计算持仓收益
-returns = calculate_holding_returns(holds, prices)
-
-# 计算换手率
-turnover = calculate_turnover(trades)
-
-# 获取绩效汇总
-summary = get_performance_summary(holds, trades)
 ```
 
-## 目录结构
+ORM record models now live in:
 
-```
-signalgateway/
-├── __init__.py                 # 主入口，导出所有公共接口
-├── config.py                   # 配置（ServiceConfig, Frequency, 策略注册表）
-├── service.py                  # SignalGatewayService 主类
-├── signalgateway.py            # SignalGateway 信号聚合器
-├── oms.py                      # OMS 订单管理系统
-├── market_data.py              # 市场数据提供者
-├── order_recorder.py           # OrderRecorder 持久化接口
-├── performance.py              # 绩效计算
-├── persistence_coordinator.py  # 持久化协调器
-├── persistence_protocols.py    # 持久化协议定义
-├── models.py                   # 数据模型
-├── position_sizer.py           # 仓位计算
-├── strategy.py                 # 策略基类
-├── utils.py                    # 工具函数
-└── service_api.py              # FastAPI 接口
-```
+- [jh_quant/signalgateway/persistence/models.py](/E:/个人/jiuhuang-asset/jh_quant/jh_quant/signalgateway/persistence/models.py:1)
+
+## Notes
+
+- `StrategySpec.params` and `SelectionSpec.params` are validated against registered implementations.
+- Unknown params are rejected.
+- Basic type coercion is supported by Pydantic during config validation.
+- `factor_selector` requires a market data provider carrying `jhd`; the API caller does not need to pass that dependency manually.

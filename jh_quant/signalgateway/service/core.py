@@ -17,6 +17,10 @@ from ..config import (
     SelectionSpec,
     ServiceConfig,
     StrategySpec,
+    build_selection_provider,
+    list_selection_definitions,
+    list_strategy_definitions,
+    normalize_strategy_spec,
 )
 from ..models import Order
 from ..persistence import PersistenceCoordinator
@@ -81,8 +85,10 @@ class SignalGatewayService:
         self.persistence = persistence or PersistenceCoordinator()
 
         if selection_spec is not None:
-            self.selection_provider = self._build_selection_instance(selection_spec)
-            self.selection_specs = selection_spec
+            self.selection_specs, self.selection_provider = build_selection_provider(
+                selection_spec,
+                getattr(self.gateway, "market_data_provider", None),
+            )
         elif selection_provider is not None:
             self.selection_provider = selection_provider
             self.selection_specs = None
@@ -118,34 +124,35 @@ class SignalGatewayService:
             pass
 
     def _build_strategy_instance(self, spec: StrategySpec) -> dict:
-        if spec.name not in STRATEGY_REGISTRY:
-            raise ValueError(f"Unsupported strategy name: {spec.name}")
-        strategy_cls = STRATEGY_REGISTRY[spec.name]
-        strategy = strategy_cls(**spec.params)
+        normalized_spec = normalize_strategy_spec(spec)
+        strategy_cls = STRATEGY_REGISTRY[normalized_spec.name]
+        strategy = strategy_cls(**normalized_spec.params)
         return {
-            "name": spec.alias or spec.name,
+            "name": normalized_spec.alias or normalized_spec.name,
             "strategy": strategy,
-            "weight": spec.weight,
+            "weight": normalized_spec.weight,
         }
 
     def configure_strategies(self, strategy_specs: List[StrategySpec]):
         with self._lock:
-            built = [self._build_strategy_instance(spec) for spec in strategy_specs]
+            normalized_specs = [normalize_strategy_spec(spec) for spec in strategy_specs]
+            built = [self._build_strategy_instance(spec) for spec in normalized_specs]
             self.gateway.replace_strategies(built)
-            self.strategy_specs = strategy_specs
+            self.strategy_specs = normalized_specs
             self._persist_runtime_state(extra={"event": "strategy_config_updated"})
 
     def _build_selection_instance(self, spec: SelectionSpec) -> SelectionProvider:
-        if spec.name not in SELECTION_PROVIDER_REGISTRY:
-            raise ValueError(f"Unsupported selection provider name: {spec.name}")
-        provider_cls = SELECTION_PROVIDER_REGISTRY[spec.name]
-        return provider_cls(**spec.params)
+        normalized_spec, provider = build_selection_provider(
+            spec,
+            getattr(self.gateway, "market_data_provider", None),
+        )
+        self.selection_specs = normalized_spec
+        return provider
 
     def configure_selection(self, selection_spec: SelectionSpec):
         with self._lock:
             provider = self._build_selection_instance(selection_spec)
             self.selection_provider = provider
-            self.selection_specs = selection_spec
             self._persist_runtime_state(extra={"event": "selection_config_updated"})
 
     def _validate_scheduler_inputs(
@@ -343,9 +350,25 @@ class SignalGatewayService:
         return ServiceConfigResponse(
             session_id=self.config.session_id,
             service=self.config.model_dump(),
+            selection_spec=(
+                self.selection_specs.model_dump() if self.selection_specs is not None else None
+            ),
             selection_provider=self._normalize_jsonable(getattr(self.selection_provider, "config", {})),
-            strategies=list(self.strategy_specs),
+            strategy_specs=[spec.model_dump() for spec in self.strategy_specs],
         ).model_dump()
+
+    def get_strategy_config_snapshot(self) -> Dict[str, Any]:
+        return {
+            "strategy_specs": [spec.model_dump() for spec in self.strategy_specs],
+            "available_strategies": list_strategy_definitions(),
+        }
+
+    def get_selection_config_snapshot(self) -> Dict[str, Any]:
+        return {
+            "selection_spec": self.selection_specs.model_dump() if self.selection_specs is not None else None,
+            "active_selection_config": self._normalize_jsonable(getattr(self.selection_provider, "config", {})),
+            "available_selections": list_selection_definitions(),
+        }
 
     def get_status(self) -> Dict[str, Any]:
         return ServiceStatusResponse(

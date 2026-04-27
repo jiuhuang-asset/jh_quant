@@ -28,6 +28,7 @@ from ..utils import print_service_startup_summary
 from .core import SignalGatewayService
 from .schemas import (
     AnalyticsSnapshotResponse,
+    ConfigurableComponentDefinition,
     CloseAllPositionsRequest,
     CloseAllPositionsResponse,
     HealthResponse,
@@ -36,11 +37,15 @@ from .schemas import (
     SchedulerConfigUpdateRequest,
     SchedulerConfigUpdateResponse,
     SelectionConfigUpdateResponse,
+    SelectionConfigUpdateRequest,
+    SelectionConfigSnapshotResponse,
     ServiceActionResponse,
     ServiceConfigResponse,
     ServiceStatusResponse,
     SingleSymbolTradeRequest,
     SingleSymbolTradeResponse,
+    StrategyConfigSnapshotResponse,
+    StrategyConfigUpdateRequest,
     StrategyConfigUpdateResponse,
     TradingCycleResultResponse,
 )
@@ -48,7 +53,7 @@ from .schemas import (
 
 def _mount_mcp_server(app) -> None:
     if FastApiMCP is None:
-        raise ImportError("fastapi-mcp is required to expose the service API as MCP")
+        return
 
     mcp = FastApiMCP(app)
     mount_http = getattr(mcp, "mount_http", None)
@@ -124,28 +129,44 @@ def create_service_app(service: SignalGatewayService):
         response_model=StrategyConfigUpdateResponse,
         operation_id="update_strategy_config",
     )
-    def update_strategy_config(strategy_specs: List[StrategySpec]):
-        service.configure_strategies(strategy_specs)
-        return StrategyConfigUpdateResponse(status="updated", count=len(strategy_specs))
+    def update_strategy_config(request: StrategyConfigUpdateRequest):
+        service.configure_strategies(request.strategy_specs)
+        return StrategyConfigUpdateResponse(
+            status="updated",
+            count=len(request.strategy_specs),
+            strategy_specs=service.strategy_specs,
+        )
+
+    @app.get(
+        "/service/strategy-config",
+        response_model=StrategyConfigSnapshotResponse,
+        operation_id="get_strategy_config",
+    )
+    def get_strategy_config():
+        return service.get_strategy_config_snapshot()
 
     @app.post(
         "/service/selection-config",
         response_model=SelectionConfigUpdateResponse,
         operation_id="update_selection_config",
     )
-    def update_selection_config(selection_spec: SelectionSpec):
+    def update_selection_config(request: SelectionConfigUpdateRequest):
+        selection_spec = request.selection_spec
         service.configure_selection(selection_spec)
         return SelectionConfigUpdateResponse(
             status="updated",
             name=selection_spec.name,
             alias=selection_spec.alias,
+            selection_spec=service.selection_specs,
         )
 
-    @app.get("/service/selection-config", operation_id="get_selection_config")
+    @app.get(
+        "/service/selection-config",
+        response_model=SelectionConfigSnapshotResponse,
+        operation_id="get_selection_config",
+    )
     def get_selection_config():
-        return {
-            "selection_provider": getattr(service.selection_provider, "config", {}),
-        }
+        return service.get_selection_config_snapshot()
 
     @app.post(
         "/service/scheduler-config",

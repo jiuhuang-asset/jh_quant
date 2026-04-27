@@ -1,8 +1,9 @@
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 from enum import Enum
+import inspect
 from typing import TYPE_CHECKING, Any, Dict, Literal, Optional, Protocol, runtime_checkable
 
-from pydantic import BaseModel, Field, field_serializer, field_validator
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, create_model, field_serializer, field_validator
 
 from jh_quant.backtest.strategy import (
     Strategy,
@@ -24,6 +25,7 @@ from .models import SelectionSnapshot
 
 if TYPE_CHECKING:
     from jh_quant.backtest.selectors import FactorSelector
+    from .market_data import MarketDataProvider
 
 
 class Frequency(Enum):
@@ -168,15 +170,185 @@ SELECTION_PROVIDER_REGISTRY: Dict[str, type] = {
     "factor_selector": FactorSelectionProviderAdptor,
 }
 
+SELECTION_PROVIDER_CONFIG_MODELS: Dict[str, type] = {
+    "factor_selector": FactorSelectionConfig,
+}
+
+SELECTION_PROVIDER_RUNTIME_DEPENDENCIES: Dict[str, tuple[str, ...]] = {
+    "factor_selector": ("jh_data",),
+}
+
+
+def _callable_param_model(target: Any, model_name: str, *, exclude: Optional[set[str]] = None):
+    exclude = exclude or set()
+    signature = inspect.signature(target)
+    fields: Dict[str, tuple[Any, Any]] = {}
+    for name, param in signature.parameters.items():
+        if name in exclude or param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
+            continue
+        annotation = Any if param.annotation is inspect.Signature.empty else param.annotation
+        default = ... if param.default is inspect.Signature.empty else param.default
+        fields[name] = (annotation, default)
+    return create_model(model_name, __config__=ConfigDict(extra="forbid"), **fields)
+
+
+def _validate_callable_params(
+    target: Any,
+    params: Dict[str, Any],
+    model_name: str,
+    *,
+    exclude: Optional[set[str]] = None,
+) -> Dict[str, Any]:
+    model = _callable_param_model(target, model_name, exclude=exclude)
+    return model.model_validate(params).model_dump(exclude_none=False)
+
+
+def _schema_from_callable(
+    target: Any,
+    model_name: str,
+    *,
+    exclude: Optional[set[str]] = None,
+) -> Dict[str, Any]:
+    model = _callable_param_model(target, model_name, exclude=exclude)
+    return model.model_json_schema()
+
+
+def _validate_dataclass_params(model_cls: type, params: Dict[str, Any]) -> Dict[str, Any]:
+    adapter = TypeAdapter(model_cls)
+    value = adapter.validate_python(params)
+    return asdict(value) if is_dataclass(value) else dict(value)
+
+
+def _schema_from_dataclass(model_cls: type) -> Dict[str, Any]:
+    return TypeAdapter(model_cls).json_schema()
+
+
+def validate_strategy_params(name: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    if name not in STRATEGY_REGISTRY:
+        raise ValueError(f"Unsupported strategy name: {name}")
+    strategy_cls = STRATEGY_REGISTRY[name]
+    return _validate_callable_params(
+        strategy_cls.__init__,
+        params,
+        f"{strategy_cls.__name__}Params",
+        exclude={"self"},
+    )
+
+
+def normalize_strategy_spec(spec: StrategySpec) -> StrategySpec:
+    return spec.model_copy(update={"params": validate_strategy_params(spec.name, spec.params)})
+
+
+def get_strategy_params_schema(name: str) -> Dict[str, Any]:
+    if name not in STRATEGY_REGISTRY:
+        raise ValueError(f"Unsupported strategy name: {name}")
+    strategy_cls = STRATEGY_REGISTRY[name]
+    return _schema_from_callable(
+        strategy_cls.__init__,
+        f"{strategy_cls.__name__}Params",
+        exclude={"self"},
+    )
+
+
+def list_strategy_definitions() -> list[dict[str, Any]]:
+    return [
+        {
+            "name": name,
+            "params_schema": get_strategy_params_schema(name),
+            "runtime_dependencies": [],
+        }
+        for name in STRATEGY_REGISTRY
+    ]
+
+
+def _resolve_selection_runtime_kwargs(
+    name: str,
+    market_data_provider: Optional["MarketDataProvider"],
+) -> Dict[str, Any]:
+    if name == "factor_selector":
+        jh_data = getattr(market_data_provider, "jhd", None)
+        if jh_data is None:
+            raise ValueError(
+                "selection provider 'factor_selector' requires a market data provider with a 'jhd' attribute"
+            )
+        return {"jh_data": jh_data}
+    return {}
+
+
+def validate_selection_params(name: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    if name not in SELECTION_PROVIDER_REGISTRY:
+        raise ValueError(f"Unsupported selection provider name: {name}")
+    if name in SELECTION_PROVIDER_CONFIG_MODELS:
+        return _validate_dataclass_params(SELECTION_PROVIDER_CONFIG_MODELS[name], params)
+    provider_cls = SELECTION_PROVIDER_REGISTRY[name]
+    return _validate_callable_params(
+        provider_cls.__init__,
+        params,
+        f"{provider_cls.__name__}Params",
+        exclude={"self"},
+    )
+
+
+def normalize_selection_spec(spec: SelectionSpec) -> SelectionSpec:
+    return spec.model_copy(update={"params": validate_selection_params(spec.name, spec.params)})
+
+
+def get_selection_params_schema(name: str) -> Dict[str, Any]:
+    if name not in SELECTION_PROVIDER_REGISTRY:
+        raise ValueError(f"Unsupported selection provider name: {name}")
+    if name in SELECTION_PROVIDER_CONFIG_MODELS:
+        return _schema_from_dataclass(SELECTION_PROVIDER_CONFIG_MODELS[name])
+    provider_cls = SELECTION_PROVIDER_REGISTRY[name]
+    return _schema_from_callable(
+        provider_cls.__init__,
+        f"{provider_cls.__name__}Params",
+        exclude={"self"},
+    )
+
+
+def list_selection_definitions() -> list[dict[str, Any]]:
+    return [
+        {
+            "name": name,
+            "params_schema": get_selection_params_schema(name),
+            "runtime_dependencies": list(SELECTION_PROVIDER_RUNTIME_DEPENDENCIES.get(name, ())),
+        }
+        for name in SELECTION_PROVIDER_REGISTRY
+    ]
+
+
+def build_selection_provider(spec: SelectionSpec, market_data_provider: Optional["MarketDataProvider"]) -> tuple[SelectionSpec, SelectionProvider]:
+    normalized_spec = normalize_selection_spec(spec)
+    provider_cls = SELECTION_PROVIDER_REGISTRY[normalized_spec.name]
+    runtime_kwargs = _resolve_selection_runtime_kwargs(normalized_spec.name, market_data_provider)
+
+    if normalized_spec.name in SELECTION_PROVIDER_CONFIG_MODELS:
+        config_cls = SELECTION_PROVIDER_CONFIG_MODELS[normalized_spec.name]
+        provider = provider_cls(
+            config=config_cls(**normalized_spec.params),
+            **runtime_kwargs,
+        )
+    else:
+        provider = provider_cls(
+            **normalized_spec.params,
+            **runtime_kwargs,
+        )
+
+    return normalized_spec, provider
+
 
 def register_selection_provider(name: str, provider_cls: type) -> None:
-    if not issubclass(provider_cls, SelectionProvider):
-        raise TypeError(f"{provider_cls} must inherit from SelectionProvider")
+    if not inspect.isclass(provider_cls):
+        raise TypeError(f"{provider_cls} must be a class")
+    if not callable(getattr(provider_cls, "select", None)):
+        raise TypeError(f"{provider_cls} must define a callable select method")
     SELECTION_PROVIDER_REGISTRY[name] = provider_cls
 
 
 def create_selection_provider(spec: SelectionSpec, **init_kwargs) -> SelectionProvider:
-    if spec.name not in SELECTION_PROVIDER_REGISTRY:
-        raise ValueError(f"Unsupported selection provider name: {spec.name}")
-    provider_cls = SELECTION_PROVIDER_REGISTRY[spec.name]
-    return provider_cls(**spec.params, **init_kwargs)
+    normalized_spec = normalize_selection_spec(spec)
+    provider_cls = SELECTION_PROVIDER_REGISTRY[normalized_spec.name]
+    if normalized_spec.name in SELECTION_PROVIDER_CONFIG_MODELS:
+        config_cls = SELECTION_PROVIDER_CONFIG_MODELS[normalized_spec.name]
+        return provider_cls(config=config_cls(**normalized_spec.params), **init_kwargs)
+    return provider_cls(**normalized_spec.params, **init_kwargs)

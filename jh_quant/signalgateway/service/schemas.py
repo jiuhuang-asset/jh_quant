@@ -8,6 +8,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
+from ..config import SelectionSpec, StrategySpec
 
 
 class HealthResponse(BaseModel):
@@ -84,8 +85,18 @@ class PerformanceSnapshotResponse(BaseModel):
 class ServiceConfigResponse(BaseModel):
     session_id: str = Field(description="Session ID for the service configuration snapshot.")
     service: Dict[str, Any] = Field(description="Service-level configuration.")
+    selection_spec: Optional[Dict[str, Any]] = Field(default=None, description="Current selection spec.")
     selection_provider: Dict[str, Any] = Field(default_factory=dict, description="Selection provider configuration.")
-    strategies: List[Any] = Field(default_factory=list, description="Configured strategies.")
+    strategy_specs: List[Dict[str, Any]] = Field(default_factory=list, description="Configured strategy specs.")
+
+
+class ConfigurableComponentDefinition(BaseModel):
+    name: str = Field(description="Registered component name.")
+    params_schema: Dict[str, Any] = Field(default_factory=dict, description="JSON schema for user-editable params.")
+    runtime_dependencies: List[str] = Field(
+        default_factory=list,
+        description="Dependencies injected by the service at runtime and not expected from the API caller.",
+    )
 
 
 class AnalyticsSnapshotResponse(BaseModel):
@@ -105,6 +116,19 @@ class ServiceActionResponse(BaseModel):
 class StrategyConfigUpdateResponse(BaseModel):
     status: str = Field(description="Strategy configuration update result.")
     count: int = Field(description="Number of strategy configs applied.")
+    strategy_specs: List[StrategySpec] = Field(default_factory=list, description="Current strategy specs.")
+
+
+class StrategyConfigUpdateRequest(BaseModel):
+    strategy_specs: List[StrategySpec] = Field(default_factory=list, description="Strategy specs to replace the current set.")
+
+
+class StrategyConfigSnapshotResponse(BaseModel):
+    strategy_specs: List[StrategySpec] = Field(default_factory=list, description="Current strategy specs.")
+    available_strategies: List[ConfigurableComponentDefinition] = Field(
+        default_factory=list,
+        description="Available registered strategies and their editable params schema.",
+    )
 
 
 class SchedulerConfigUpdateRequest(BaseModel):
@@ -125,6 +149,20 @@ class SelectionConfigUpdateResponse(BaseModel):
     status: str = Field(description="Selection provider configuration update result.")
     name: str = Field(description="Updated selection provider name.")
     alias: Optional[str] = Field(default=None, description="Alias if provided.")
+    selection_spec: SelectionSpec = Field(description="Current selection spec.")
+
+
+class SelectionConfigUpdateRequest(BaseModel):
+    selection_spec: SelectionSpec = Field(description="Selection spec to use.")
+
+
+class SelectionConfigSnapshotResponse(BaseModel):
+    selection_spec: Optional[SelectionSpec] = Field(default=None, description="Current selection spec.")
+    active_selection_config: Dict[str, Any] = Field(default_factory=dict, description="Resolved active selection config.")
+    available_selections: List[ConfigurableComponentDefinition] = Field(
+        default_factory=list,
+        description="Available registered selection providers and their editable params schema.",
+    )
 
 
 @dataclass

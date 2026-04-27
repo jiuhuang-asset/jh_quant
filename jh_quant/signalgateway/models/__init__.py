@@ -1,5 +1,5 @@
 """
-Core domain models for the signalgateway trading system.
+Core domain models for the signalgateway trading system(领域模型)
 """
 
 from __future__ import annotations
