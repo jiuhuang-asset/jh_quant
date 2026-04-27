@@ -76,3 +76,7 @@ class ServiceStatePersistence(Protocol):
     def load_latest_service_state(self, session_id: str) -> dict | None:
         """Load the most recent service state for a given session_id."""
         ...
+
+    def query_service_events(self, session_id: str) -> "pd.DataFrame":
+        """Query service runtime event history for a session."""
+        ...

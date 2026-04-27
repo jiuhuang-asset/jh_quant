@@ -23,6 +23,7 @@ from ..models import (
 from .models import (
     DailyPerformanceRecord,
     PositionSnapshotRecord,
+    ServiceEventRecord,
     ServiceStateRecord,
     SessionStateRecord,
     TradeRecord,
@@ -142,6 +143,10 @@ class OrderRecorder(
 
     @abstractmethod
     def load_latest_service_state(self, session_id: str) -> Optional[Dict[str, Any]]:
+        raise NotImplementedError
+
+    @abstractmethod
+    def query_service_events(self, session_id: str) -> pd.DataFrame:
         raise NotImplementedError
 
     @abstractmethod
@@ -289,14 +294,26 @@ class TortoiseOrderRecorder(OrderRecorder):
 
     async def _save_service_state(self, state: Dict[str, Any]):
         normalized = normalize_jsonable_value(state)
+        event_type = (
+            normalized.get("service", {})
+            .get("extra", {})
+            .get("event", "service_state_snapshot")
+        )
+        export_time = _as_datetime(
+            normalized.get("export_time", datetime.now())
+        )
         await ServiceStateRecord.update_or_create(
             session_id=normalized.get("session_id"),
             defaults={
                 "state_data": normalized,
-                "export_time": _as_datetime(
-                    normalized.get("export_time", datetime.now())
-                ),
+                "export_time": export_time,
             },
+        )
+        await ServiceEventRecord.create(
+            session_id=normalized.get("session_id"),
+            event_type=event_type,
+            state_data=normalized,
+            event_time=export_time,
         )
 
     def load_latest_service_state(self, session_id: str) -> Optional[Dict[str, Any]]:
@@ -306,6 +323,16 @@ class TortoiseOrderRecorder(OrderRecorder):
         self, session_id: str
     ) -> Optional[Dict[str, Any]]:
         return await self._load_latest_state_record(ServiceStateRecord, session_id)
+
+    def query_service_events(self, session_id: str) -> pd.DataFrame:
+        return self._run(self._query_service_events(session_id))
+
+    async def _query_service_events(self, session_id: str) -> pd.DataFrame:
+        return await self._query_session_records(
+            ServiceEventRecord,
+            session_id,
+            order_by="event_time",
+        )
 
     def query_trades(self, session_id: str) -> pd.DataFrame:
         return self._run(self._query_trades(session_id))

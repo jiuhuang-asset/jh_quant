@@ -109,6 +109,20 @@ if TORTOISE_ORM_AVAILABLE:
             table = "session_service_states"
             indexes = [("session_id", "export_time")]
 
+
+    class ServiceEventRecord(TortoiseModel):
+        id = fields.IntField(primary_key=True)
+        session_id = fields.CharField(max_length=128, db_index=True)
+        event_type = fields.CharField(max_length=128, db_index=True)
+        state_data = fields.JSONField()
+        event_time = fields.DatetimeField()
+        created_at = fields.DatetimeField(auto_now_add=True)
+
+        class Meta:
+            table = "session_service_events"
+            ordering = ["event_time"]
+            indexes = [("session_id", "event_time"), ("session_id", "event_type")]
+
 else:
 
     class TradeRecord:  # pragma: no cover - import fallback
@@ -131,11 +145,16 @@ else:
         pass
 
 
+    class ServiceEventRecord:  # pragma: no cover - import fallback
+        pass
+
+
 __all__ = [
     "TORTOISE_ORM_AVAILABLE",
     "DailyPerformanceRecord",
     "PositionSnapshotRecord",
     "ServiceStateRecord",
+    "ServiceEventRecord",
     "SessionStateRecord",
     "TradeRecord",
     "require_tortoise_orm",

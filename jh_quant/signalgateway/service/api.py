@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from typing import List
-
 try:
     from fastapi import FastAPI
 except ImportError:  # pragma: no cover - optional dependency at runtime
@@ -23,17 +21,25 @@ try:
 except ImportError:  # pragma: no cover - optional dependency at runtime
     uvicorn = None
 
-from ..config import SelectionSpec, StrategySpec
 from ..utils import print_service_startup_summary
 from .core import SignalGatewayService
 from .schemas import (
     AnalyticsSnapshotResponse,
-    ConfigurableComponentDefinition,
     CloseAllPositionsRequest,
     CloseAllPositionsResponse,
     HealthResponse,
     PerformanceSnapshotResponse,
+    PortfolioAnalysisResponse,
+    PortfolioConfigSnapshotResponse,
+    PortfolioConfigUpdateRequest,
+    PortfolioConfigUpdateResponse,
+    PortfolioHistoryResponse,
+    PortfolioOptimizeRequest,
+    PortfolioOptimizeResponse,
+    PortfolioRebalanceRequest,
+    PortfolioRebalanceResponse,
     RuntimeSnapshotResponse,
+    SchedulerConfigSnapshotResponse,
     SchedulerConfigUpdateRequest,
     SchedulerConfigUpdateResponse,
     SelectionConfigUpdateResponse,
@@ -41,6 +47,9 @@ from .schemas import (
     SelectionConfigSnapshotResponse,
     ServiceActionResponse,
     ServiceConfigResponse,
+    ServiceConfigUpdateRequest,
+    ServiceConfigUpdateResponse,
+    ServiceEventHistoryResponse,
     ServiceStatusResponse,
     SingleSymbolTradeRequest,
     SingleSymbolTradeResponse,
@@ -109,6 +118,14 @@ def create_service_app(service: SignalGatewayService):
     def service_config():
         return service.get_config_snapshot()
 
+    @app.put("/service/config", response_model=ServiceConfigUpdateResponse, operation_id="replace_service_config")
+    def replace_service_config(request: ServiceConfigUpdateRequest):
+        return service.replace_service_config(request.config_bundle)
+
+    @app.get("/service/events", response_model=ServiceEventHistoryResponse, operation_id="get_service_events")
+    def get_service_events():
+        return service.get_service_event_history()
+
     @app.post("/service/start", response_model=ServiceActionResponse, operation_id="start_service")
     def service_start():
         service.start()
@@ -168,6 +185,67 @@ def create_service_app(service: SignalGatewayService):
     def get_selection_config():
         return service.get_selection_config_snapshot()
 
+    @app.get(
+        "/service/portfolio/config",
+        response_model=PortfolioConfigSnapshotResponse,
+        operation_id="get_portfolio_config",
+    )
+    def get_portfolio_config():
+        return service.get_portfolio_config_snapshot()
+
+    @app.post(
+        "/service/portfolio/config",
+        response_model=PortfolioConfigUpdateResponse,
+        operation_id="update_portfolio_config",
+    )
+    def update_portfolio_config(request: PortfolioConfigUpdateRequest):
+        service.configure_portfolio(request.portfolio_spec)
+        return PortfolioConfigUpdateResponse(
+            status="updated",
+            portfolio_spec=service.portfolio_spec,
+        )
+
+    @app.post(
+        "/service/portfolio/optimize",
+        response_model=PortfolioOptimizeResponse,
+        operation_id="optimize_portfolio",
+    )
+    def optimize_portfolio(request: PortfolioOptimizeRequest):
+        return service.optimize_portfolio(
+            as_of_date=request.as_of_date,
+            preview_only=request.preview_only,
+            symbols=request.symbols,
+        )
+
+    @app.get(
+        "/service/portfolio/analysis",
+        response_model=PortfolioAnalysisResponse,
+        operation_id="get_portfolio_analysis",
+    )
+    def get_portfolio_analysis():
+        return service.get_portfolio_analysis_snapshot()
+
+    @app.get(
+        "/service/portfolio/history",
+        response_model=PortfolioHistoryResponse,
+        operation_id="get_portfolio_history",
+    )
+    def get_portfolio_history():
+        return service.get_portfolio_history()
+
+    @app.post(
+        "/service/portfolio/rebalance",
+        response_model=PortfolioRebalanceResponse,
+        operation_id="rebalance_portfolio",
+    )
+    def rebalance_portfolio(request: PortfolioRebalanceRequest):
+        return service.rebalance_portfolio(
+            as_of_date=request.as_of_date,
+            preview_only=request.preview_only,
+            symbols=request.symbols,
+            force=request.force,
+        )
+
     @app.post(
         "/service/scheduler-config",
         response_model=SchedulerConfigUpdateResponse,
@@ -180,6 +258,14 @@ def create_service_app(service: SignalGatewayService):
             timezone=request.timezone,
             auto_start=request.auto_start,
         )
+
+    @app.get(
+        "/service/scheduler-config",
+        response_model=SchedulerConfigSnapshotResponse,
+        operation_id="get_scheduler_config",
+    )
+    def get_scheduler_config():
+        return service.get_scheduler_config_snapshot()
 
     @app.post(
         "/service/close-all-positions",

@@ -118,6 +118,57 @@ class SignalGateway:
 
         return price_df.sort_values(["symbol", "date"]).reset_index(drop=True)
 
+    def build_price_matrix(
+        self,
+        symbols: List[str],
+        start_date: str,
+        end_date: str,
+        frequency: Frequency | str = Frequency.DAILY,
+        price: pd.DataFrame = None,
+    ) -> pd.DataFrame:
+        source = price
+        if source is None:
+            source = self.get_price_data(
+                symbols=symbols,
+                start_date=start_date,
+                end_date=end_date,
+                frequency=frequency,
+            )
+        if source is None or source.empty:
+            return pd.DataFrame()
+
+        matrix = (
+            source.copy()
+            .assign(date=lambda frame: pd.to_datetime(frame["date"], errors="coerce"))
+            .dropna(subset=["date", "symbol", "close"])
+            .pivot_table(index="date", columns="symbol", values="close", aggfunc="last")
+            .sort_index()
+        )
+        if symbols:
+            existing = [symbol for symbol in symbols if symbol in matrix.columns]
+            matrix = matrix[existing]
+        return matrix
+
+    def build_return_matrix(
+        self,
+        symbols: List[str],
+        start_date: str,
+        end_date: str,
+        frequency: Frequency | str = Frequency.DAILY,
+        price: pd.DataFrame = None,
+    ) -> pd.DataFrame:
+        price_matrix = self.build_price_matrix(
+            symbols=symbols,
+            start_date=start_date,
+            end_date=end_date,
+            frequency=frequency,
+            price=price,
+        )
+        if price_matrix.empty:
+            return pd.DataFrame()
+        returns = price_matrix.pct_change().dropna(how="all")
+        return returns.dropna(axis=1, how="all")
+
     def _normalize_frequency(self, frequency: Frequency | str | None) -> Frequency:
         return Frequency.from_value(frequency)
 

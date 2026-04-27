@@ -105,6 +105,13 @@ class PersistenceCoordinator:
             return None
         return self.recorder.load_latest_service_state(session_id)
 
+    def query_service_events(self, session_id: str) -> "pd.DataFrame":
+        import pandas as pd
+
+        if self.recorder is None:
+            return pd.DataFrame()
+        return self.recorder.query_service_events(session_id)
+
     # --- Convenience ---
 
     def persist_daily_metrics(
@@ -141,3 +148,10 @@ class PersistenceCoordinator:
                 "latest_portfolio": {},
             }
         return build_performance_report(self, session_id)
+
+    def close(self) -> None:
+        if self.recorder is None:
+            return
+        close = getattr(self.recorder, "close", None)
+        if callable(close):
+            close()

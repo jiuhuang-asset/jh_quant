@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
-from ..config import SelectionSpec, StrategySpec
+from ..config import PortfolioSpec, SelectionSpec, SignalGatewayServiceConfig, StrategySpec
 
 
 class HealthResponse(BaseModel):
@@ -84,10 +84,22 @@ class PerformanceSnapshotResponse(BaseModel):
 
 class ServiceConfigResponse(BaseModel):
     session_id: str = Field(description="Session ID for the service configuration snapshot.")
+    config_bundle: SignalGatewayServiceConfig = Field(description="Unified service configuration bundle.")
     service: Dict[str, Any] = Field(description="Service-level configuration.")
     selection_spec: Optional[Dict[str, Any]] = Field(default=None, description="Current selection spec.")
     selection_provider: Dict[str, Any] = Field(default_factory=dict, description="Selection provider configuration.")
     strategy_specs: List[Dict[str, Any]] = Field(default_factory=list, description="Configured strategy specs.")
+    portfolio_spec: Optional[Dict[str, Any]] = Field(default=None, description="Current portfolio spec.")
+
+
+class ServiceConfigUpdateRequest(BaseModel):
+    config_bundle: SignalGatewayServiceConfig = Field(description="Unified service configuration bundle to apply.")
+
+
+class ServiceConfigUpdateResponse(BaseModel):
+    status: str = Field(description="Unified service config update result.")
+    session_id: str = Field(description="Session ID for the updated service.")
+    config_bundle: SignalGatewayServiceConfig = Field(description="Current unified service configuration bundle.")
 
 
 class ConfigurableComponentDefinition(BaseModel):
@@ -97,6 +109,13 @@ class ConfigurableComponentDefinition(BaseModel):
         default_factory=list,
         description="Dependencies injected by the service at runtime and not expected from the API caller.",
     )
+
+
+class PortfolioOptimizerDefinitionResponse(BaseModel):
+    name: str = Field(description="Portfolio optimizer name.")
+    params_schema: Dict[str, Any] = Field(default_factory=dict)
+    optional_dependency: Optional[str] = Field(default=None)
+    notes: List[str] = Field(default_factory=list)
 
 
 class AnalyticsSnapshotResponse(BaseModel):
@@ -145,6 +164,12 @@ class SchedulerConfigUpdateResponse(BaseModel):
     auto_start: bool = Field(description="Updated auto-start configuration.")
 
 
+class SchedulerConfigSnapshotResponse(BaseModel):
+    running: bool = Field(description="Whether the scheduler is currently running.")
+    auto_start: bool = Field(description="Current auto-start configuration.")
+    scheduler: SchedulerStatus = Field(description="Current scheduler configuration and status.")
+
+
 class SelectionConfigUpdateResponse(BaseModel):
     status: str = Field(description="Selection provider configuration update result.")
     name: str = Field(description="Updated selection provider name.")
@@ -163,6 +188,89 @@ class SelectionConfigSnapshotResponse(BaseModel):
         default_factory=list,
         description="Available registered selection providers and their editable params schema.",
     )
+
+
+class PortfolioConfigUpdateRequest(BaseModel):
+    portfolio_spec: PortfolioSpec = Field(description="Portfolio configuration spec.")
+
+
+class PortfolioConfigUpdateResponse(BaseModel):
+    status: str = Field(description="Portfolio config update result.")
+    portfolio_spec: PortfolioSpec = Field(description="Current portfolio spec.")
+
+
+class PortfolioConfigSnapshotResponse(BaseModel):
+    portfolio_spec: PortfolioSpec = Field(description="Current portfolio spec.")
+    available_optimizers: List[PortfolioOptimizerDefinitionResponse] = Field(
+        default_factory=list,
+        description="Available portfolio optimizers and config schema.",
+    )
+
+
+class PortfolioOptimizeRequest(BaseModel):
+    as_of_date: Optional[str] = Field(default=None, description="Optimization end date in YYYY-MM-DD format.")
+    preview_only: bool = Field(default=True, description="Whether to only preview optimization results.")
+    symbols: Optional[List[str]] = Field(default=None, description="Optional explicit symbol override.")
+
+
+class PortfolioOptimizeResponse(BaseModel):
+    status: str = Field(description="Optimization result status.")
+    optimizer: str = Field(description="Optimizer name.")
+    as_of_date: str = Field(description="Optimization date.")
+    symbols: List[str] = Field(default_factory=list, description="Universe used in optimization.")
+    weights: List[Dict[str, Any]] = Field(default_factory=list, description="Target portfolio weights.")
+    diagnostics: Dict[str, Any] = Field(default_factory=dict, description="Optimization diagnostics.")
+    preview_only: bool = Field(default=True, description="Whether the result is preview-only.")
+
+
+class PortfolioAnalysisResponse(BaseModel):
+    portfolio_spec: PortfolioSpec = Field(description="Current portfolio spec.")
+    current_portfolio: Dict[str, Any] = Field(default_factory=dict, description="Current holding snapshot.")
+    drift: Dict[str, Any] = Field(default_factory=dict, description="Current vs target drift snapshot.")
+    latest_optimization: Optional[Dict[str, Any]] = Field(default=None, description="Latest optimization payload.")
+    latest_rebalance: Optional[Dict[str, Any]] = Field(default=None, description="Latest rebalance payload.")
+
+
+class PortfolioHistoryResponse(BaseModel):
+    weight_history: List[Dict[str, Any]] = Field(default_factory=list)
+    portfolio_value_history: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class ServiceEventRecordResponse(BaseModel):
+    event_type: str = Field(description="Persisted service event type.")
+    event_time: Optional[str] = Field(default=None, description="Persisted event timestamp.")
+    export_time: Optional[str] = Field(default=None, description="Snapshot export timestamp.")
+    state_data: Dict[str, Any] = Field(default_factory=dict, description="Persisted service state payload.")
+
+
+class ServiceEventHistoryResponse(BaseModel):
+    session_id: str = Field(description="Session ID for the service event history.")
+    count: int = Field(description="Number of returned service events.")
+    events: List[ServiceEventRecordResponse] = Field(default_factory=list, description="Persisted service events.")
+
+
+class PortfolioRebalanceRequest(BaseModel):
+    as_of_date: Optional[str] = Field(default=None, description="Rebalance date in YYYY-MM-DD format.")
+    preview_only: bool = Field(default=True, description="Whether to only preview rebalance orders.")
+    symbols: Optional[List[str]] = Field(default=None, description="Optional explicit symbol override.")
+    force: bool = Field(default=False, description="Whether to bypass rebalance policy checks.")
+
+
+class PortfolioRebalanceResponse(BaseModel):
+    status: str = Field(description="Rebalance result status.")
+    as_of_date: str = Field(description="Rebalance date.")
+    preview_only: bool = Field(default=True, description="Whether the response is a preview.")
+    should_rebalance: bool = Field(default=False, description="Whether rebalance policy allows execution.")
+    reason: str = Field(default="", description="Reason for the rebalance decision.")
+    target_allocations: List[Dict[str, Any]] = Field(default_factory=list, description="Target allocation plan.")
+    buy_orders: List[Dict[str, Any]] = Field(default_factory=list, description="Buy order plan.")
+    sell_orders: List[Dict[str, Any]] = Field(default_factory=list, description="Sell order plan.")
+    projected_buy_cost: float = Field(default=0.0)
+    projected_sell_value: float = Field(default=0.0)
+    projected_cash_after: float = Field(default=0.0)
+    drift: Dict[str, Any] = Field(default_factory=dict)
+    executed_buy_count: int = Field(default=0)
+    executed_sell_count: int = Field(default=0)
 
 
 @dataclass
