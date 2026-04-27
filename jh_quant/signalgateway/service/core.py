@@ -5,53 +5,36 @@ import uuid
 from dataclasses import asdict
 from datetime import datetime, timedelta
 from threading import Event, Lock, Thread
-from typing import Any, Callable, Dict, List, Optional, Protocol, runtime_checkable
+from typing import Any, Callable, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
 import pandas as pd
-from pydantic import BaseModel, Field
 
-from .config import (
-    ServiceConfig,
-    StrategySpec,
-    STRATEGY_REGISTRY,
+from ..config import (
     SELECTION_PROVIDER_REGISTRY,
+    STRATEGY_REGISTRY,
     SelectionProvider,
     SelectionSpec,
+    ServiceConfig,
+    StrategySpec,
 )
-from .models import (
+from ..models import Order
+from ..persistence import PersistenceCoordinator
+from ..signalgateway import SignalGateway
+from .schemas import (
     AnalyticsSnapshotResponse,
-    HealthResponse,
-    Order,
+    CloseAllPositionsResponse,
     PerformanceSnapshotResponse,
     RuntimeSnapshotResponse,
-    SchedulerConfigUpdateRequest,
     SchedulerConfigUpdateResponse,
     SchedulerStatus,
-    SelectionSnapshot,
-    ServiceActionResponse,
     ServiceConfigResponse,
     ServiceStatusResponse,
-    StrategyConfigUpdateResponse,
+    SingleSymbolTradeResponse,
     TradingCycleResult,
     TradingCycleResultResponse,
-    CloseAllPositionsResponse,
-    SingleSymbolTradeResponse,
 )
-from .models.db import (
-    TORTOISE_ORM_AVAILABLE,
-    require_tortoise_orm,
-)
-from .persistence import PersistenceCoordinator
-from .signalgateway import SignalGateway
 
-
-"""
-TODO:
-- blacklist(禁用逻辑， 需要新增models -> session相关) + 用户自选逻辑(-> selections 里面， 通过api)
-- session id可选
-- dnn strategy
-"""
 
 class CronScheduler:
     """Simple cron-based scheduler backed by croniter."""
@@ -68,12 +51,6 @@ class CronScheduler:
         next_tick = self._iter.get_next(datetime)
         return max(0.0, (next_tick - datetime.now(self._tzinfo)).total_seconds())
 
-    def peek_next_tick(self) -> datetime:
-        from croniter import croniter
-
-        preview_iter = croniter(self.cron_expr, datetime.now(self._tzinfo))
-        return preview_iter.get_next(datetime)
-
     def peek_next_ticks(self, count: int = 3) -> List[datetime]:
         from croniter import croniter
 
@@ -81,12 +58,8 @@ class CronScheduler:
         return [preview_iter.get_next(datetime) for _ in range(max(0, count))]
 
     def wait(self, stop_event: Event) -> bool:
-        """Return True when the next tick is reached, False if stopped early."""
         timeout = self.get_next_timeout()
         return not stop_event.wait(timeout=timeout)
-
-
-
 
 
 class SignalGatewayService:
@@ -107,7 +80,6 @@ class SignalGatewayService:
         self.llm_handler = llm_handler
         self.persistence = persistence or PersistenceCoordinator()
 
-        # 支持通过 SelectionSpec 或直接传入 SelectionProvider
         if selection_spec is not None:
             self.selection_provider = self._build_selection_instance(selection_spec)
             self.selection_specs = selection_spec
@@ -170,7 +142,6 @@ class SignalGatewayService:
         return provider_cls(**spec.params)
 
     def configure_selection(self, selection_spec: SelectionSpec):
-        """根据 SelectionSpec 动态配置 SelectionProvider"""
         with self._lock:
             provider = self._build_selection_instance(selection_spec)
             self.selection_provider = provider
@@ -215,7 +186,10 @@ class SignalGatewayService:
                     raise ValueError("cron preview returned no next tick")
                 next_run_at = next_tick.isoformat()
                 next_run_in_seconds = round(
-                    max(0.0, (next_tick - datetime.now(ZoneInfo(self.config.timezone))).total_seconds()),
+                    max(
+                        0.0,
+                        (next_tick - datetime.now(ZoneInfo(self.config.timezone))).total_seconds(),
+                    ),
                     2,
                 )
             except Exception:
@@ -227,7 +201,10 @@ class SignalGatewayService:
                 base_time = datetime.fromisoformat(self._last_result.cycle_time)
                 next_tick = base_time + timedelta(seconds=self.config.interval_seconds)
                 next_run_at = next_tick.isoformat()
-                next_run_in_seconds = round(max(0.0, (next_tick - datetime.now()).total_seconds()), 2)
+                next_run_in_seconds = round(
+                    max(0.0, (next_tick - datetime.now()).total_seconds()),
+                    2,
+                )
                 next_runs = [
                     (next_tick + timedelta(seconds=self.config.interval_seconds * offset)).isoformat()
                     for offset in range(3)
@@ -303,11 +280,6 @@ class SignalGatewayService:
         dt = datetime.strptime(as_of_date, "%Y-%m-%d")
         return (dt - timedelta(days=self.config.price_lookback_days)).strftime("%Y-%m-%d")
 
-    def _latest_prices_from_price(self, price: pd.DataFrame) -> pd.Series:
-        if price.empty:
-            return pd.Series(dtype=float)
-        return price.sort_values(["symbol", "date"]).groupby("symbol")["close"].last()
-
     def _records_from_frame(self, frame: pd.DataFrame) -> List[Dict[str, Any]]:
         if frame is None or frame.empty:
             return []
@@ -330,11 +302,6 @@ class SignalGatewayService:
         if isinstance(value, datetime):
             return value.isoformat()
         return value
-
-    def _update_hold_market_value(self, latest_prices: pd.Series):
-        if hasattr(self.gateway.oms, "update_position_market_value"):
-            prices_dict = latest_prices.to_dict()
-            self.gateway.oms.update_position_market_value(prices_dict)
 
     def _apply_slippage(self, price: float, trade_type: str) -> float:
         if self.config.price_slippage <= 0:
@@ -365,7 +332,9 @@ class SignalGatewayService:
         for trade in trades:
             self.persistence.persist_trade(trade)
 
-    def _serialize_result(self, result: Optional[TradingCycleResult]) -> Optional[TradingCycleResultResponse]:
+    def _serialize_result(
+        self, result: Optional[TradingCycleResult]
+    ) -> Optional[TradingCycleResultResponse]:
         if result is None:
             return None
         return TradingCycleResultResponse(**asdict(result))
@@ -552,15 +521,6 @@ class SignalGatewayService:
         self._persist_runtime_state(extra={"event": "service_stopped"})
 
     def close_all_positions(self, slippage: float = 0.0) -> CloseAllPositionsResponse:
-        """
-        清空所有可执行持仓
-
-        Args:
-            slippage: 滑点比例
-
-        Returns:
-            CloseAllPositionsResponse
-        """
         with self._lock:
             holdings = self.gateway.oms.executable_holds
             if not holdings:
@@ -576,7 +536,7 @@ class SignalGatewayService:
             return CloseAllPositionsResponse(
                 status="success",
                 closed_count=len(trades),
-                executed_trades=[asdict(t) for t in trades],
+                executed_trades=[trade.model_dump(mode="json") for trade in trades],
             )
 
     def signal_buy_symbol(
@@ -585,17 +545,6 @@ class SignalGatewayService:
         target_qty: Optional[int] = None,
         slippage: float = 0.0,
     ) -> SingleSymbolTradeResponse:
-        """
-        对指定股票执行买入信号
-
-        Args:
-            symbol: 股票代码
-            target_qty: 目标数量，默认使用头寸计算器计算
-            slippage: 滑点比例
-
-        Returns:
-            SingleSymbolTradeResponse
-        """
         with self._lock:
             latest_prices = self.gateway.get_latest_prices([symbol])
             if latest_prices.empty or symbol not in latest_prices.index:
@@ -604,7 +553,7 @@ class SignalGatewayService:
                     action="signal_buy",
                     symbol=symbol,
                     executed=False,
-                    message=f"无法获取 {symbol} 的最新价格",
+                    message=f"Unable to get latest price for {symbol}",
                 )
 
             price = latest_prices[symbol]
@@ -619,7 +568,7 @@ class SignalGatewayService:
                         action="signal_buy",
                         symbol=symbol,
                         executed=False,
-                        message=f"可用资金不足: {available_balance}",
+                        message=f"Insufficient available balance: {available_balance}",
                     )
                 target_qty = int(available_balance // exec_price)
                 if target_qty <= 0:
@@ -628,7 +577,7 @@ class SignalGatewayService:
                         action="signal_buy",
                         symbol=symbol,
                         executed=False,
-                        message=f"可用资金不足以买入至少1股 (价格: {exec_price})",
+                        message=f"Available balance is too low to buy a single share at {exec_price}",
                     )
 
             try:
@@ -641,16 +590,16 @@ class SignalGatewayService:
                     action="signal_buy",
                     symbol=symbol,
                     executed=True,
-                    trade=asdict(trade),
-                    message=f"买入 {symbol} {target_qty} 股 @ {exec_price:.2f}",
+                    trade=trade.model_dump(mode="json"),
+                    message=f"Bought {symbol} {target_qty} shares @ {exec_price:.2f}",
                 )
-            except Exception as e:
+            except Exception as exc:
                 return SingleSymbolTradeResponse(
                     status="error",
                     action="signal_buy",
                     symbol=symbol,
                     executed=False,
-                    message=f"买入失败: {e}",
+                    message=f"Buy failed: {exc}",
                 )
 
     def signal_sell_symbol(
@@ -659,17 +608,6 @@ class SignalGatewayService:
         target_qty: Optional[int] = None,
         slippage: float = 0.0,
     ) -> SingleSymbolTradeResponse:
-        """
-        对指定股票执行卖出信号
-
-        Args:
-            symbol: 股票代码
-            target_qty: 目标数量，不填则卖出全部持仓
-            slippage: 滑点比例
-
-        Returns:
-            SingleSymbolTradeResponse
-        """
         with self._lock:
             positions = self.gateway.oms.get_positions()
             holdings_map = {h.symbol: h for h in positions.holds}
@@ -680,7 +618,7 @@ class SignalGatewayService:
                     action="signal_sell",
                     symbol=symbol,
                     executed=False,
-                    message=f"没有 {symbol} 的持仓",
+                    message=f"No holdings found for {symbol}",
                 )
 
             holding = holdings_map[symbol]
@@ -691,7 +629,7 @@ class SignalGatewayService:
                     action="signal_sell",
                     symbol=symbol,
                     executed=False,
-                    message=f"无法获取 {symbol} 的最新价格",
+                    message=f"Unable to get latest price for {symbol}",
                 )
 
             price = latest_prices[symbol]
@@ -714,16 +652,14 @@ class SignalGatewayService:
                     action="signal_sell",
                     symbol=symbol,
                     executed=True,
-                    trade=asdict(trade),
-                    message=f"卖出 {symbol} {sell_qty} 股 @ {exec_price:.2f}, PnL: {pnl:.2f} ({pnl_pct:.2f}%)",
+                    trade=trade.model_dump(mode="json"),
+                    message=f"Sold {symbol} {sell_qty} shares @ {exec_price:.2f}, PnL: {pnl:.2f} ({pnl_pct:.2f}%)",
                 )
-            except Exception as e:
+            except Exception as exc:
                 return SingleSymbolTradeResponse(
                     status="error",
                     action="signal_sell",
                     symbol=symbol,
                     executed=False,
-                    message=f"卖出失败: {e}",
+                    message=f"Sell failed: {exc}",
                 )
-
-

@@ -23,8 +23,10 @@ try:
 except ImportError:  # pragma: no cover - optional dependency at runtime
     uvicorn = None
 
-from .config import StrategySpec, SelectionSpec
-from .models import (
+from ..config import SelectionSpec, StrategySpec
+from ..utils import print_service_startup_summary
+from .core import SignalGatewayService
+from .schemas import (
     AnalyticsSnapshotResponse,
     CloseAllPositionsRequest,
     CloseAllPositionsResponse,
@@ -34,7 +36,6 @@ from .models import (
     SchedulerConfigUpdateRequest,
     SchedulerConfigUpdateResponse,
     SelectionConfigUpdateResponse,
-    SelectionSpec,
     ServiceActionResponse,
     ServiceConfigResponse,
     ServiceStatusResponse,
@@ -43,8 +44,6 @@ from .models import (
     StrategyConfigUpdateResponse,
     TradingCycleResultResponse,
 )
-from .service import SignalGatewayService
-from .utils import print_service_startup_summary
 
 
 def _mount_mcp_server(app) -> None:
@@ -55,7 +54,7 @@ def _mount_mcp_server(app) -> None:
     mount_http = getattr(mcp, "mount_http", None)
     if callable(mount_http):
         mount_http()
-    else:  # pragma: no cover - compatibility with older fastapi-mcp releases
+    else:  # pragma: no cover
         mcp.mount()
 
 
@@ -73,33 +72,15 @@ def create_service_app(service: SignalGatewayService):
             allow_headers=["*"],
         )
 
-    @app.get(
-        "/health",
-        response_model=HealthResponse,
-        operation_id="health_check",
-        summary="检查服务健康状态",
-        description="返回基础健康检查结果，用于确认 HTTP 服务可访问。",
-    )
+    @app.get("/health", response_model=HealthResponse, operation_id="health_check")
     def health():
         return HealthResponse(status="ok")
 
-    @app.get(
-        "/service/status",
-        response_model=ServiceStatusResponse,
-        operation_id="get_service_status",
-        summary="查看服务状态",
-        description="返回调度器运行状态、最近一次执行结果以及最近错误信息。",
-    )
+    @app.get("/service/status", response_model=ServiceStatusResponse, operation_id="get_service_status")
     def service_status():
         return service.get_status()
 
-    @app.get(
-        "/service/runtime",
-        response_model=RuntimeSnapshotResponse,
-        operation_id="get_service_runtime",
-        summary="查看运行时持仓快照",
-        description="返回当前持仓、账户状态以及 OMS 导出的运行时信息。",
-    )
+    @app.get("/service/runtime", response_model=RuntimeSnapshotResponse, operation_id="get_service_runtime")
     def service_runtime():
         return service.get_runtime_snapshot()
 
@@ -107,8 +88,6 @@ def create_service_app(service: SignalGatewayService):
         "/service/performance",
         response_model=PerformanceSnapshotResponse,
         operation_id="get_service_performance",
-        summary="查看绩效快照",
-        description="返回收益、换手率、净值曲线和持仓暴露等绩效分析结果。",
     )
     def service_performance():
         return service.get_performance_snapshot()
@@ -117,51 +96,25 @@ def create_service_app(service: SignalGatewayService):
         "/service/analytics",
         response_model=AnalyticsSnapshotResponse,
         operation_id="get_service_analytics",
-        summary="查看综合分析快照",
-        description="聚合返回服务状态、运行时、绩效和配置快照，适合 agent 一次性读取全局状态。",
     )
     def service_analytics():
         return service.get_analysis_snapshot()
 
-    @app.get(
-        "/service/config",
-        response_model=ServiceConfigResponse,
-        operation_id="get_service_config",
-        summary="查看当前服务配置",
-        description="返回服务配置、选股器配置和已启用策略配置。",
-    )
+    @app.get("/service/config", response_model=ServiceConfigResponse, operation_id="get_service_config")
     def service_config():
         return service.get_config_snapshot()
 
-    @app.post(
-        "/service/start",
-        response_model=ServiceActionResponse,
-        operation_id="start_service",
-        summary="启动调度服务",
-        description="启动 SignalGateway 调度器。该操作有副作用，会开始按当前调度配置自动执行交易周期。",
-    )
+    @app.post("/service/start", response_model=ServiceActionResponse, operation_id="start_service")
     def service_start():
         service.start()
         return ServiceActionResponse(status="started", session_id=service.config.session_id)
 
-    @app.post(
-        "/service/stop",
-        response_model=ServiceActionResponse,
-        operation_id="stop_service",
-        summary="停止调度服务",
-        description="停止 SignalGateway 调度器。该操作有副作用，会终止后续自动调度。",
-    )
+    @app.post("/service/stop", response_model=ServiceActionResponse, operation_id="stop_service")
     def service_stop():
         service.stop()
         return ServiceActionResponse(status="stopped", session_id=service.config.session_id)
 
-    @app.post(
-        "/service/run-once",
-        response_model=TradingCycleResultResponse,
-        operation_id="run_service_once",
-        summary="执行一次交易周期",
-        description="立即执行一次选股、信号生成和订单处理流程，但不会改变调度器是否持续运行。",
-    )
+    @app.post("/service/run-once", response_model=TradingCycleResultResponse, operation_id="run_service_once")
     def run_once():
         result = service.run_once()
         return TradingCycleResultResponse(**asdict(result))
@@ -170,8 +123,6 @@ def create_service_app(service: SignalGatewayService):
         "/service/strategy-config",
         response_model=StrategyConfigUpdateResponse,
         operation_id="update_strategy_config",
-        summary="更新策略配置",
-        description="使用新的策略列表替换当前策略配置。该操作有副作用，会影响后续交易周期的信号生成。",
     )
     def update_strategy_config(strategy_specs: List[StrategySpec]):
         service.configure_strategies(strategy_specs)
@@ -181,8 +132,6 @@ def create_service_app(service: SignalGatewayService):
         "/service/selection-config",
         response_model=SelectionConfigUpdateResponse,
         operation_id="update_selection_config",
-        summary="更新选股器配置",
-        description="切换或更新选股器配置。该操作有副作用，会影响后续候选标的集合。",
     )
     def update_selection_config(selection_spec: SelectionSpec):
         service.configure_selection(selection_spec)
@@ -192,12 +141,7 @@ def create_service_app(service: SignalGatewayService):
             alias=selection_spec.alias,
         )
 
-    @app.get(
-        "/service/selection-config",
-        operation_id="get_selection_config",
-        summary="查看选股器配置",
-        description="返回当前选股器的配置快照。",
-    )
+    @app.get("/service/selection-config", operation_id="get_selection_config")
     def get_selection_config():
         return {
             "selection_provider": getattr(service.selection_provider, "config", {}),
@@ -207,8 +151,6 @@ def create_service_app(service: SignalGatewayService):
         "/service/scheduler-config",
         response_model=SchedulerConfigUpdateResponse,
         operation_id="update_scheduler_config",
-        summary="更新调度配置",
-        description="更新轮询间隔、cron 表达式、时区或自动启动配置。该操作有副作用，会影响后续自动执行时间。",
     )
     def update_scheduler_config(request: SchedulerConfigUpdateRequest):
         return service.update_scheduler_config(
@@ -222,8 +164,6 @@ def create_service_app(service: SignalGatewayService):
         "/service/close-all-positions",
         response_model=CloseAllPositionsResponse,
         operation_id="close_all_positions",
-        summary="一键平掉全部持仓",
-        description="按当前持仓批量发出卖出指令。该操作有强副作用，会尝试清空全部仓位。",
     )
     def close_all_positions(request: CloseAllPositionsRequest):
         return service.close_all_positions(slippage=request.slippage)
@@ -232,8 +172,6 @@ def create_service_app(service: SignalGatewayService):
         "/service/signal-buy",
         response_model=SingleSymbolTradeResponse,
         operation_id="signal_buy_symbol",
-        summary="对单个标的执行买入信号",
-        description="针对指定标的发出买入指令。该操作有副作用，会触发实际下单或模拟下单。",
     )
     def signal_buy_symbol(request: SingleSymbolTradeRequest):
         return service.signal_buy_symbol(
@@ -246,8 +184,6 @@ def create_service_app(service: SignalGatewayService):
         "/service/signal-sell",
         response_model=SingleSymbolTradeResponse,
         operation_id="signal_sell_symbol",
-        summary="对单个标的执行卖出信号",
-        description="针对指定标的发出卖出指令。该操作有副作用，会触发实际下单或模拟下单。",
     )
     def signal_sell_symbol(request: SingleSymbolTradeRequest):
         return service.signal_sell_symbol(

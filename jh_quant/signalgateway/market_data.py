@@ -181,7 +181,7 @@ class HistoricalDataProvider(MarketDataProvider):
         )
 
 
-class JHMarketData(MarketDataProvider):
+class JHMarketDataProvider(MarketDataProvider):
     def __init__(
         self,
         jhd: Optional[JHData] = None,
@@ -281,7 +281,7 @@ class JHMarketData(MarketDataProvider):
         return price_df.sort_values(["symbol", "date"]).copy()
 
     def subscribe(self, symbols: List[str]) -> None:
-        raise NotImplementedError("JHMarketData doesn't support real-time subscription")
+        raise NotImplementedError("JHMarketDataProvider doesn't support real-time subscription")
 
     def unsubscribe(self, symbols: List[str]) -> None:
         return None

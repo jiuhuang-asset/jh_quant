@@ -8,6 +8,7 @@ Provides persistence layer components:
 """
 
 from .coordinator import PersistenceCoordinator
+from .models import TORTOISE_ORM_AVAILABLE, require_tortoise_orm
 from .protocols import (
     PerformancePersistence,
     PositionPersistence,
@@ -25,6 +26,7 @@ from .recorder import (
 
 __all__ = [
     "PersistenceCoordinator",
+    "TORTOISE_ORM_AVAILABLE",
     "PerformancePersistence",
     "PositionPersistence",
     "ServiceStatePersistence",
@@ -35,4 +37,5 @@ __all__ = [
     "SQLiteOrderRecorder",
     "PostgresOrderRecorder",
     "MemFireCloudRecorder",
+    "require_tortoise_orm",
 ]

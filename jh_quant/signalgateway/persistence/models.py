@@ -129,3 +129,14 @@ else:
 
     class ServiceStateRecord:  # pragma: no cover - import fallback
         pass
+
+
+__all__ = [
+    "TORTOISE_ORM_AVAILABLE",
+    "DailyPerformanceRecord",
+    "PositionSnapshotRecord",
+    "ServiceStateRecord",
+    "SessionStateRecord",
+    "TradeRecord",
+    "require_tortoise_orm",
+]

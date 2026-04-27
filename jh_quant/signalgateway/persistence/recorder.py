@@ -16,14 +16,16 @@ import pandas as pd
 
 from ..models import (
     DailyPerformance,
-    DailyPerformanceRecord,
     PositionSnapshot,
+    Trade,
+    normalize_jsonable_value,
+)
+from .models import (
+    DailyPerformanceRecord,
     PositionSnapshotRecord,
     ServiceStateRecord,
     SessionStateRecord,
-    Trade,
     TradeRecord,
-    normalize_jsonable_value,
     require_tortoise_orm,
 )
 from .protocols import (
@@ -36,7 +38,11 @@ from .protocols import (
 
 
 def _module_path() -> str:
-    return f"{__package__}.models" if __package__ else "jh_quant.signalgateway.models"
+    return (
+        f"{__package__}.models"
+        if __package__
+        else "jh_quant.signalgateway.persistence.models"
+    )
 
 
 def _as_datetime(value: Any) -> datetime:

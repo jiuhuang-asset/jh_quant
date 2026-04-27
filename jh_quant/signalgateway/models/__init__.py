@@ -1,42 +1,16 @@
 """
-Core domain and persistence models for the signalgateway trading system.
+Core domain models for the signalgateway trading system.
 """
 
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any, List, Optional
 
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-
-from .db import (
-    TORTOISE_ORM_AVAILABLE,
-    require_tortoise_orm,
-    TradeRecord,
-    DailyPerformanceRecord,
-    PositionSnapshotRecord,
-    SessionStateRecord,
-    ServiceStateRecord,
-)
-from .request_and_response import (
-    AnalyticsSnapshotResponse,
-    HealthResponse,
-    PerformanceSnapshotResponse,
-    RuntimeSnapshotResponse,
-    SchedulerConfigUpdateRequest,
-    SchedulerConfigUpdateResponse,
-    SchedulerStatus,
-    SelectionConfigUpdateResponse,
-    SelectionSnapshot,
-    ServiceActionResponse,
-    ServiceConfigResponse,
-    ServiceStatusResponse,
-    StrategyConfigUpdateResponse,
-    TradingCycleResult,
-    TradingCycleResultResponse,
-)
 
 
 def normalize_persistence_value(value: Any) -> Any:
@@ -94,6 +68,13 @@ class PersistenceModel(BaseModel):
             key: normalize_persistence_value(value)
             for key, value in self.model_dump().items()
         }
+
+
+@dataclass
+class SelectionSnapshot:
+    top_selections: List[str]
+    bottom_selections: List[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class StockHoldRecord(BaseModel):
@@ -178,3 +159,17 @@ class PositionSnapshot(PersistenceModel):
     market_value: float
     pnl: Optional[float] = None
     pnl_pct: Optional[float] = None
+
+
+__all__ = [
+    "DailyPerformance",
+    "Order",
+    "PersistenceModel",
+    "PositionSnapshot",
+    "Positions",
+    "SelectionSnapshot",
+    "StockHoldRecord",
+    "Trade",
+    "normalize_jsonable_value",
+    "normalize_persistence_value",
+]
