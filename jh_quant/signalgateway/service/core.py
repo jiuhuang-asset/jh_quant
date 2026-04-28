@@ -33,6 +33,7 @@ from ..portfolio import (
     optimize_portfolio_preview,
 )
 from ..signalgateway import SignalGateway
+from ..utils import rprint
 from .schemas import (
     AnalyticsSnapshotResponse,
     CloseAllPositionsResponse,
@@ -429,6 +430,142 @@ class SignalGatewayService:
             return price * (1 + self.config.price_slippage)
         return price * (1 - self.config.price_slippage)
 
+    def _log_execution_branch(self, branch: str, message: str) -> None:
+        rprint(label=f"Service:{branch}", content=message)
+
+    def _filter_sell_orders_by_executable_holdings(
+        self,
+        sell_orders: pd.DataFrame,
+        latest_prices: pd.Series,
+    ) -> tuple[pd.DataFrame, list[dict[str, Any]], float]:
+        if sell_orders is None or sell_orders.empty:
+            return pd.DataFrame(columns=["symbol", "target_qty"]), [], 0.0
+
+        executable_map = {
+            hold.symbol: int(hold.volume)
+            for hold in self.gateway.oms.executable_holds
+            if int(hold.volume) > 0
+        }
+        executable_rows: list[dict[str, int]] = []
+        blocked_rows: list[dict[str, Any]] = []
+        projected_sell_value = 0.0
+
+        for _, row in sell_orders.iterrows():
+            symbol = str(row["symbol"])
+            requested_qty = int(row["target_qty"])
+            executable_qty = int(executable_map.get(symbol, 0))
+            allowed_qty = min(requested_qty, executable_qty)
+
+            if allowed_qty <= 0:
+                blocked_rows.append(
+                    {
+                        "symbol": symbol,
+                        "requested_qty": requested_qty,
+                        "executable_qty": executable_qty,
+                        "reason": "not_in_executable_holds",
+                    }
+                )
+                continue
+
+            if allowed_qty < requested_qty:
+                blocked_rows.append(
+                    {
+                        "symbol": symbol,
+                        "requested_qty": requested_qty,
+                        "executable_qty": executable_qty,
+                        "reason": "capped_by_executable_holds",
+                    }
+                )
+
+            executable_rows.append({"symbol": symbol, "target_qty": allowed_qty})
+            if symbol in latest_prices.index:
+                projected_sell_value += float(latest_prices[symbol]) * float(allowed_qty)
+
+        filtered_orders = pd.DataFrame(executable_rows, columns=["symbol", "target_qty"])
+        return filtered_orders, blocked_rows, projected_sell_value
+
+    def _cap_buy_orders_to_cash_budget(
+        self,
+        buy_orders: pd.DataFrame,
+        latest_prices: pd.Series,
+        cash_budget: float,
+    ) -> tuple[pd.DataFrame, list[dict[str, Any]], float]:
+        if buy_orders is None or buy_orders.empty:
+            return pd.DataFrame(columns=["symbol", "target_qty"]), [], 0.0
+
+        lot_size = max(1, int(self.portfolio_spec.lot_size))
+        remaining_cash = max(0.0, float(cash_budget))
+        executable_rows: list[dict[str, int]] = []
+        blocked_rows: list[dict[str, Any]] = []
+        projected_buy_cost = 0.0
+
+        for _, row in buy_orders.iterrows():
+            symbol = str(row["symbol"])
+            requested_qty = int(row["target_qty"])
+            if requested_qty <= 0:
+                continue
+            if symbol not in latest_prices.index:
+                blocked_rows.append(
+                    {
+                        "symbol": symbol,
+                        "requested_qty": requested_qty,
+                        "allowed_qty": 0,
+                        "reason": "missing_latest_price",
+                    }
+                )
+                continue
+
+            latest_price = float(latest_prices[symbol])
+            if latest_price <= 0:
+                blocked_rows.append(
+                    {
+                        "symbol": symbol,
+                        "requested_qty": requested_qty,
+                        "allowed_qty": 0,
+                        "reason": "invalid_latest_price",
+                    }
+                )
+                continue
+
+            requested_cost = latest_price * requested_qty
+            if requested_cost <= remaining_cash + 1e-9:
+                allowed_qty = requested_qty
+            elif not self.portfolio_spec.allow_partial_rebalance:
+                allowed_qty = 0
+            else:
+                affordable_lots = int(remaining_cash // (latest_price * lot_size))
+                allowed_qty = affordable_lots * lot_size
+                allowed_qty = min(allowed_qty, requested_qty)
+
+            if allowed_qty <= 0:
+                blocked_rows.append(
+                    {
+                        "symbol": symbol,
+                        "requested_qty": requested_qty,
+                        "allowed_qty": 0,
+                        "reason": "insufficient_cash_after_t1_filter",
+                    }
+                )
+                continue
+
+            if allowed_qty < requested_qty:
+                blocked_rows.append(
+                    {
+                        "symbol": symbol,
+                        "requested_qty": requested_qty,
+                        "allowed_qty": allowed_qty,
+                        "reason": "partially_capped_by_cash_budget",
+                    }
+                )
+
+            cost = latest_price * allowed_qty
+            executable_rows.append({"symbol": symbol, "target_qty": allowed_qty})
+            projected_buy_cost += cost
+            remaining_cash -= cost
+
+        filtered_orders = pd.DataFrame(executable_rows, columns=["symbol", "target_qty"])
+        return filtered_orders, blocked_rows, projected_buy_cost
+
     def _persist_runtime_state(self, extra: Optional[Dict[str, Any]] = None):
         payload = {
             "session_id": self.config.session_id,
@@ -620,6 +757,10 @@ class SignalGatewayService:
 
         with self._lock:
             cycle_date = self._as_of_date(as_of_date)
+            self._log_execution_branch(
+                "portfolio",
+                f"组合调仓分支开始执行，cycle_date={cycle_date}, force={force}, preview_only={preview_only}",
+            )
             optimization = self.optimize_portfolio(
                 as_of_date=cycle_date,
                 symbols=symbols,
@@ -640,6 +781,21 @@ class SignalGatewayService:
                 latest_prices=latest_prices,
                 portfolio_spec=self.portfolio_spec,
             )
+            planned_sell_orders = pd.DataFrame(plan["sell_orders"])
+            executable_sell_orders, blocked_sell_orders, executable_sell_value = (
+                self._filter_sell_orders_by_executable_holdings(
+                    planned_sell_orders,
+                    latest_prices,
+                )
+            )
+            planned_buy_orders = pd.DataFrame(plan["buy_orders"])
+            cash_budget = float(positions_snapshot.get("available_balance") or 0.0) + executable_sell_value
+            executable_buy_orders, blocked_buy_orders, executable_buy_cost = self._cap_buy_orders_to_cash_budget(
+                planned_buy_orders,
+                latest_prices,
+                cash_budget,
+            )
+            projected_cash_after = cash_budget - executable_buy_cost
             should_rebalance, reason = self.should_rebalance_portfolio(
                 plan["drift"],
                 force=force,
@@ -652,23 +808,42 @@ class SignalGatewayService:
                 "should_rebalance": should_rebalance,
                 "reason": reason,
                 "target_allocations": plan["target_allocations"],
-                "buy_orders": plan["buy_orders"],
-                "sell_orders": plan["sell_orders"],
-                "projected_buy_cost": plan["projected_buy_cost"],
-                "projected_sell_value": plan["projected_sell_value"],
-                "projected_cash_after": plan["projected_cash_after"],
+                "buy_orders": executable_buy_orders.to_dict(orient="records"),
+                "sell_orders": executable_sell_orders.to_dict(orient="records"),
+                "projected_buy_cost": executable_buy_cost,
+                "projected_sell_value": executable_sell_value,
+                "projected_cash_after": projected_cash_after,
                 "drift": plan["drift"],
                 "executed_buy_count": 0,
                 "executed_sell_count": 0,
+                "execution_path": "portfolio_rebalance",
+                "blocked_sell_orders": blocked_sell_orders,
+                "blocked_buy_orders": blocked_buy_orders,
             }
+
+            self._log_execution_branch(
+                "portfolio",
+                (
+                    "组合调仓计划已生成，"
+                    f"sell_orders={len(payload['sell_orders'])}, "
+                    f"buy_orders={len(payload['buy_orders'])}, "
+                    f"blocked_sells={len(blocked_sell_orders)}, "
+                    f"blocked_buys={len(blocked_buy_orders)}"
+                ),
+            )
+            if blocked_sell_orders:
+                self._log_execution_branch(
+                    "portfolio",
+                    f"检测到 {len(blocked_sell_orders)} 笔卖单受 executable_holds / A股T+1 约束影响。",
+                )
 
             if preview_only or not should_rebalance:
                 self._latest_portfolio_rebalance = payload
                 self._persist_runtime_state(extra={"event": "portfolio_rebalance_preview"})
                 return payload
 
-            sell_orders = pd.DataFrame(plan["sell_orders"])
-            buy_orders = pd.DataFrame(plan["buy_orders"])
+            sell_orders = executable_sell_orders
+            buy_orders = executable_buy_orders
             executed_sells = self.gateway.execute_short(sell_orders, self.config.price_slippage) if not sell_orders.empty else []
             executed_buys = self.gateway.execute_long(buy_orders, self.config.price_slippage) if not buy_orders.empty else []
             self._persist_trades(executed_sells)
@@ -681,6 +856,10 @@ class SignalGatewayService:
             self._latest_portfolio_rebalance = payload
             self._last_portfolio_rebalance_at = datetime.now()
             self._persist_runtime_state(extra={"event": "portfolio_rebalanced"})
+            self._log_execution_branch(
+                "portfolio",
+                f"组合调仓执行完成，executed_sells={len(executed_sells)}, executed_buys={len(executed_buys)}",
+            )
             return payload
 
     def get_portfolio_analysis_snapshot(self) -> Dict[str, Any]:
@@ -808,6 +987,10 @@ class SignalGatewayService:
             portfolio_cycle_payload: Optional[Dict[str, Any]] = None
 
             if self.portfolio_spec.enabled:
+                self._log_execution_branch(
+                    "portfolio",
+                    "run_once 命中 portfolio_spec.enabled=True，使用组合优化/调仓分支，不走 gateway.execute_cycle。",
+                )
                 if top_selections:
                     portfolio_cycle_payload = self.rebalance_portfolio(
                         as_of_date=cycle_date,
@@ -826,6 +1009,10 @@ class SignalGatewayService:
                 executed_buy_count = int(portfolio_cycle_payload.get("executed_buy_count", 0))
                 executed_sell_count = int(portfolio_cycle_payload.get("executed_sell_count", 0))
             else:
+                self._log_execution_branch(
+                    "signals",
+                    "run_once 命中 portfolio_spec.enabled=False，使用标准信号分支 gateway.execute_cycle。",
+                )
                 executed_buys, executed_sells, long_candidates, short_candidates = self.gateway.execute_cycle(
                     top_selections=top_selections,
                     price_start=price_start,

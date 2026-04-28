@@ -28,7 +28,6 @@ def main() -> None:
     port = int(os.getenv("SIGNALGATEWAY_PORT", "8000"))
     auto_start_scheduler = os.getenv("SIGNALGATEWAY_AUTO_START", "0") == "1"
     # register_selection_provider("demo_selector", DemoSelectionProvider, config_model="")
-
     recorder = SQLiteOrderRecorder(db_path="mocktrade.db")
     persistence = PersistenceCoordinator(recorder=recorder)
     oms = MockOMS(
@@ -77,6 +76,16 @@ def main() -> None:
             weight=1.0,
             params=VolumeDivergenceStrategyConfig(),
         )
+        .with_portfolio(
+            enabled=True,
+            max_assets=5,
+            max_weight=0.5,
+            cash_reserve_ratio=0.05,
+            rebalance_policy=RebalancePolicySpec( 
+                mode=RebalanceMode.EVERY_CYCLE,  # 每次调整
+                drift_threshold=0.10,
+            )
+        )
         .build()
     )
     service = SignalGatewayService(
@@ -86,18 +95,19 @@ def main() -> None:
     )
     results = service.run_once()
     print(results)
-    # service.start()
-    # try:
-    #     if os.getenv("SIGNALGATEWAY_RUN_SERVER", "0") == "1":
-    #         run_service_app(service, host=host, port=port)
-    #         return
+    os.environ["SIGNALGATEWAY_RUN_SERVER"] = "1"
+    service.start()
+    try:
+        if os.getenv("SIGNALGATEWAY_RUN_SERVER", "0") == "1":
+            run_service_app(service, host=host, port=port)
+            return
 
-    #     app = create_service_app(service)
-    #     print("service_status", service.get_status())
-    #     print("app_title", app.title)
-    #     print("route_count", len(app.routes))
-    # finally:
-    #     service.close()
+        app = create_service_app(service)
+        print("service_status", service.get_status())
+        print("app_title", app.title)
+        print("route_count", len(app.routes))
+    finally:
+        service.close()
 
 
 if __name__ == "__main__":

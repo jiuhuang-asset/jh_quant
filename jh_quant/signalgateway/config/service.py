@@ -80,11 +80,11 @@ class SignalGatewayServiceConfigBuilder:
         """从默认配置创建一个新的 builder。"""
         return cls()
 
-    def _apply_model_updates(self, model: BaseModel, **candidate_updates: Any) -> BaseModel:
+    def _apply_model_updates(self, target_model: BaseModel, **candidate_updates: Any) -> BaseModel:
         updates = {
             key: value for key, value in candidate_updates.items() if not isinstance(value, _UnsetType)
         }
-        return model.model_copy(update=updates)
+        return target_model.model_copy(update=updates)
 
     def with_service(
         self,
@@ -217,15 +217,53 @@ class SignalGatewayServiceConfigBuilder:
         rebalance_policy: RebalancePolicySpec | _UnsetType = _UNSET,
         analysis: PortfolioAnalysisSpec | _UnsetType = _UNSET,
     ) -> "SignalGatewayServiceConfigBuilder":
-        """更新组合优化与调仓参数。
+        """更新组合优化与调仓参数（对接 riskfolio-lib）。
 
         常用参数说明：
         - `enabled`：是否启用组合优化/调仓流程。
         - `optimizer`：优化器名称，当前默认是 `riskfolio`。
-        - `objective`：优化目标，例如 `Sharpe`。
-        - `risk_measure`：风险度量方式，例如 `MV` 表示均值方差。
-        - `model`：优化模型名称，例如 `Classic`。
-        - `covariance_method`：协方差估计方法，例如 `ledoit`。
+        - `objective`：优化目标，可选值：
+            - ``'MinRisk'``：最小化所选风险度量。
+            - ``'Utility'``：最大化 Utility 函数 μw - l·φ_i(w)。
+            - ``'Sharpe'``：最大化风险调整回报率（夏普比率），**默认值**。
+            - ``'MaxRet'``：最大化组合预期收益。
+            - `risk_measure`：风险度量方式，可选值：
+            - ``'MV'``：标准差（均值方差），**默认值**。
+            - ``'KT'``：Kurtosis 的平方根。
+            - ``'MAD'``：平均绝对偏差。
+            - ``'GMD'``：Gini 均值差。
+            - ``'MSV'``：半标准差。
+            - ``'SKT'``：Semi Kurtosis 的平方根。
+            - ``'FLPM'``：一阶下偏矩（Omega Ratio）。
+            - ``'SLPM'``：二阶下偏矩（Sortino Ratio）。
+            - ``'CVaR'``：条件在险价值（Conditional Value at Risk）。
+            - ``'TG'``：尾部 Gini。
+            - ``'EVaR'``：熵在险价值。
+            - ``'RLVaR'``：相对论在险价值（建议仅与 MOSEK 求解器配合使用）。
+            - ``'WR'``：最坏情景（Minimax）。
+            - ``'RG'``：收益范围。
+            - ``'CVRG'``：CVaR 收益范围。
+            - ``'TGRG'``：尾部 Gini 收益范围。
+            - ``'EVRG'``：EVaR 收益范围。
+            - ``'RVRG'``：RLVaR 收益范围（建议仅与 MOSEK 求解器配合使用）。
+            - ``'MDD'``：最大回撤（Calmar Ratio）。
+            - ``'ADD'``：平均回撤。
+        - `model`：优化模型，可选值：
+            - ``'Classic'``：经典优化模型，**默认值**。
+            - ``'BL'``：Black-Litterman 模型。
+            - ``'FM'``：因子模型。
+        - `covariance_method`：协方差矩阵估计方法，可选值：
+            - ``'hist'``：历史协方差。
+            - ``'ewma1'`` / ``'ewma2'``：指数加权移动平均。
+            - ``'ledoit'``：Ledoit-Wolf 收缩估计，**默认值**。
+            - ``'oas'``：Oracle Approximating Shrinkage。
+            - ``'shrunk'``：压缩估计。
+            - ``'gl'``：Graphical Lasso。
+            - ``'jlogo'``：JLOGO。
+            - ``'fixed'``：固定协方差矩阵。
+            - ``'spectral'``：谱聚类。
+            - ``'shrink'``：通用收缩法。
+            - ``'gerber1'`` / ``'gerber2'``：Gerber 统计量方法。
         - `historical_lookback_days`：用于估计收益与风险的历史回看天数。
         - `max_assets`：组合中允许持有的最大资产数，`None` 表示不额外限制。
         - `min_weight` / `max_weight`：单资产权重上下界。

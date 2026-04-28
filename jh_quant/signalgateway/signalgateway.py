@@ -434,7 +434,7 @@ class SignalGateway:
         )
 
         if not self.oms.executable_holds:
-            rprint(label="Info:", content="没有持仓，无法执行卖出")
+            rprint(label="Info:", content="没有[可卖]持仓，无法执行卖出")
             return pd.DataFrame()
 
         hold_symbols = [h.symbol for h in self.oms.executable_holds]
@@ -533,8 +533,7 @@ class SignalGateway:
         symbols = orders["symbol"].tolist() if not orders.empty else []
         latest_prices = self.get_latest_prices(symbols)
 
-        positions = self.oms.get_positions()
-        holdings_map = {h.symbol: h for h in positions.holds}
+        executable_holdings_map = {h.symbol: h for h in self.oms.executable_holds}
 
         executed_trades = []
         for _, row in orders.iterrows():
@@ -547,10 +546,27 @@ class SignalGateway:
 
             price_val = latest_prices[symbol]
             exec_price = price_val * (1 - slippage) if slippage > 0 else price_val
-            holding_info = holdings_map.get(symbol)
+            holding_info = executable_holdings_map.get(symbol)
 
             if holding_info is None:
+                rprint(
+                    label="Warning:",
+                    content=f"跳过卖出 {symbol}：当前不在 executable_holds 中，可能受 A 股 T+1 限制。",
+                )
                 continue
+            executable_qty = int(holding_info.volume)
+            if executable_qty <= 0:
+                rprint(label="Warning:", content=f"跳过卖出 {symbol}：可卖数量为 0。")
+                continue
+            if target_qty > executable_qty:
+                rprint(
+                    label="Warning:",
+                    content=(
+                        f"卖出 {symbol} 请求数量 {target_qty} 超过可卖数量 {executable_qty}，"
+                        "已按可卖数量下单。"
+                    ),
+                )
+                target_qty = executable_qty
 
             try:
                 order = Order(symbol=symbol, price=exec_price, volume=target_qty)
