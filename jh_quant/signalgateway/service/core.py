@@ -99,6 +99,10 @@ class SignalGatewayService:
         self._latest_portfolio_rebalance: Optional[Dict[str, Any]] = None
         self._last_portfolio_rebalance_at: Optional[datetime] = None
         self.selection_provider: Optional[SelectionProvider] = None
+        self._config_source = "bootstrap"
+        self._persisted_user_config_available = False
+        self._persisted_user_config_updated_at: Optional[str] = None
+        self._suspend_user_config_persistence = True
 
         oms_session_id = getattr(self.gateway.oms, "session_id", None)
         if self.config.session_id is None:
@@ -113,11 +117,14 @@ class SignalGatewayService:
         self._last_result: Optional[TradingCycleResult] = None
         self._last_error: Optional[str] = None
 
+        self._restore_user_config()
         self._restore_service_state()
         self._initialize_selection_provider(selection_provider)
         self._restore_oms_state()
         if self.strategy_specs:
             self.configure_strategies(self.strategy_specs)
+
+        self._suspend_user_config_persistence = False
 
         if self.config.auto_start:
             self.start()
@@ -130,10 +137,47 @@ class SignalGatewayService:
         except Exception:
             pass
 
-    def _restore_service_state(self) -> None:
+    def _apply_config_bundle(
+        self,
+        config_bundle: SignalGatewayServiceConfig | Dict[str, Any],
+        *,
+        source: str,
+    ) -> None:
+        restored_bundle = (
+            config_bundle
+            if isinstance(config_bundle, SignalGatewayServiceConfig)
+            else SignalGatewayServiceConfig.model_validate(config_bundle)
+        )
+        restored_session_id = self.config.session_id
+        restored_restore_flag = self.config.restore_persisted_state
+        self.service_config = restored_bundle
+        self.config = self.service_config.service
+        self.config.session_id = restored_session_id or self.config.session_id
+        self.config.restore_persisted_state = restored_restore_flag
+        self.service_config.service = self.config
+        self.selection_specs = self.service_config.selection_spec
+        self.strategy_specs = list(self.service_config.strategy_specs)
+        self.portfolio_spec = self.service_config.portfolio_spec
+        self._config_source = source
+
+    def _restore_user_config(self) -> None:
         if not self.config.restore_persisted_state:
             return
 
+        try:
+            saved = self.persistence.load_latest_user_config(self.config.session_id)
+            if not saved:
+                return
+            config_bundle = saved.get("config_bundle")
+            if not config_bundle:
+                return
+            self._persisted_user_config_available = True
+            self._persisted_user_config_updated_at = saved.get("export_time")
+            self._apply_config_bundle(config_bundle, source="persisted_user_config")
+        except Exception:
+            pass
+
+    def _restore_service_state(self) -> None:
         try:
             saved = self.persistence.load_latest_service_state(self.config.session_id)
             if not saved:
@@ -145,18 +189,14 @@ class SignalGatewayService:
     def _apply_service_state(self, state: Dict[str, Any]) -> None:
         service_state = state.get("service") or {}
         config_bundle = service_state.get("config_bundle")
-        if config_bundle:
-            restored_bundle = SignalGatewayServiceConfig.model_validate(config_bundle)
-            restored_session_id = self.config.session_id
-            restored_restore_flag = self.config.restore_persisted_state
-            self.service_config = restored_bundle
-            self.config = self.service_config.service
-            self.config.session_id = restored_session_id
-            self.config.restore_persisted_state = restored_restore_flag
-            self.service_config.service = self.config
-            self.selection_specs = self.service_config.selection_spec
-            self.strategy_specs = list(self.service_config.strategy_specs)
-            self.portfolio_spec = self.service_config.portfolio_spec
+        if (
+            config_bundle
+            and self.config.restore_persisted_state
+            and not self._persisted_user_config_available
+        ):
+            self._apply_config_bundle(config_bundle, source="persisted_user_config")
+            self._persisted_user_config_available = True
+            self._persisted_user_config_updated_at = state.get("export_time")
 
         last_result = service_state.get("last_result")
         if last_result:
@@ -203,6 +243,7 @@ class SignalGatewayService:
             self.gateway.replace_strategies(built)
             self.strategy_specs = normalized_specs
             self.service_config.strategy_specs = list(normalized_specs)
+            self._persist_user_config(source="runtime_update")
             self._persist_runtime_state(extra={"event": "strategy_config_updated"})
 
     def _build_selection_instance(self, spec: SelectionSpec) -> SelectionProvider:
@@ -218,12 +259,14 @@ class SignalGatewayService:
             provider = self._build_selection_instance(selection_spec)
             self.selection_provider = provider
             self.service_config.selection_spec = self.selection_specs
+            self._persist_user_config(source="runtime_update")
             self._persist_runtime_state(extra={"event": "selection_config_updated"})
 
     def configure_portfolio(self, portfolio_spec):
         with self._lock:
             self.portfolio_spec = portfolio_spec
             self.service_config.portfolio_spec = portfolio_spec
+            self._persist_user_config(source="runtime_update")
             self._persist_runtime_state(extra={"event": "portfolio_config_updated"})
 
     def _validate_scheduler_inputs(
@@ -328,6 +371,7 @@ class SignalGatewayService:
                 self.config.timezone = timezone
             if auto_start is not None:
                 self.config.auto_start = auto_start
+            self._persist_user_config(source="runtime_update")
 
             self._persist_runtime_state(
                 extra={
@@ -357,14 +401,7 @@ class SignalGatewayService:
             self.stop()
 
         with self._lock:
-            restored_session_id = self.config.session_id
-            self.service_config = config_bundle.model_copy(deep=True)
-            self.config = self.service_config.service
-            self.config.session_id = restored_session_id or self.config.session_id
-            self.service_config.service = self.config
-            self.selection_specs = self.service_config.selection_spec
-            self.strategy_specs = list(self.service_config.strategy_specs)
-            self.portfolio_spec = self.service_config.portfolio_spec
+            self._apply_config_bundle(config_bundle.model_copy(deep=True), source="runtime_update")
             self._initialize_selection_provider(None)
             if self.strategy_specs:
                 normalized_specs = [normalize_strategy_spec(spec) for spec in self.strategy_specs]
@@ -375,6 +412,7 @@ class SignalGatewayService:
             else:
                 self.gateway.replace_strategies([])
 
+            self._persist_user_config(source="runtime_update")
             self._persist_runtime_state(extra={"event": "service_config_replaced"})
 
         if was_running or self.config.auto_start:
@@ -566,6 +604,87 @@ class SignalGatewayService:
         filtered_orders = pd.DataFrame(executable_rows, columns=["symbol", "target_qty"])
         return filtered_orders, blocked_rows, projected_buy_cost
 
+    def _build_portfolio_strategy_context(
+        self,
+        *,
+        cycle_date: str,
+        symbols: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        base_date = datetime.strptime(cycle_date, "%Y-%m-%d")
+        lookback_days = max(self.config.price_lookback_days, self.portfolio_spec.historical_lookback_days)
+        price_start = (base_date - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
+
+        if symbols is None:
+            selection = self.selection_provider.select(as_of_date=cycle_date)
+            selected_symbols = list(selection.top_selections)
+        else:
+            selected_symbols = list(symbols)
+        selected_symbols = list(dict.fromkeys(str(symbol) for symbol in selected_symbols if symbol))
+        if not selected_symbols:
+            raise ValueError("No symbols available for portfolio optimization")
+
+        price = self.gateway.get_price_data(
+            symbols=selected_symbols,
+            start_date=price_start,
+            end_date=cycle_date,
+            frequency=self.config.frequency,
+        )
+        buy_signals = self.gateway.aggregate_buy_signals(
+            price=price,
+            frequency=self.config.frequency,
+        )
+
+        signal_frame = pd.DataFrame({"symbol": selected_symbols})
+        if buy_signals is not None and not buy_signals.empty:
+            signal_frame = signal_frame.merge(
+                buy_signals[["symbol", "score"]],
+                on="symbol",
+                how="left",
+            ).fillna({"score": 0.0})
+        else:
+            signal_frame["score"] = 0.0
+
+        signal_frame["score"] = signal_frame["score"].astype(float)
+        positive_signals = signal_frame.loc[signal_frame["score"] > 0].copy()
+        strategy_registered = bool(getattr(self.gateway, "strategy_pool", []))
+        used_strategy_filter = strategy_registered and not positive_signals.empty
+        fallback_reason: Optional[str] = None
+
+        if used_strategy_filter:
+            optimization_signals = positive_signals.sort_values(
+                by=["score", "symbol"],
+                ascending=[False, True],
+            ).reset_index(drop=True)
+        else:
+            optimization_signals = signal_frame.copy()
+            if strategy_registered:
+                fallback_reason = "no_positive_buy_scores"
+            else:
+                fallback_reason = "no_strategy_registered"
+
+        if optimization_signals.empty:
+            raise ValueError("No symbols available after applying strategy-aware portfolio filters")
+
+        if float(optimization_signals["score"].clip(lower=0.0).sum()) <= 0:
+            optimization_signals["score"] = 1.0
+
+        optimization_symbols = optimization_signals["symbol"].astype(str).tolist()
+        filtered_price = price[price["symbol"].isin(optimization_symbols)].copy() if not price.empty else price
+
+        return {
+            "cycle_date": cycle_date,
+            "price_start": price_start,
+            "selected_symbols": selected_symbols,
+            "price": filtered_price,
+            "signals": optimization_signals[["symbol", "score"]].copy(),
+            "optimization_symbols": optimization_symbols,
+            "strategy_registered": strategy_registered,
+            "used_strategy_filter": used_strategy_filter,
+            "fallback_reason": fallback_reason,
+            "positive_signal_count": int(len(positive_signals)),
+            "selection_count": int(len(selected_symbols)),
+        }
+
     def _persist_runtime_state(self, extra: Optional[Dict[str, Any]] = None):
         payload = {
             "session_id": self.config.session_id,
@@ -575,6 +694,9 @@ class SignalGatewayService:
                 "config": self.config.model_dump(),
                 "strategy_specs": [spec.model_dump() for spec in self.strategy_specs],
                 "portfolio_spec": self.portfolio_spec.model_dump(mode="json"),
+                "config_source": self._config_source,
+                "persisted_user_config_available": self._persisted_user_config_available,
+                "persisted_user_config_updated_at": self._persisted_user_config_updated_at,
                 "running": self._running,
                 "last_error": self._last_error,
                 "last_result": asdict(self._last_result) if self._last_result else None,
@@ -592,6 +714,21 @@ class SignalGatewayService:
         self.persistence.save_service_state(payload)
         if hasattr(self.gateway.oms, "export_state"):
             self.persistence.save_session_state(self.gateway.oms.export_state())
+
+    def _persist_user_config(self, *, source: str = "runtime_update") -> None:
+        if self._suspend_user_config_persistence:
+            return
+        export_time = datetime.now().isoformat()
+        config_bundle = self.service_config.model_dump(mode="json")
+        config_bundle["export_time"] = export_time
+        self.persistence.save_user_config(
+            self.config.session_id,
+            config_bundle,
+            source=source,
+        )
+        self._persisted_user_config_available = True
+        self._persisted_user_config_updated_at = export_time
+        self._config_source = source
 
     def _persist_trades(self, trades: List[Any]) -> None:
         for trade in trades:
@@ -615,6 +752,9 @@ class SignalGatewayService:
             selection_provider=self._normalize_jsonable(getattr(self.selection_provider, "config", {})),
             strategy_specs=[spec.model_dump() for spec in self.strategy_specs],
             portfolio_spec=self.portfolio_spec.model_dump(mode="json"),
+            config_source=self._config_source,
+            persisted_user_config_available=self._persisted_user_config_available,
+            persisted_user_config_updated_at=self._persisted_user_config_updated_at,
         ).model_dump()
 
     def get_strategy_config_snapshot(self) -> Dict[str, Any]:
@@ -647,55 +787,62 @@ class SignalGatewayService:
             raise ValueError("Portfolio optimization is disabled in the current portfolio spec")
 
         cycle_date = self._as_of_date(as_of_date)
-        base_date = datetime.strptime(cycle_date, "%Y-%m-%d")
-        lookback_days = max(self.config.price_lookback_days, self.portfolio_spec.historical_lookback_days)
-        price_start = (base_date - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
-
-        if symbols is None:
-            selection = self.selection_provider.select(as_of_date=cycle_date)
-            symbols = list(selection.top_selections)
-        if not symbols:
-            raise ValueError("No symbols available for portfolio optimization")
-
-        price = self.gateway.get_price_data(
+        context = self._build_portfolio_strategy_context(
+            cycle_date=cycle_date,
             symbols=symbols,
-            start_date=price_start,
-            end_date=cycle_date,
-            frequency=self.config.frequency,
         )
+        optimization_symbols = context["optimization_symbols"]
+        price = context["price"]
         returns = self.gateway.build_return_matrix(
-            symbols=symbols,
-            start_date=price_start,
+            symbols=optimization_symbols,
+            start_date=context["price_start"],
             end_date=cycle_date,
             frequency=self.config.frequency,
             price=price,
         )
-        signals = self.gateway.aggregate_buy_signals(
-            price=price,
-            frequency=self.config.frequency,
-        )
-        if signals.empty:
-            signals = pd.DataFrame({"symbol": symbols, "score": [1.0] * len(symbols)})
-        else:
-            signals = (
-                pd.DataFrame({"symbol": symbols})
-                .merge(signals[["symbol", "score"]], on="symbol", how="left")
-                .fillna({"score": 0.0})
-            )
         result = optimize_portfolio_preview(
             returns,
             self.portfolio_spec,
-            signals=signals,
+            signals=context["signals"],
         )
+        diagnostics = {
+            **result.diagnostics,
+            "selection_count": context["selection_count"],
+            "positive_signal_count": context["positive_signal_count"],
+            "selected_symbols": context["selected_symbols"],
+            "optimization_symbols": optimization_symbols,
+            "strategy_registered": context["strategy_registered"],
+            "used_strategy_filter": context["used_strategy_filter"],
+            "fallback_reason": context["fallback_reason"],
+        }
         payload = {
             "status": "optimized",
             "optimizer": result.optimizer,
             "as_of_date": cycle_date,
             "symbols": result.symbols,
             "weights": result.weights.to_dict(orient="records"),
-            "diagnostics": result.diagnostics,
+            "diagnostics": diagnostics,
             "preview_only": preview_only,
         }
+        if context["used_strategy_filter"]:
+            self._log_execution_branch(
+                "portfolio",
+                (
+                    "组合优化使用 Strategy 过滤后的目标池，"
+                    f"selected={context['selection_count']}, "
+                    f"positive_signals={context['positive_signal_count']}, "
+                    f"optimized={len(optimization_symbols)}"
+                ),
+            )
+        else:
+            self._log_execution_branch(
+                "portfolio",
+                (
+                    "组合优化未拿到可用的正向 Strategy 信号，回退到 Selection universe，"
+                    f"fallback_reason={context['fallback_reason']}, "
+                    f"selected={context['selection_count']}"
+                ),
+            )
         self._latest_portfolio_optimization = payload
         self._persist_runtime_state(extra={"event": "portfolio_optimized"})
         return payload
@@ -816,7 +963,7 @@ class SignalGatewayService:
                 "drift": plan["drift"],
                 "executed_buy_count": 0,
                 "executed_sell_count": 0,
-                "execution_path": "portfolio_rebalance",
+                "execution_path": "strategy_driven_portfolio_overlay",
                 "blocked_sell_orders": blocked_sell_orders,
                 "blocked_buy_orders": blocked_buy_orders,
             }
@@ -989,7 +1136,7 @@ class SignalGatewayService:
             if self.portfolio_spec.enabled:
                 self._log_execution_branch(
                     "portfolio",
-                    "run_once 命中 portfolio_spec.enabled=True，使用组合优化/调仓分支，不走 gateway.execute_cycle。",
+                    "run_once 命中 portfolio_spec.enabled=True，使用 Strategy 驱动的 portfolio overlay 分支：Selection/Strategy 决定目标池，Portfolio 负责配权与调仓。",
                 )
                 if top_selections:
                     portfolio_cycle_payload = self.rebalance_portfolio(

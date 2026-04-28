@@ -129,6 +129,16 @@ def _resolve_signalgateway_dashboard_index(frontend_root: str | None = None) -> 
     if frontend_root:
         html_path = Path(frontend_root) / "dist" / "index.html"
     else:
+        front_src_html_path = (
+            Path(__file__).resolve().parent
+            / "front_src"
+            / "signalgateway-dashboard"
+            / "dist"
+            / "index.html"
+        )
+        if front_src_html_path.exists():
+            return str(front_src_html_path)
+
         html_path = (
             Path(__file__).resolve().parents[3]
             / "dashboards"

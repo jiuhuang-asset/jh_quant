@@ -48,7 +48,7 @@ def main() -> None:
             max_candidates=50,
             auto_start=auto_start_scheduler,
             cron_expression="0 9 * * 1-5",
-            restore_persisted_state=False,
+            restore_persisted_state=True,
         )
         .with_selection(
             name="factor_selector",
@@ -96,7 +96,6 @@ def main() -> None:
     results = service.run_once()
     print(results)
     os.environ["SIGNALGATEWAY_RUN_SERVER"] = "1"
-    service.start()
     try:
         if os.getenv("SIGNALGATEWAY_RUN_SERVER", "0") == "1":
             run_service_app(service, host=host, port=port)

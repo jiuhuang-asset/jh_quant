@@ -27,6 +27,7 @@ from .models import (
     ServiceStateRecord,
     SessionStateRecord,
     TradeRecord,
+    UserConfigRecord,
     require_tortoise_orm,
 )
 from .protocols import (
@@ -159,6 +160,20 @@ class OrderRecorder(
 
     @abstractmethod
     def query_position_snapshots(self, session_id: str) -> pd.DataFrame:
+        raise NotImplementedError
+
+    @abstractmethod
+    def save_user_config(
+        self,
+        session_id: str,
+        config_bundle: Dict[str, Any],
+        *,
+        source: str = "runtime_update",
+    ):
+        raise NotImplementedError
+
+    @abstractmethod
+    def load_latest_user_config(self, session_id: str) -> Optional[Dict[str, Any]]:
         raise NotImplementedError
 
     def close(self):
@@ -323,6 +338,51 @@ class TortoiseOrderRecorder(OrderRecorder):
         self, session_id: str
     ) -> Optional[Dict[str, Any]]:
         return await self._load_latest_state_record(ServiceStateRecord, session_id)
+
+    def save_user_config(
+        self,
+        session_id: str,
+        config_bundle: Dict[str, Any],
+        *,
+        source: str = "runtime_update",
+    ):
+        self._run(self._save_user_config(session_id, config_bundle, source=source))
+
+    async def _save_user_config(
+        self,
+        session_id: str,
+        config_bundle: Dict[str, Any],
+        *,
+        source: str = "runtime_update",
+    ):
+        normalized_bundle = normalize_jsonable_value(config_bundle)
+        export_time = _as_datetime(
+            normalized_bundle.get("export_time", datetime.now())
+        )
+        await UserConfigRecord.update_or_create(
+            session_id=session_id,
+            defaults={
+                "config_bundle": normalized_bundle,
+                "source": source,
+                "export_time": export_time,
+            },
+        )
+
+    def load_latest_user_config(self, session_id: str) -> Optional[Dict[str, Any]]:
+        return self._run(self._load_latest_user_config(session_id))
+
+    async def _load_latest_user_config(
+        self, session_id: str
+    ) -> Optional[Dict[str, Any]]:
+        row = await UserConfigRecord.filter(session_id=session_id).order_by("-export_time").first()
+        if row is None:
+            return None
+        return {
+            "session_id": row.session_id,
+            "config_bundle": row.config_bundle,
+            "source": row.source,
+            "export_time": row.export_time.isoformat(),
+        }
 
     def query_service_events(self, session_id: str) -> pd.DataFrame:
         return self._run(self._query_service_events(session_id))

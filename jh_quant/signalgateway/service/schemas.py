@@ -90,6 +90,15 @@ class ServiceConfigResponse(BaseModel):
     selection_provider: Dict[str, Any] = Field(default_factory=dict, description="Selection provider configuration.")
     strategy_specs: List[Dict[str, Any]] = Field(default_factory=list, description="Configured strategy specs.")
     portfolio_spec: Optional[Dict[str, Any]] = Field(default=None, description="Current portfolio spec.")
+    config_source: str = Field(default="bootstrap", description="Where the active config bundle was loaded from.")
+    persisted_user_config_available: bool = Field(
+        default=False,
+        description="Whether a dedicated persisted user config exists for the current session.",
+    )
+    persisted_user_config_updated_at: Optional[str] = Field(
+        default=None,
+        description="Last update time of the dedicated persisted user config record.",
+    )
 
 
 class ServiceConfigUpdateRequest(BaseModel):
@@ -217,7 +226,7 @@ class PortfolioOptimizeResponse(BaseModel):
     status: str = Field(description="Optimization result status.")
     optimizer: str = Field(description="Optimizer name.")
     as_of_date: str = Field(description="Optimization date.")
-    symbols: List[str] = Field(default_factory=list, description="Universe used in optimization.")
+    symbols: List[str] = Field(default_factory=list, description="Final symbol universe actually used in optimization.")
     weights: List[Dict[str, Any]] = Field(default_factory=list, description="Target portfolio weights.")
     diagnostics: Dict[str, Any] = Field(default_factory=dict, description="Optimization diagnostics.")
     preview_only: bool = Field(default=True, description="Whether the result is preview-only.")
@@ -262,9 +271,21 @@ class PortfolioRebalanceResponse(BaseModel):
     preview_only: bool = Field(default=True, description="Whether the response is a preview.")
     should_rebalance: bool = Field(default=False, description="Whether rebalance policy allows execution.")
     reason: str = Field(default="", description="Reason for the rebalance decision.")
+    execution_path: Optional[str] = Field(
+        default=None,
+        description="Execution path used for this rebalance, e.g. strategy-driven portfolio overlay.",
+    )
     target_allocations: List[Dict[str, Any]] = Field(default_factory=list, description="Target allocation plan.")
     buy_orders: List[Dict[str, Any]] = Field(default_factory=list, description="Buy order plan.")
     sell_orders: List[Dict[str, Any]] = Field(default_factory=list, description="Sell order plan.")
+    blocked_buy_orders: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Buy orders blocked or capped by runtime cash constraints.",
+    )
+    blocked_sell_orders: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Sell orders blocked or capped by executable holdings constraints such as A-share T+1.",
+    )
     projected_buy_cost: float = Field(default=0.0)
     projected_sell_value: float = Field(default=0.0)
     projected_cash_after: float = Field(default=0.0)

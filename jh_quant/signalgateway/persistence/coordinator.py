@@ -105,6 +105,22 @@ class PersistenceCoordinator:
             return None
         return self.recorder.load_latest_service_state(session_id)
 
+    def save_user_config(
+        self,
+        session_id: str,
+        config_bundle: dict,
+        *,
+        source: str = "runtime_update",
+    ) -> None:
+        if self.recorder is None:
+            return
+        self.recorder.save_user_config(session_id, config_bundle, source=source)
+
+    def load_latest_user_config(self, session_id: str) -> Optional[dict]:
+        if self.recorder is None:
+            return None
+        return self.recorder.load_latest_user_config(session_id)
+
     def query_service_events(self, session_id: str) -> "pd.DataFrame":
         import pandas as pd
 

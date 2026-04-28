@@ -1070,7 +1070,6 @@ def _calc_single_date_classic_polars(
 
     # 计算分组标签
     group_labels = {}
-    # breakpoint()
     for var in sorting_dims:
         if var in pl_df.columns and pl_df[var].null_count() < pl_df.height - 10:
             bps = breakpoints.get(var, [0.5])

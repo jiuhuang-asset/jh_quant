@@ -80,3 +80,22 @@ class ServiceStatePersistence(Protocol):
     def query_service_events(self, session_id: str) -> "pd.DataFrame":
         """Query service runtime event history for a session."""
         ...
+
+
+@runtime_checkable
+class UserConfigPersistence(Protocol):
+    """Protocol for user-managed config bundle persistence."""
+
+    def save_user_config(
+        self,
+        session_id: str,
+        config_bundle: dict,
+        *,
+        source: str = "runtime_update",
+    ) -> None:
+        """Save the latest user-managed config bundle for a session."""
+        ...
+
+    def load_latest_user_config(self, session_id: str) -> dict | None:
+        """Load the latest user-managed config bundle for a given session_id."""
+        ...

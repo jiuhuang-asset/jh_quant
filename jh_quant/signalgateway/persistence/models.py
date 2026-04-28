@@ -110,6 +110,18 @@ if TORTOISE_ORM_AVAILABLE:
             indexes = [("session_id", "export_time")]
 
 
+    class UserConfigRecord(TortoiseModel):
+        session_id = fields.CharField(max_length=128, primary_key=True)
+        config_bundle = fields.JSONField()
+        source = fields.CharField(max_length=64, default="runtime_update")
+        export_time = fields.DatetimeField()
+        created_at = fields.DatetimeField(auto_now_add=True)
+
+        class Meta:
+            table = "session_user_configs"
+            indexes = [("session_id", "export_time"), ("session_id", "source")]
+
+
     class ServiceEventRecord(TortoiseModel):
         id = fields.IntField(primary_key=True)
         session_id = fields.CharField(max_length=128, db_index=True)
@@ -145,6 +157,10 @@ else:
         pass
 
 
+    class UserConfigRecord:  # pragma: no cover - import fallback
+        pass
+
+
     class ServiceEventRecord:  # pragma: no cover - import fallback
         pass
 
@@ -154,6 +170,7 @@ __all__ = [
     "DailyPerformanceRecord",
     "PositionSnapshotRecord",
     "ServiceStateRecord",
+    "UserConfigRecord",
     "ServiceEventRecord",
     "SessionStateRecord",
     "TradeRecord",
