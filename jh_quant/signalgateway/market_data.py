@@ -69,7 +69,7 @@ class JHMarketDataProvider(MarketDataProvider):
         frequency: Frequency = Frequency.DAILY,
         default_symbols: Optional[List[str]] = None,
     ):
-        self.jhd = jhd or JHData()
+        self.jhd = jhd or JHData(as_service=True)
         self.frequency = Frequency.from_value(frequency)
         if self.frequency != Frequency.DAILY:
             self.data_type = DataTypes.AK_STOCK_ZH_A_SPOT

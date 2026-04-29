@@ -70,9 +70,19 @@ class _DynamicApiWrapper:
         self._prefix = prefix
 
     def _get_jhd(self):
-        """Create JHData lazily so importing wrappers does not touch local cache."""
+        """Create JHData lazily so importing wrappers does not touch local cache.
+
+        Auto-detects if the DuckDB service is already running and uses
+        as_service=True in that case to avoid lock conflicts.
+        """
         if self._jhd is None:
-            self._jhd = JHData()
+            from .service_manager import ServiceManager
+
+            service_url = ServiceManager.discover()
+            if service_url:
+                self._jhd = JHData(as_service=True)
+            else:
+                self._jhd = JHData()
         return self._jhd
 
     def _get_reverse_func(self):
@@ -249,9 +259,19 @@ class _JhTushare:
         self._pro_api = None
 
     def _get_jhd(self):
-        """Create JHData lazily so importing wrappers does not touch local cache."""
+        """Create JHData lazily so importing wrappers does not touch local cache.
+
+        Auto-detects if the DuckDB service is already running and uses
+        as_service=True in that case to avoid lock conflicts.
+        """
         if self._jhd is None:
-            self._jhd = JHData()
+            from .service_manager import ServiceManager
+
+            service_url = ServiceManager.discover()
+            if service_url:
+                self._jhd = JHData(as_service=True)
+            else:
+                self._jhd = JHData()
         return self._jhd
 
     def __getattr__(self, name: str):

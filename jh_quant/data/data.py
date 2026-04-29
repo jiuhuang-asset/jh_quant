@@ -269,11 +269,39 @@ class JHData:
         self,
         api_key: str = getenv("JIUHUANG_API_KEY"),
         api_url: str = getenv("JIUHUANG_API_URL", "https://data.jiuhuang.xyz"),
+        as_service: bool | None = None,
     ):
         self.api_key = api_key
         self.api_url = api_url
         self._prepare_client(api_key)
-        self._cache = _DataCache(jd=self)
+
+        if as_service is None:
+            # Auto mode: try direct, fall back to service if DB is locked
+            try:
+                self._cache = _DataCache(jd=self)
+            except RuntimeError:
+                from .service_manager import ServiceManager
+                from .cache_proxy import _DataCacheProxy
+
+                service_url = ServiceManager.ensure_running()
+                rprint("[yellow]缓存数据库被占用，自动切换到 DuckDB 服务模式[/yellow]")
+                self._cache = _DataCacheProxy(
+                    service_url,
+                    jd=self,
+                    on_connection_error=ServiceManager.get_recovery_callback(),
+                )
+        elif as_service:
+            from .service_manager import ServiceManager
+            from .cache_proxy import _DataCacheProxy
+
+            service_url = ServiceManager.ensure_running()
+            self._cache = _DataCacheProxy(
+                service_url,
+                jd=self,
+                on_connection_error=ServiceManager.get_recovery_callback(),
+            )
+        else:
+            self._cache = _DataCache(jd=self)
 
     def _prepare_client(self, api_key: str):
         client = httpx.Client(timeout=180)
@@ -553,6 +581,40 @@ class JHData:
         self._cache._clear_table(data_type)
 
 
+def _build_filter_sql(data_type: DataTypes, kwargs: dict) -> str:
+    """构建 WHERE 条件SQL片段 (module-level, shared with DuckDB service)"""
+    prefix = _get_provider_prefix(data_type)
+    filter_field = _get_filter_field(data_type)
+    dt_field = get_table_dt_field(data_type)
+
+    _validate_date_by_provider(kwargs.get("start"), "start", data_type)
+    _validate_date_by_provider(kwargs.get("end"), "end", data_type)
+
+    sql = "WHERE 1=1"
+
+    if "start" in kwargs and kwargs["start"] and dt_field:
+        sql += f" AND {dt_field} >= '{kwargs['start']}'"
+
+    if "end" in kwargs and kwargs["end"] and dt_field:
+        sql += f" AND {dt_field} <= '{kwargs['end']}'"
+
+    if (
+        filter_field in kwargs
+        and kwargs[filter_field]
+        and filter_field in get_table_fields(data_type)
+    ):
+        filter_value = kwargs[filter_field]
+        if prefix == "ak_" or prefix == "jh_":
+            _validate_symbol(filter_value)
+        if isinstance(filter_value, str) and "," in filter_value:
+            values = [s.strip() for s in filter_value.split(",")]
+            value_list = ", ".join([f"'{v}'" for v in values])
+            sql += f" AND {filter_field} IN ({value_list})"
+        else:
+            sql += f" AND {filter_field} = '{filter_value}'"
+    return sql
+
+
 class _DataCache:
     def __init__(self, jd: JHData):
         self.cache_dir = os.path.expanduser("~/.jiuhuang")
@@ -565,9 +627,10 @@ class _DataCache:
 
         try:
             conn = duckdb.connect(self.cache_db_path)
-        except:
-            rprint("[red]Warning: 当前缓存数据库链接被占用[/red]")
-            sys.exit(1)
+        except Exception as e:
+            raise RuntimeError(
+                f"无法连接缓存数据库({self.cache_db_path})，可能被其他进程占用"
+            ) from e
 
         conn.close()
 
@@ -606,48 +669,11 @@ class _DataCache:
         finally:
             conn.close()
 
-    def _build_filter_sql(self, data_type: DataTypes, kwargs: dict) -> str:
-        """构建 WHERE 条件SQL片段"""
-        prefix = _get_provider_prefix(data_type)
-        filter_field = _get_filter_field(data_type)
-        dt_field = get_table_dt_field(data_type)
-
-        # 验证日期参数格式
-        _validate_date_by_provider(kwargs.get("start"), "start", data_type)
-        _validate_date_by_provider(kwargs.get("end"), "end", data_type)
-
-        sql = "WHERE 1=1"
-
-        if "start" in kwargs and kwargs["start"] and dt_field:
-            sql += f" AND {dt_field} >= '{kwargs['start']}'"
-
-        if "end" in kwargs and kwargs["end"] and dt_field:
-            sql += f" AND {dt_field} <= '{kwargs['end']}'"
-
-        if (
-            filter_field in kwargs
-            and kwargs[filter_field]
-            and filter_field in get_table_fields(data_type)
-        ):
-            filter_value = kwargs[filter_field]
-            # 验证 filter_field 格式（长度 <= 12 for symbol）
-            if prefix == "ak_" or prefix == "jh_":
-                _validate_symbol(filter_value)
-            # 处理逗号分隔的 filter_value 字符串
-            if isinstance(filter_value, str) and "," in filter_value:
-                values = [s.strip() for s in filter_value.split(",")]
-                value_list = ", ".join([f"'{v}'" for v in values])
-                sql += f" AND {filter_field} IN ({value_list})"
-            else:
-                # 单个值，直接使用
-                sql += f" AND {filter_field} = '{filter_value}'"
-        return sql
-    
     def get_data(self, data_type: DataTypes, **kwargs):
         self._init_table(data_type)
 
         table_name = data_type.value
-        where_sql = self._build_filter_sql(data_type, kwargs)
+        where_sql = _build_filter_sql(data_type, kwargs)
 
         dt_field = get_table_dt_field(data_type)
         order_clause = f"ORDER BY {dt_field}" if dt_field else "ORDER BY id"
@@ -664,7 +690,7 @@ class _DataCache:
         self._init_table(data_type)
 
         table_name = data_type.value
-        where_sql = self._build_filter_sql(data_type, kwargs)
+        where_sql = _build_filter_sql(data_type, kwargs)
         sql = f"SELECT count(*) FROM {table_name} {where_sql}"
 
         conn = duckdb.connect(self.cache_db_path)
