@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 from ..config import PortfolioSpec, SelectionSpec, SignalGatewayServiceConfig, StrategySpec
+from ..config.risk_management import RiskManagementParamsConfig
 
 
 class HealthResponse(BaseModel):
@@ -337,3 +338,74 @@ class SingleSymbolTradeResponse(BaseModel):
     executed: bool = Field(description="Whether the trade was executed.")
     trade: Optional[Dict[str, Any]] = Field(default=None, description="Executed trade details.")
     message: str = Field(description="Result description.")
+
+
+class StrategyEvaluateRequest(BaseModel):
+    """Request model for strategy evaluation."""
+
+    symbol_source: str = Field(
+        default="selection",
+        description="Source of symbols: 'selection' (from SelectionProvider) or 'holdings' (from OMS positions).",
+    )
+    as_of_date: Optional[str] = Field(
+        default=None,
+        description="Evaluation end date in YYYY-MM-DD format. Defaults to today.",
+    )
+    lookback_days: Optional[int] = Field(
+        default=None, ge=1,
+        description="Override for price lookback days. Falls back to service config value.",
+    )
+    commission_rate: float = Field(
+        default=0.0002, ge=0.0,
+        description="Commission rate (e.g. 0.0002 = 0.02%).",
+    )
+    stamp_tax_rate: float = Field(
+        default=0.0005, ge=0.0,
+        description="Stamp tax rate for sells (e.g. 0.0005 = 0.05%).",
+    )
+
+
+class StrategyEvaluateResponse(BaseModel):
+    """Response model for strategy evaluation results."""
+
+    status: str = Field(description="Evaluation result status.")
+    as_of_date: str = Field(description="Evaluation end date.")
+    symbol_source: str = Field(description="Source of symbols used.")
+    symbols: List[str] = Field(default_factory=list, description="Symbols evaluated.")
+    strategy_count: int = Field(description="Number of strategies evaluated.")
+    metrics: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Per-strategy, per-symbol performance metrics records.",
+    )
+    trading_history: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Trading history rows with strategy_return, cumulative_return, drawdown, etc.",
+    )
+
+
+class RiskManagementConfigResponse(BaseModel):
+    """Response model for risk management configuration."""
+
+    risk_management_specs: Dict[str, RiskManagementParamsConfig] = Field(
+        default_factory=dict,
+        description="Current per-strategy risk management params.",
+    )
+
+
+class RiskManagementConfigUpdateRequest(BaseModel):
+    """Request model for updating risk management configuration."""
+
+    risk_management_specs: Dict[str, RiskManagementParamsConfig] = Field(
+        default_factory=dict,
+        description="Complete replacement of per-strategy risk management params.",
+    )
+
+
+class RiskManagementConfigUpdateResponse(BaseModel):
+    """Response model for risk management configuration update."""
+
+    status: str = Field(description="Update result status.")
+    risk_management_specs: Dict[str, RiskManagementParamsConfig] = Field(
+        default_factory=dict,
+        description="Updated per-strategy risk management params.",
+    )

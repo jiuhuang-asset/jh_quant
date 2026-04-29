@@ -38,6 +38,9 @@ from .schemas import (
     PortfolioOptimizeResponse,
     PortfolioRebalanceRequest,
     PortfolioRebalanceResponse,
+    RiskManagementConfigResponse,
+    RiskManagementConfigUpdateRequest,
+    RiskManagementConfigUpdateResponse,
     RuntimeSnapshotResponse,
     SchedulerConfigSnapshotResponse,
     SchedulerConfigUpdateRequest,
@@ -56,6 +59,8 @@ from .schemas import (
     StrategyConfigSnapshotResponse,
     StrategyConfigUpdateRequest,
     StrategyConfigUpdateResponse,
+    StrategyEvaluateRequest,
+    StrategyEvaluateResponse,
     TradingCycleResultResponse,
 )
 
@@ -306,6 +311,36 @@ def create_service_app(service: SignalGatewayService):
             target_qty=request.target_qty,
             slippage=request.slippage,
         )
+
+    @app.post(
+        "/service/strategy-evaluate",
+        response_model=StrategyEvaluateResponse,
+        operation_id="evaluate_strategies",
+    )
+    def evaluate_strategies(request: StrategyEvaluateRequest):
+        return service.evaluate_strategies(
+            symbol_source=request.symbol_source,
+            as_of_date=request.as_of_date,
+            lookback_days=request.lookback_days,
+            commission_rate=request.commission_rate,
+            stamp_tax_rate=request.stamp_tax_rate,
+        )
+
+    @app.get(
+        "/service/risk-management",
+        response_model=RiskManagementConfigResponse,
+        operation_id="get_risk_management_config",
+    )
+    def get_risk_management_config():
+        return service.get_risk_management_config()
+
+    @app.put(
+        "/service/risk-management",
+        response_model=RiskManagementConfigUpdateResponse,
+        operation_id="update_risk_management_config",
+    )
+    def update_risk_management_config(request: RiskManagementConfigUpdateRequest):
+        return service.update_risk_management_config(request.risk_management_specs)
 
     _mount_mcp_server(app)
 

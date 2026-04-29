@@ -10,10 +10,13 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from jh_quant.backtest.backtest import evaluate_strategies as backtest_evaluate_strategies
+
 from ..config import (
     PortfolioSpec,
     SELECTION_PROVIDER_REGISTRY,
     STRATEGY_REGISTRY,
+    RiskManagementParamsConfig,
     SelectionProvider,
     SelectionSpec,
     SignalGatewayServiceConfig,
@@ -84,7 +87,6 @@ class SignalGatewayService:
         gateway: SignalGateway,
         config: SignalGatewayServiceConfig,
         selection_provider: Optional[SelectionProvider] = None,
-        llm_handler: Optional[Callable[[str, Dict[str, Any]], Dict[str, Any]]] = None,
         persistence: Optional[PersistenceCoordinator] = None,
     ):
         self.gateway = gateway
@@ -93,7 +95,6 @@ class SignalGatewayService:
         self.selection_specs = config.selection_spec
         self.strategy_specs = list(config.strategy_specs)
         self.portfolio_spec = config.portfolio_spec
-        self.llm_handler = llm_handler
         self.persistence = persistence or PersistenceCoordinator()
         self._latest_portfolio_optimization: Optional[Dict[str, Any]] = None
         self._latest_portfolio_rebalance: Optional[Dict[str, Any]] = None
@@ -1303,6 +1304,106 @@ class SignalGatewayService:
                 closed_count=len(trades),
                 executed_trades=[trade.model_dump(mode="json") for trade in trades],
             )
+
+    def evaluate_strategies(
+        self,
+        symbol_source: str = "selection",
+        as_of_date: Optional[str] = None,
+        lookback_days: Optional[int] = None,
+        commission_rate: float = 0.0002,
+        stamp_tax_rate: float = 0.0005,
+    ) -> Dict[str, Any]:
+        """Evaluate configured strategies on historical price data.
+
+        Uses the backtest module's evaluate_strategies() to compute per-stock,
+        per-strategy performance metrics.
+
+        Args:
+            symbol_source: 'selection' or 'holdings'.
+            as_of_date: Evaluation end date in YYYY-MM-DD format.
+            lookback_days: Override for lookback days.
+            commission_rate: Commission rate.
+            stamp_tax_rate: Stamp tax rate for sells.
+        """
+        if not self.gateway.strategy_pool:
+            raise ValueError("No strategies configured in the strategy pool")
+
+        cycle_date = self._as_of_date(as_of_date)
+        actual_lookback = lookback_days or self.config.price_lookback_days
+        price_start = (
+            datetime.strptime(cycle_date, "%Y-%m-%d") - timedelta(days=actual_lookback)
+        ).strftime("%Y-%m-%d")
+
+        if symbol_source == "holdings":
+            positions = self.gateway.oms.get_positions()
+            symbols = [h.symbol for h in positions.holds]
+            if not symbols:
+                raise ValueError("No holdings available for evaluation")
+        else:
+            selection = self.selection_provider.select(as_of_date=cycle_date)
+            symbols = list(selection.top_selections)
+            if not symbols:
+                raise ValueError("No selection symbols available for evaluation")
+
+        price = self.gateway.get_price_data(
+            symbols=symbols,
+            start_date=price_start,
+            end_date=cycle_date,
+            frequency=self.config.frequency,
+        )
+        if price.empty:
+            raise ValueError("No price data available for the requested period")
+
+        strategies: Dict[str, Any] = {
+            item["name"]: item["strategy"]
+            for item in self.gateway.strategy_pool
+        }
+
+        from jh_quant.backtest.risk_management import RiskManagementParams
+
+        rmps: Dict[str, RiskManagementParams] = {}
+        for name, config in self.service_config.risk_management_specs.items():
+            rmps[name] = config.to_backtest_rmp()
+
+        combined_performance, trading_history_data = backtest_evaluate_strategies(
+            price=price,
+            strategies=strategies,
+            rmps=rmps,
+            commission_rate=commission_rate,
+            stamp_tax_rate=stamp_tax_rate,
+        )
+
+        th_df = trading_history_data.to_df() if hasattr(trading_history_data, "to_df") else trading_history_data
+
+        return {
+            "status": "completed",
+            "as_of_date": cycle_date,
+            "symbol_source": symbol_source,
+            "symbols": symbols,
+            "strategy_count": len(strategies),
+            "metrics": self._records_from_frame(combined_performance),
+            "trading_history": self._records_from_frame(th_df),
+        }
+
+    def get_risk_management_config(self) -> Dict[str, Any]:
+        """Return the current per-strategy risk management configuration."""
+        return {
+            "risk_management_specs": self.service_config.risk_management_specs,
+        }
+
+    def update_risk_management_config(
+        self,
+        risk_management_specs: Dict[str, RiskManagementParamsConfig],
+    ) -> Dict[str, Any]:
+        """Replace the entire per-strategy risk management configuration."""
+        with self._lock:
+            self.service_config.risk_management_specs = dict(risk_management_specs)
+            self._persist_user_config(source="runtime_update")
+            self._persist_runtime_state(extra={"event": "risk_management_config_updated"})
+        return {
+            "status": "updated",
+            "risk_management_specs": self.service_config.risk_management_specs,
+        }
 
     def signal_buy_symbol(
         self,

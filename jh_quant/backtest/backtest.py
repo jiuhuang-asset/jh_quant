@@ -143,7 +143,7 @@ def backtest(
     Args:
         strategies: 策略字典，键为策略名称，值为策略函数
         price_data: 价格数据
-        stock_info: 股票信息
+        stock_info: 股票信息, 可选，默认为空
         rmps: 各策略的风险管理参数字典
         commission_rate: 佣金费率（默认 0.0002）
         stamp_tax_rate: 印花税率（默认 0.0005）
