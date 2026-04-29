@@ -35,24 +35,32 @@ from ..portfolio import (
     list_portfolio_optimizer_definitions,
     optimize_portfolio_preview,
 )
+from ..oms import MockOMS
 from ..signalgateway import SignalGateway
 from ..utils import rprint
 from .schemas import (
     AnalyticsSnapshotResponse,
     CloseAllPositionsResponse,
+    ComparisonSummary,
     DataCountResponse,
     DataQueryResponse,
     DataSchemaResponse,
     DataTypesListResponse,
+    DEFAULT_PERFORMANCE_COMPARE_LIMIT,
     MAX_DATA_QUERY_ROWS,
+    PerformanceComparisonItem,
+    PerformanceComparisonResponse,
     PerformanceSnapshotResponse,
     RuntimeSnapshotResponse,
     SchedulerConfigSnapshotResponse,
     SchedulerConfigUpdateResponse,
     SchedulerStatus,
+    ServiceComparisonResponse,
     ServiceConfigResponse,
     ServiceConfigUpdateResponse,
     ServiceEventHistoryResponse,
+    ServiceInfoResponse,
+    ServiceListResponse,
     ServiceStatusResponse,
     SingleSymbolTradeResponse,
     TradingCycleResult,
@@ -1287,9 +1295,6 @@ class SignalGatewayService:
         if self._scheduler_running:
             self.stop_scheduler()
         self._persist_runtime_state(extra={"event": "service_shutdown"})
-        close = getattr(self.persistence, "close", None)
-        if callable(close):
-            close()
 
     # ── Data API ──────────────────────────────────────────────
 
@@ -1650,3 +1655,251 @@ class SignalGatewayService:
                     executed=False,
                     message=f"Sell failed: {exc}",
                 )
+
+
+class MultiServiceManager:
+    """Manages multiple SignalGatewayService instances in a single process.
+
+    Each service gets its own MockOMS (isolated by session_id) and scheduler
+    thread, while sharing a common PersistenceCoordinator and
+    MarketDataProvider.
+    """
+
+    def __init__(
+        self,
+        max_services: int = 4,
+        persistence: Optional[PersistenceCoordinator] = None,
+        market_data_provider=None,
+    ):
+        self._max_services = max(max_services, 1)
+        self._shared_persistence = persistence or PersistenceCoordinator()
+        self._shared_md_provider = market_data_provider
+        self._services: Dict[str, SignalGatewayService] = {}
+        self._lock = RLock()
+
+    # ── service lifecycle ──────────────────────────────────────
+
+    def create_service(
+        self,
+        config: SignalGatewayServiceConfig,
+        initial_capital: float = 100000,
+    ) -> str:
+        """Create and register a new service from config.
+
+        Returns the session_id of the created service.
+        """
+        with self._lock:
+            if len(self._services) >= self._max_services:
+                raise ValueError(
+                    f"Maximum number of services reached ({self._max_services}). "
+                    f"Remove an existing service before creating a new one."
+                )
+
+            session_id = config.service.session_id or str(uuid.uuid4())
+            if session_id in self._services:
+                raise ValueError(
+                    f"Service with session_id '{session_id}' already exists."
+                )
+
+            config.service.session_id = session_id
+            oms = MockOMS(session_id=session_id, initial_capital=initial_capital)
+            gateway = SignalGateway(
+                oms=oms,
+                market_data_provider=self._shared_md_provider,
+            )
+            service = SignalGatewayService(
+                gateway=gateway,
+                config=config,
+                persistence=self._shared_persistence,
+            )
+            self._services[session_id] = service
+            return session_id
+
+    def remove_service(self, session_id: str) -> None:
+        """Shutdown and remove a service by session_id."""
+        with self._lock:
+            service = self._services.pop(session_id, None)
+        if service is not None:
+            service.shutdown_service()
+
+    def get_service(self, session_id: str) -> SignalGatewayService:
+        """Get a service by session_id.
+
+        Raises KeyError if not found.
+        """
+        with self._lock:
+            if session_id not in self._services:
+                raise KeyError(f"Service with session_id '{session_id}' not found")
+            return self._services[session_id]
+
+    def stop_all(self) -> None:
+        """Shutdown all managed services, then close shared persistence."""
+        with self._lock:
+            services = list(self._services.values())
+            self._services.clear()
+        for service in services:
+            try:
+                service.shutdown_service()
+            except Exception:
+                pass
+        close = getattr(self._shared_persistence, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception:
+                pass
+
+    @property
+    def max_services(self) -> int:
+        return self._max_services
+
+    # ── query ──────────────────────────────────────────────────
+
+    def list_services(self) -> ServiceListResponse:
+        """Return metadata for all managed services."""
+        items: list[ServiceInfoResponse] = []
+        with self._lock:
+            for session_id, svc in self._services.items():
+                items.append(self._build_service_info(session_id, svc))
+        return ServiceListResponse(
+            services=items,
+            count=len(items),
+            max_services=self._max_services,
+        )
+
+    def get_comparison(self) -> ServiceComparisonResponse:
+        """Aggregate performance/status across all services for comparison."""
+        summaries: list[ComparisonSummary] = []
+        with self._lock:
+            for session_id, svc in self._services.items():
+                summaries.append(self._build_comparison_summary(session_id, svc))
+        return ServiceComparisonResponse(
+            generated_at=datetime.now().isoformat(),
+            count=len(summaries),
+            services=summaries,
+        )
+
+    def get_performance_comparison(
+        self,
+        session_ids: Optional[List[str]] = None,
+        limit: int = DEFAULT_PERFORMANCE_COMPARE_LIMIT,
+    ) -> PerformanceComparisonResponse:
+        """Compare historical performance (incl. equity curves) across sessions.
+
+        Args:
+            session_ids: Specific sessions to compare. If None, returns the
+                latest sessions up to *limit*.
+            limit: Max sessions when session_ids is not specified.
+        """
+        with self._lock:
+            all_ids = list(self._services.keys())
+            if session_ids is not None:
+                target_ids = [sid for sid in session_ids if sid in self._services]
+            elif len(all_ids) > limit:
+                target_ids = all_ids[-limit:]
+            else:
+                target_ids = list(all_ids)
+
+        items: list[PerformanceComparisonItem] = []
+        note: Optional[str] = None
+        if session_ids is None and len(all_ids) > limit:
+            note = (
+                f"Showing latest {len(target_ids)} of {len(all_ids)} sessions. "
+                f"Use ?session_ids=... to select specific sessions."
+            )
+
+        for sid in target_ids:
+            with self._lock:
+                svc = self._services.get(sid)
+            if svc is None:
+                continue
+            items.append(self._build_performance_comparison_item(sid, svc))
+
+        return PerformanceComparisonResponse(
+            generated_at=datetime.now().isoformat(),
+            count=len(items),
+            sessions=items,
+            note=note,
+        )
+
+    # ── helpers ────────────────────────────────────────────────
+
+    def _build_service_info(self, session_id: str, svc: SignalGatewayService) -> ServiceInfoResponse:
+        positions = svc.gateway.oms.get_positions()
+        current_value = float(positions.total) if positions else None
+        selection_name = getattr(svc.selection_specs, "alias", None) or getattr(svc.selection_specs, "name", None)
+        portfolio_enabled = bool(getattr(svc.portfolio_spec, "enabled", False))
+
+        return ServiceInfoResponse(
+            session_id=session_id,
+            mode=svc.config.mode,
+            running=svc._scheduler_running,
+            strategy_count=len(svc.strategy_specs),
+            selection_name=str(selection_name) if selection_name else None,
+            portfolio_enabled=portfolio_enabled,
+            initial_capital=getattr(svc.gateway.oms, "initial_capital", 0.0),
+            current_value=current_value,
+            last_error=svc._last_error,
+            last_result=svc._serialize_result(svc._last_result),
+        )
+
+    def _build_comparison_summary(self, session_id: str, svc: SignalGatewayService) -> ComparisonSummary:
+        positions = svc.gateway.oms.get_positions()
+        current_value = float(positions.total) if positions else None
+        initial_capital = float(getattr(svc.gateway.oms, "initial_capital", 0.0))
+        total_return_pct = None
+        if current_value is not None and initial_capital > 0:
+            total_return_pct = round((current_value - initial_capital) / initial_capital * 100, 2)
+        daily_pnl = float(getattr(positions, "daily_profit", 0.0)) if positions else None
+        selection_name = getattr(svc.selection_specs, "alias", None) or getattr(svc.selection_specs, "name", None)
+
+        return ComparisonSummary(
+            session_id=session_id,
+            mode=svc.config.mode,
+            running=svc._scheduler_running,
+            initial_capital=initial_capital,
+            current_value=current_value,
+            total_return_pct=total_return_pct,
+            daily_pnl=daily_pnl,
+            position_count=len(getattr(positions, "holds", [])),
+            strategy_names=[spec.alias or spec.name for spec in svc.strategy_specs],
+            selection_name=str(selection_name) if selection_name else None,
+        )
+
+    def _build_performance_comparison_item(self, session_id: str, svc: SignalGatewayService) -> PerformanceComparisonItem:
+        report = self._shared_persistence.get_performance_report(session_id)
+        summary = report.get("summary", {})
+        equity_curve = report.get("equity_curve")
+        positions = svc.gateway.oms.get_positions()
+        current_value = float(positions.total) if positions else None
+        initial_capital = float(getattr(svc.gateway.oms, "initial_capital", 0.0))
+        total_return_pct = None
+        if current_value is not None and initial_capital > 0:
+            total_return_pct = round((current_value - initial_capital) / initial_capital * 100, 2)
+
+        equity_rows: list[dict] = []
+        if equity_curve is not None and not equity_curve.empty:
+            curve = equity_curve.copy()
+            if hasattr(curve, "to_dict"):
+                equity_rows = curve.to_dict(orient="records")
+            else:
+                equity_rows = list(curve)
+
+        selection_name = getattr(svc.selection_specs, "alias", None) or getattr(svc.selection_specs, "name", None)
+
+        return PerformanceComparisonItem(
+            session_id=session_id,
+            mode=svc.config.mode,
+            initial_capital=initial_capital,
+            strategy_names=[spec.alias or spec.name for spec in svc.strategy_specs],
+            selection_name=str(selection_name) if selection_name else None,
+            portfolio_value=current_value,
+            total_return_pct=total_return_pct,
+            daily_pnl=float(getattr(positions, "daily_profit", 0.0)) if positions else None,
+            position_count=len(getattr(positions, "holds", [])),
+            total_trades=int(summary.get("total_trades", 0)),
+            win_rate=summary.get("win_rate"),
+            total_pnl=float(summary.get("total_pnl", 0.0)),
+            max_drawdown=float(summary.get("max_drawdown", 0.0)),
+            equity_curve=equity_rows,
+        )

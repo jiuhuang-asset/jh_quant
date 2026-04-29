@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from typing import Optional
 try:
     from fastapi import FastAPI
 except ImportError:  # pragma: no cover - optional dependency at runtime
@@ -21,8 +22,8 @@ try:
 except ImportError:  # pragma: no cover - optional dependency at runtime
     uvicorn = None
 
-from ..utils import print_service_startup_summary
-from .core import SignalGatewayService
+from ..utils import print_service_startup_summary, rprint
+from .core import MultiServiceManager, SignalGatewayService
 from .schemas import (
     AnalyticsSnapshotResponse,
     CloseAllPositionsRequest,
@@ -34,6 +35,7 @@ from .schemas import (
     DataSchemaResponse,
     DataTypesListResponse,
     HealthResponse,
+    PerformanceComparisonResponse,
     PerformanceSnapshotResponse,
     PortfolioAnalysisResponse,
     PortfolioConfigSnapshotResponse,
@@ -55,10 +57,16 @@ from .schemas import (
     SelectionConfigUpdateRequest,
     SelectionConfigSnapshotResponse,
     ServiceActionResponse,
+    ServiceComparisonResponse,
     ServiceConfigResponse,
     ServiceConfigUpdateRequest,
     ServiceConfigUpdateResponse,
+    ServiceCreateRequest,
+    ServiceCreateResponse,
     ServiceEventHistoryResponse,
+    ServiceInfoResponse,
+    ServiceListResponse,
+    ServiceRemoveResponse,
     ServiceStatusResponse,
     SingleSymbolTradeRequest,
     SingleSymbolTradeResponse,
@@ -384,13 +392,129 @@ def create_service_app(service: SignalGatewayService):
     return app
 
 
+# ── Multi-service API ──────────────────────────────────────────
+
+
+def _register_multi_service_routes(app, manager: MultiServiceManager):
+    """Register multi-service management endpoints on an existing FastAPI app."""
+
+    @app.get("/services", response_model=ServiceListResponse, operation_id="list_services")
+    def list_services():
+        return manager.list_services()
+
+    @app.post("/services", response_model=ServiceCreateResponse, operation_id="create_service")
+    def create_service(request: ServiceCreateRequest):
+        sid = manager.create_service(
+            config=request.config_bundle,
+            initial_capital=request.initial_capital,
+        )
+        return ServiceCreateResponse(status="created", session_id=sid)
+
+    @app.delete("/services/{session_id}", response_model=ServiceRemoveResponse, operation_id="remove_service")
+    def remove_service(session_id: str):
+        manager.remove_service(session_id)
+        return ServiceRemoveResponse(status="removed", session_id=session_id)
+
+    @app.get("/services/{session_id}/status", response_model=ServiceStatusResponse, operation_id="get_service_status_multi")
+    def service_status(session_id: str):
+        return manager.get_service(session_id).get_status()
+
+    @app.post("/services/{session_id}/scheduler/start", response_model=ServiceActionResponse, operation_id="start_service_scheduler_multi")
+    def service_start(session_id: str):
+        svc = manager.get_service(session_id)
+        svc.start_scheduler()
+        return ServiceActionResponse(status="started", session_id=session_id)
+
+    @app.post("/services/{session_id}/scheduler/stop", response_model=ServiceActionResponse, operation_id="stop_service_scheduler_multi")
+    def service_stop(session_id: str):
+        svc = manager.get_service(session_id)
+        svc.stop_scheduler()
+        return ServiceActionResponse(status="stopped", session_id=session_id)
+
+    @app.post("/services/{session_id}/run-once", response_model=TradingCycleResultResponse, operation_id="run_service_once_multi")
+    def run_once(session_id: str):
+        result = manager.get_service(session_id).run_once()
+        return TradingCycleResultResponse(**asdict(result))
+
+    @app.get("/services/{session_id}/performance", response_model=PerformanceSnapshotResponse, operation_id="get_service_performance_multi")
+    def service_performance(session_id: str):
+        return manager.get_service(session_id).get_performance_snapshot()
+
+    @app.get("/services/{session_id}/runtime", response_model=RuntimeSnapshotResponse, operation_id="get_service_runtime_multi")
+    def service_runtime(session_id: str):
+        return manager.get_service(session_id).get_runtime_snapshot()
+
+    @app.get("/services/{session_id}/config", response_model=ServiceConfigResponse, operation_id="get_service_config_multi")
+    def service_config(session_id: str):
+        return manager.get_service(session_id).get_config_snapshot()
+
+    @app.get("/services/compare", response_model=ServiceComparisonResponse, operation_id="compare_services")
+    def compare_services():
+        return manager.get_comparison()
+
+    @app.get(
+        "/services/performance/compare",
+        response_model=PerformanceComparisonResponse,
+        operation_id="compare_performance",
+    )
+    def compare_performance(
+        session_ids: Optional[str] = None,
+        limit: int = 8,
+    ):
+        ids = (
+            [s.strip() for s in session_ids.split(",") if s.strip()]
+            if session_ids
+            else None
+        )
+        return manager.get_performance_comparison(session_ids=ids, limit=limit)
+
+
+def create_multi_service_app(manager: MultiServiceManager):
+    """Create a FastAPI app that manages multiple SignalGatewayService instances."""
+    if FastAPI is None:
+        raise ImportError("fastapi is required to create the service API")
+
+    app = FastAPI(title="jh-quant Multi-Service Manager")
+    if CORSMiddleware is not None:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+
+    @app.get("/health", response_model=HealthResponse, operation_id="health_check")
+    def health():
+        return HealthResponse(status="ok")
+
+    _register_multi_service_routes(app, manager)
+    _mount_mcp_server(app)
+
+    return app
+
+
 def run_service_app(
-    service: SignalGatewayService,
+    service: Optional[SignalGatewayService] = None,
     host: str = "127.0.0.1",
     port: int = 8000,
+    manager: Optional[MultiServiceManager] = None,
 ):
     if uvicorn is None:
         raise ImportError("uvicorn is required to run the service API")
+
+    if manager is not None:
+        app = create_multi_service_app(manager)
+        services = manager.list_services()
+        rprint(label="Multi-Service", content=f"Managing {services.count} service(s), max={services.max_services}")
+        for svc_info in services.services:
+            rprint(label=f"  [{svc_info.session_id}]", content=f"mode={svc_info.mode}, running={svc_info.running}")
+        uvicorn.run(app, host=host, port=port)
+        return
+
+    if service is None:
+        raise ValueError("Either 'service' or 'manager' must be provided")
+
     app = create_service_app(service)
     print_service_startup_summary(
         session_id=service.config.session_id or "unknown",

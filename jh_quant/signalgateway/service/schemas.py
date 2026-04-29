@@ -5,7 +5,7 @@ Request and response models for the signalgateway service API.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 from ..config import PortfolioSpec, SelectionSpec, SignalGatewayServiceConfig, StrategySpec
@@ -478,3 +478,139 @@ class DataSchemaResponse(BaseModel):
     fields: List[str] = Field(default_factory=list, description="Ordered table column names.")
     unique_keys: List[str] = Field(default_factory=list, description="Unique constraint key columns.")
     dt_field: Optional[str] = Field(default=None, description="Date/time column name (for time-series ordering).")
+
+
+# ── Multi-Service API models ────────────────────────────────────────
+
+
+class ServiceInfoResponse(BaseModel):
+    """Summary metadata for a single managed service instance."""
+
+    session_id: str = Field(description="Service session ID.")
+    mode: str = Field(description="Running mode: paper or live.")
+    running: bool = Field(description="Whether the scheduler is currently running.")
+    strategy_count: int = Field(description="Number of configured strategies.")
+    selection_name: Optional[str] = Field(default=None, description="Selection provider name or alias.")
+    portfolio_enabled: bool = Field(default=False, description="Whether portfolio optimization is enabled.")
+    initial_capital: float = Field(description="Initial capital for this session.")
+    current_value: Optional[float] = Field(default=None, description="Current portfolio total value.")
+    last_error: Optional[str] = Field(default=None, description="Most recent runtime error.")
+    last_result: Optional[TradingCycleResultResponse] = Field(default=None, description="Most recent trading cycle result.")
+    created_at: Optional[str] = Field(default=None, description="Service creation time.")
+
+
+class ServiceListResponse(BaseModel):
+    """Response listing all managed service instances."""
+
+    services: List[ServiceInfoResponse] = Field(default_factory=list, description="Managed service instances.")
+    count: int = Field(description="Current number of services.")
+    max_services: int = Field(description="Maximum allowed services.")
+
+
+class ServiceCreateRequest(BaseModel):
+    """Request to create a new service under multi-service management."""
+
+    config_bundle: SignalGatewayServiceConfig = Field(description="Full service configuration bundle.")
+    initial_capital: float = Field(default=100000.0, ge=0, description="Initial capital for paper trading.")
+    auto_start: Optional[bool] = Field(default=None, description="Override auto_start from config.")
+
+
+class ServiceCreateResponse(BaseModel):
+    """Response after creating a new service."""
+
+    status: str = Field(description="Creation result.")
+    session_id: str = Field(description="Assigned session ID for the new service.")
+
+
+class ServiceRemoveResponse(BaseModel):
+    """Response after removing a service."""
+
+    status: str = Field(description="Removal result.")
+    session_id: str = Field(description="Session ID of the removed service.")
+
+
+class ComparisonSummary(BaseModel):
+    """Per-service summary for side-by-side comparison."""
+
+    session_id: str = Field(description="Service session ID.")
+    mode: str = Field(description="Running mode.")
+    running: bool = Field(description="Whether the scheduler is running.")
+    initial_capital: float = Field(description="Initial capital.")
+    current_value: Optional[float] = Field(default=None, description="Current portfolio total value.")
+    total_return_pct: Optional[float] = Field(default=None, description="Total return percentage.")
+    daily_pnl: Optional[float] = Field(default=None, description="Current daily PnL.")
+    position_count: int = Field(default=0, description="Number of current positions.")
+    strategy_names: List[str] = Field(default_factory=list, description="Configured strategy names/aliases.")
+    selection_name: Optional[str] = Field(default=None, description="Selection provider name.")
+
+
+class ServiceComparisonResponse(BaseModel):
+    """Aggregated comparison across all managed services."""
+
+    generated_at: str = Field(description="Comparison generation time.")
+    count: int = Field(description="Number of services compared.")
+    services: List[ComparisonSummary] = Field(default_factory=list, description="Per-service comparison summaries.")
+
+
+# ── Performance Comparison API models ───────────────────────────────
+
+
+DEFAULT_PERFORMANCE_COMPARE_LIMIT = 8
+
+
+class PerformanceComparisonRequest(BaseModel):
+    """Request to compare historical performance across multiple sessions."""
+
+    session_ids: Optional[List[str]] = Field(
+        default=None,
+        description="Specific session IDs to compare. If omitted, returns the latest sessions (up to limit).",
+    )
+    limit: int = Field(
+        default=DEFAULT_PERFORMANCE_COMPARE_LIMIT,
+        ge=1,
+        le=50,
+        description="Max sessions to return when session_ids is not specified.",
+    )
+
+
+class PerformanceComparisonItem(BaseModel):
+    """Performance data for a single session in a comparison."""
+
+    session_id: str = Field(description="Session ID.")
+    mode: str = Field(description="Running mode (paper/live).")
+    initial_capital: float = Field(description="Initial capital.")
+    strategy_names: List[str] = Field(default_factory=list, description="Strategy names/aliases.")
+    selection_name: Optional[str] = Field(default=None, description="Selection provider name.")
+
+    # current snapshot
+    portfolio_value: Optional[float] = Field(default=None, description="Latest portfolio total value.")
+    total_return_pct: Optional[float] = Field(default=None, description="Total return percentage.")
+    daily_pnl: Optional[float] = Field(default=None, description="Current daily PnL.")
+    position_count: int = Field(default=0, description="Current number of positions.")
+
+    # summary stats
+    total_trades: int = Field(default=0, description="Total number of trades.")
+    win_rate: Optional[float] = Field(default=None, description="Win rate (0.0-1.0).")
+    total_pnl: float = Field(default=0.0, description="Total realized + unrealized PnL.")
+    max_drawdown: float = Field(default=0.0, description="Maximum historical drawdown (negative).")
+
+    # time-series data for chart overlay
+    equity_curve: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Daily equity curve rows: trade_date, portfolio_value, cumulative_return, drawdown.",
+    )
+
+
+class PerformanceComparisonResponse(BaseModel):
+    """Historical performance comparison across multiple sessions."""
+
+    generated_at: str = Field(description="Comparison generation time.")
+    count: int = Field(description="Number of sessions compared.")
+    sessions: List[PerformanceComparisonItem] = Field(
+        default_factory=list,
+        description="Per-session performance data including equity curves.",
+    )
+    note: Optional[str] = Field(
+        default=None,
+        description="Informational message (e.g. when sessions were auto-limited).",
+    )
