@@ -40,6 +40,11 @@ from ..utils import rprint
 from .schemas import (
     AnalyticsSnapshotResponse,
     CloseAllPositionsResponse,
+    DataCountResponse,
+    DataQueryResponse,
+    DataSchemaResponse,
+    DataTypesListResponse,
+    MAX_DATA_QUERY_ROWS,
     PerformanceSnapshotResponse,
     RuntimeSnapshotResponse,
     SchedulerConfigSnapshotResponse,
@@ -1285,6 +1290,122 @@ class SignalGatewayService:
         close = getattr(self.persistence, "close", None)
         if callable(close):
             close()
+
+    # ── Data API ──────────────────────────────────────────────
+
+    def _get_jhdata(self):
+        """Resolve JHData instance from the gateway's market_data_provider."""
+        from ..market_data import JHMarketDataProvider
+
+        provider = getattr(self.gateway, "market_data_provider", None)
+        if provider is None:
+            raise RuntimeError("MarketDataProvider is not configured on the gateway")
+        if not isinstance(provider, JHMarketDataProvider):
+            raise RuntimeError(
+                f"Data API requires a JHMarketDataProvider, got {type(provider).__name__}"
+            )
+        return provider.jhd
+
+    def _validate_data_type(self, data_type_str: str):
+        from jh_quant.data import DataTypes
+
+        try:
+            return DataTypes(data_type_str)
+        except ValueError:
+            raise ValueError(
+                f"Unknown data_type '{data_type_str}'. "
+                f"Use GET /data/types to list available types."
+            )
+
+    def get_data_count(self, *, data_type: str, symbol: Optional[str] = None, ts_code: Optional[str] = None, start: Optional[str] = None, end: Optional[str] = None) -> Dict[str, Any]:
+        dt = self._validate_data_type(data_type)
+        jhd = self._get_jhdata()
+        kwargs = {}
+        if symbol:
+            kwargs["symbol"] = symbol
+        if ts_code:
+            kwargs["ts_code"] = ts_code
+        if start:
+            kwargs["start"] = start
+        if end:
+            kwargs["end"] = end
+        count = jhd.get_data_total(dt, **kwargs)
+        return DataCountResponse(data_type=data_type, count=count).model_dump()
+
+    def get_data_query(self, *, data_type: str, symbol: Optional[str] = None, ts_code: Optional[str] = None, start: Optional[str] = None, end: Optional[str] = None, remote: bool = False) -> Dict[str, Any]:
+        dt = self._validate_data_type(data_type)
+        jhd = self._get_jhdata()
+        kwargs = {}
+        if symbol:
+            kwargs["symbol"] = symbol
+        if ts_code:
+            kwargs["ts_code"] = ts_code
+        if start:
+            kwargs["start"] = start
+        if end:
+            kwargs["end"] = end
+
+        total = jhd.get_data_total(dt, **kwargs)
+        if total == 0:
+            return DataQueryResponse(
+                status="empty",
+                data_type=data_type,
+                count=0,
+                message="No data available for the given parameters.",
+            ).model_dump()
+
+        if total > MAX_DATA_QUERY_ROWS:
+            suggestion = "Please narrow your query by providing one or more of: symbol, ts_code, start, end."
+            return DataQueryResponse(
+                status="too_large",
+                data_type=data_type,
+                count=total,
+                message=f"Data count ({total}) exceeds the maximum direct-return threshold ({MAX_DATA_QUERY_ROWS}).",
+                suggestion=suggestion,
+            ).model_dump()
+
+        df = jhd.get_data(dt, remote=remote, **kwargs)
+        if df is None or (hasattr(df, "empty") and df.empty):
+            return DataQueryResponse(
+                status="empty",
+                data_type=data_type,
+                count=0,
+                message="No data returned after fetch.",
+            ).model_dump()
+
+        if hasattr(df, "to_df"):
+            df = df.to_df()
+        records = df.to_dict(orient="records")
+        return DataQueryResponse(
+            status="ok",
+            data_type=data_type,
+            count=len(records),
+            data=records,
+            message=f"Returned {len(records)} rows.",
+        ).model_dump()
+
+    def list_data_types(self) -> Dict[str, Any]:
+        from jh_quant.data import DataTypes
+
+        types = [
+            {"value": dt.value, "name": dt.name}
+            for dt in DataTypes
+        ]
+        return DataTypesListResponse(types=types, count=len(types)).model_dump()
+
+    def get_data_schema(self, data_type: str) -> Dict[str, Any]:
+        from jh_quant.data.data_types import get_table_fields, get_table_unique_keys, get_table_dt_field
+
+        dt = self._validate_data_type(data_type)
+        fields = get_table_fields(dt)
+        unique_keys = get_table_unique_keys(dt)
+        dt_field = get_table_dt_field(dt)
+        return DataSchemaResponse(
+            data_type=data_type,
+            fields=fields,
+            unique_keys=unique_keys,
+            dt_field=dt_field,
+        ).model_dump()
 
     def close_all_positions(self, slippage: float = 0.0) -> CloseAllPositionsResponse:
         with self._lock:

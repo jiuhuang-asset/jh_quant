@@ -409,3 +409,72 @@ class RiskManagementConfigUpdateResponse(BaseModel):
         default_factory=dict,
         description="Updated per-strategy risk management params.",
     )
+
+
+# ── Data API models ──────────────────────────────────────────────
+
+MAX_DATA_QUERY_ROWS = 10_000
+
+
+class DataCountRequest(BaseModel):
+    """Request to count data rows for a given data type and optional filters."""
+
+    data_type: str = Field(description="Data type identifier (e.g. 'ak_stock_zh_a_hist').")
+    symbol: Optional[str] = Field(default=None, description="Stock symbol filter (comma-separated for multiple).")
+    ts_code: Optional[str] = Field(default=None, description="Tushare code filter (comma-separated for multiple).")
+    start: Optional[str] = Field(default=None, description="Start date (YYYY-MM-DD).")
+    end: Optional[str] = Field(default=None, description="End date (YYYY-MM-DD).")
+
+
+class DataCountResponse(BaseModel):
+    """Response with row count for the requested data type."""
+
+    data_type: str = Field(description="Queried data type identifier.")
+    count: int = Field(description="Total row count matching the filters.")
+    max_query_rows: int = Field(default=MAX_DATA_QUERY_ROWS, description="Threshold for direct data return.")
+
+
+class DataQueryRequest(BaseModel):
+    """Request to query data with automatic size checking."""
+
+    data_type: str = Field(description="Data type identifier (e.g. 'ak_stock_zh_a_hist').")
+    symbol: Optional[str] = Field(default=None, description="Stock symbol filter (comma-separated for multiple).")
+    ts_code: Optional[str] = Field(default=None, description="Tushare code filter (comma-separated for multiple).")
+    start: Optional[str] = Field(default=None, description="Start date (YYYY-MM-DD).")
+    end: Optional[str] = Field(default=None, description="End date (YYYY-MM-DD).")
+    remote: bool = Field(default=False, description="Force fetch from remote API (bypass cache).")
+
+
+class DataQueryResponse(BaseModel):
+    """Response with queried data, or a signal that filters are required."""
+
+    status: str = Field(description="Query status: 'ok', 'too_large', or 'empty'.")
+    data_type: str = Field(description="Queried data type identifier.")
+    count: int = Field(default=0, description="Total matching rows (0 for empty).")
+    max_query_rows: int = Field(default=MAX_DATA_QUERY_ROWS, description="Threshold for direct data return.")
+    message: str = Field(default="", description="Human-readable status message.")
+    suggestion: Optional[str] = Field(default=None, description="Suggestion for narrowing the query (when too_large).")
+    data: Optional[List[Dict[str, Any]]] = Field(default=None, description="Result records (only when status='ok').")
+
+
+class DataTypeInfo(BaseModel):
+    """Metadata for a single available data type."""
+
+    value: str = Field(description="Enum value string (e.g. 'ak_stock_zh_a_hist').")
+    name: str = Field(description="Enum member name (e.g. 'AK_STOCK_ZH_A_HIST').")
+
+
+class DataTypesListResponse(BaseModel):
+    """Response listing all available data types."""
+
+    types: List[DataTypeInfo] = Field(default_factory=list, description="Available data types.")
+    count: int = Field(description="Total number of available data types.")
+
+
+class DataSchemaResponse(BaseModel):
+    """Response with table schema for a data type."""
+
+    data_type: str = Field(description="Data type identifier.")
+    fields: List[str] = Field(default_factory=list, description="Ordered table column names.")
+    unique_keys: List[str] = Field(default_factory=list, description="Unique constraint key columns.")
+    dt_field: Optional[str] = Field(default=None, description="Date/time column name (for time-series ordering).")

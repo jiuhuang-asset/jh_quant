@@ -27,6 +27,12 @@ from .schemas import (
     AnalyticsSnapshotResponse,
     CloseAllPositionsRequest,
     CloseAllPositionsResponse,
+    DataCountRequest,
+    DataCountResponse,
+    DataQueryRequest,
+    DataQueryResponse,
+    DataSchemaResponse,
+    DataTypesListResponse,
     HealthResponse,
     PerformanceSnapshotResponse,
     PortfolioAnalysisResponse,
@@ -341,6 +347,37 @@ def create_service_app(service: SignalGatewayService):
     )
     def update_risk_management_config(request: RiskManagementConfigUpdateRequest):
         return service.update_risk_management_config(request.risk_management_specs)
+
+    # ── Data API ──────────────────────────────────────────────
+
+    @app.post("/data/count", response_model=DataCountResponse, operation_id="get_data_count")
+    def data_count(request: DataCountRequest):
+        return service.get_data_count(
+            data_type=request.data_type,
+            symbol=request.symbol,
+            ts_code=request.ts_code,
+            start=request.start,
+            end=request.end,
+        )
+
+    @app.post("/data/query", response_model=DataQueryResponse, operation_id="get_data_query")
+    def data_query(request: DataQueryRequest):
+        return service.get_data_query(
+            data_type=request.data_type,
+            symbol=request.symbol,
+            ts_code=request.ts_code,
+            start=request.start,
+            end=request.end,
+            remote=request.remote,
+        )
+
+    @app.get("/data/types", response_model=DataTypesListResponse, operation_id="list_data_types")
+    def data_types():
+        return service.list_data_types()
+
+    @app.get("/data/schema/{data_type}", response_model=DataSchemaResponse, operation_id="get_data_schema")
+    def data_schema(data_type: str):
+        return service.get_data_schema(data_type)
 
     _mount_mcp_server(app)
 
