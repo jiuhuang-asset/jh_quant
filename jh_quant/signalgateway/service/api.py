@@ -126,14 +126,22 @@ def create_service_app(service: SignalGatewayService):
     def get_service_events():
         return service.get_service_event_history()
 
-    @app.post("/service/start", response_model=ServiceActionResponse, operation_id="start_service")
+    @app.post(
+        "/service/scheduler/start",
+        response_model=ServiceActionResponse,
+        operation_id="start_service_scheduler",
+    )
     def service_start():
-        service.start()
+        service.start_scheduler()
         return ServiceActionResponse(status="started", session_id=service.config.session_id)
 
-    @app.post("/service/stop", response_model=ServiceActionResponse, operation_id="stop_service")
+    @app.post(
+        "/service/scheduler/stop",
+        response_model=ServiceActionResponse,
+        operation_id="stop_service_scheduler",
+    )
     def service_stop():
-        service.stop()
+        service.stop_scheduler()
         return ServiceActionResponse(status="stopped", session_id=service.config.session_id)
 
     @app.post("/service/run-once", response_model=TradingCycleResultResponse, operation_id="run_service_once")

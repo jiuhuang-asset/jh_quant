@@ -111,9 +111,9 @@ class SignalGatewayService:
             self.gateway.oms.session_id = self.config.session_id
 
         self._lock = RLock()
-        self._stop_event = Event()
-        self._thread: Optional[Thread] = None
-        self._running = False
+        self._scheduler_stop_event = Event()
+        self._scheduler_thread: Optional[Thread] = None
+        self._scheduler_running = False
         self._last_result: Optional[TradingCycleResult] = None
         self._last_error: Optional[str] = None
 
@@ -127,7 +127,7 @@ class SignalGatewayService:
         self._suspend_user_config_persistence = False
 
         if self.config.auto_start:
-            self.start()
+            self.start_scheduler()
 
     def _restore_oms_state(self):
         try:
@@ -317,7 +317,7 @@ class SignalGatewayService:
                 next_run_at = None
                 next_run_in_seconds = None
                 next_runs = []
-        elif self._last_result and self._running:
+        elif self._last_result and self._scheduler_running:
             try:
                 base_time = datetime.fromisoformat(self._last_result.cycle_time)
                 next_tick = base_time + timedelta(seconds=self.config.interval_seconds)
@@ -359,9 +359,9 @@ class SignalGatewayService:
             timezone=timezone,
         )
 
-        was_running = self._running
-        if was_running:
-            self.stop()
+        was_scheduler_running = self._scheduler_running
+        if was_scheduler_running:
+            self.stop_scheduler()
 
         with self._lock:
             if interval_seconds is not None:
@@ -385,20 +385,21 @@ class SignalGatewayService:
                 }
             )
 
-        if was_running:
-            self.start()
+        should_start = was_scheduler_running or self.config.auto_start
+        if should_start:
+            self.start_scheduler()
 
         return SchedulerConfigUpdateResponse(
             status="updated",
-            running=self._running,
+            running=self._scheduler_running,
             scheduler=self._build_scheduler_status(),
             auto_start=self.config.auto_start,
         ).model_dump()
 
     def replace_service_config(self, config_bundle: SignalGatewayServiceConfig) -> Dict[str, Any]:
-        was_running = self._running
-        if was_running:
-            self.stop()
+        was_scheduler_running = self._scheduler_running
+        if was_scheduler_running:
+            self.stop_scheduler()
 
         with self._lock:
             self._apply_config_bundle(config_bundle.model_copy(deep=True), source="runtime_update")
@@ -415,8 +416,8 @@ class SignalGatewayService:
             self._persist_user_config(source="runtime_update")
             self._persist_runtime_state(extra={"event": "service_config_replaced"})
 
-        if was_running or self.config.auto_start:
-            self.start()
+        if was_scheduler_running or self.config.auto_start:
+            self.start_scheduler()
 
         return ServiceConfigUpdateResponse(
             status="updated",
@@ -426,7 +427,7 @@ class SignalGatewayService:
 
     def get_scheduler_config_snapshot(self) -> Dict[str, Any]:
         return SchedulerConfigSnapshotResponse(
-            running=self._running,
+            running=self._scheduler_running,
             auto_start=self.config.auto_start,
             scheduler=self._build_scheduler_status(),
         ).model_dump()
@@ -697,7 +698,7 @@ class SignalGatewayService:
                 "config_source": self._config_source,
                 "persisted_user_config_available": self._persisted_user_config_available,
                 "persisted_user_config_updated_at": self._persisted_user_config_updated_at,
-                "running": self._running,
+                "running": self._scheduler_running,
                 "last_error": self._last_error,
                 "last_result": asdict(self._last_result) if self._last_result else None,
                 "latest_portfolio_optimization": self._latest_portfolio_optimization,
@@ -1063,7 +1064,7 @@ class SignalGatewayService:
         return ServiceStatusResponse(
             session_id=self.config.session_id,
             mode=self.config.mode,
-            running=self._running,
+            running=self._scheduler_running,
             scheduler=self._build_scheduler_status(),
             last_error=self._last_error,
             last_result=self._serialize_result(self._last_result),
@@ -1176,8 +1177,14 @@ class SignalGatewayService:
 
             if hasattr(self.gateway.oms, "compute_daily_metrics"):
                 cycle_dt = datetime.strptime(cycle_date, "%Y-%m-%d")
+                latest_price_symbols = list(top_selections)
+                current_holds = getattr(self.gateway.oms.get_positions(), "holds", [])
+                latest_price_symbols.extend(
+                    hold.symbol for hold in current_holds if getattr(hold, "symbol", None)
+                )
+                latest_price_symbols = list(dict.fromkeys(latest_price_symbols))
                 latest_prices = (
-                    self.gateway.get_latest_prices(top_selections)
+                    self.gateway.get_latest_prices(latest_price_symbols)
                     if hasattr(self.gateway, "get_latest_prices")
                     else pd.Series(dtype=float)
                 )
@@ -1209,7 +1216,7 @@ class SignalGatewayService:
             self._persist_runtime_state(extra=extra)
             return result
 
-    def _run_scheduler(self):
+    def _run_scheduler_loop(self):
         use_cron = bool(self.config.cron_expression)
         scheduler: Optional[CronScheduler] = None
         first_iteration = True
@@ -1219,13 +1226,13 @@ class SignalGatewayService:
                 self.config.timezone,
             )
 
-        while not self._stop_event.is_set():
+        while not self._scheduler_stop_event.is_set():
             if use_cron and scheduler is not None:
-                if not scheduler.wait(self._stop_event):
+                if not scheduler.wait(self._scheduler_stop_event):
                     break
             elif not first_iteration:
                 try:
-                    if self._stop_event.wait(self.config.interval_seconds):
+                    if self._scheduler_stop_event.wait(self.config.interval_seconds):
                         break
                 except BaseException:
                     break
@@ -1252,27 +1259,28 @@ class SignalGatewayService:
                     pass
             first_iteration = False
 
-    def start(self):
-        if self._running:
+    def start_scheduler(self):
+        if self._scheduler_running:
             return
-        self._stop_event.clear()
-        self._running = True
-        self._thread = Thread(target=self._run_scheduler, daemon=False)
-        self._thread.start()
-        self._persist_runtime_state(extra={"event": "service_started"})
+        self._scheduler_stop_event.clear()
+        self._scheduler_running = True
+        self._scheduler_thread = Thread(target=self._run_scheduler_loop, daemon=False)
+        self._scheduler_thread.start()
+        self._persist_runtime_state(extra={"event": "scheduler_started"})
 
-    def stop(self):
-        if not self._running:
+    def stop_scheduler(self):
+        if not self._scheduler_running:
             return
-        self._stop_event.set()
-        if self._thread is not None:
-            self._thread.join(timeout=5)
-        self._running = False
-        self._persist_runtime_state(extra={"event": "service_stopped"})
+        self._scheduler_stop_event.set()
+        if self._scheduler_thread is not None:
+            self._scheduler_thread.join(timeout=5)
+        self._scheduler_running = False
+        self._persist_runtime_state(extra={"event": "scheduler_stopped"})
 
-    def close(self) -> None:
-        if self._running:
-            self.stop()
+    def shutdown_service(self) -> None:
+        if self._scheduler_running:
+            self.stop_scheduler()
+        self._persist_runtime_state(extra={"event": "service_shutdown"})
         close = getattr(self.persistence, "close", None)
         if callable(close):
             close()

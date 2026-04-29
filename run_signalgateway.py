@@ -106,7 +106,7 @@ def main() -> None:
         print("app_title", app.title)
         print("route_count", len(app.routes))
     finally:
-        service.close()
+        service.shutdown_service()
 
 
 if __name__ == "__main__":

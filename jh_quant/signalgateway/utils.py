@@ -83,7 +83,7 @@ def print_service_startup_summary(
     else:
         console.print(
             "[bold yellow]Scheduler auto-start is disabled.[/bold yellow] "
-            "Use POST /service/start when ready."
+            "Use POST /service/scheduler/start when ready."
         )
 
 
