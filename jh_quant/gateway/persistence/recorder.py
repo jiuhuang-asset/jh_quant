@@ -33,7 +33,6 @@ from .models import (
 from .protocols import (
     PerformancePersistence,
     PositionPersistence,
-    ServiceStatePersistence,
     SessionStatePersistence,
     TradePersistence,
 )
@@ -109,7 +108,6 @@ class OrderRecorder(
     PerformancePersistence,
     PositionPersistence,
     SessionStatePersistence,
-    ServiceStatePersistence,
     ABC,
 ):
     """Abstract recorder for trading artifacts."""
@@ -310,9 +308,9 @@ class TortoiseOrderRecorder(OrderRecorder):
     async def _save_runtime_state(self, state: Dict[str, Any]):
         normalized = normalize_jsonable_value(state)
         event_type = (
-            normalized.get("service", {})
+            normalized.get("session", {})
             .get("extra", {})
-            .get("event", "service_state_snapshot")
+            .get("event", "session_state_snapshot")
         )
         export_time = _as_datetime(
             normalized.get("export_time", datetime.now())

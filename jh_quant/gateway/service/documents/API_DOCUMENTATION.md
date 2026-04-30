@@ -1,6 +1,6 @@
-# SignalGateway Service API Documentation v3
+# SignalGateway Service API Documentation v4
 
-Document version: `v3` (changelog: [CHANGELOG.md](CHANGELOG.md))
+Document version: `v4` (changelog: [CHANGELOG.md](CHANGELOG.md))
 
 This document describes the HTTP API exposed by `jh_quant.signalgateway.service.api`, the key data models, and recommended frontend integration patterns.
 
@@ -20,9 +20,9 @@ This document describes the HTTP API exposed by `jh_quant.signalgateway.service.
 Do not hardcode `selection / strategy / portfolio` parameters in the frontend. The recommended flow:
 
 1. Call the GET config endpoints:
-   - `GET /services/{session_id}/selection-config`
-   - `GET /services/{session_id}/strategy-config`
-   - `GET /services/{session_id}/portfolio/config`
+   - `GET /sessions/{session_id}/selection-config`
+   - `GET /sessions/{session_id}/strategy-config`
+   - `GET /sessions/{session_id}/portfolio/config`
 2. Extract configurable definitions from:
    - `available_selections[].params_schema`
    - `available_strategies[].params_schema`
@@ -37,7 +37,7 @@ The service supports both bootstrap config and persisted user config:
 2. **Persisted user config** — config persisted to database after API modifications.
 3. **Current running config** — the actual effective config.
 
-Use `GET /services/{session_id}/config` to inspect:
+Use `GET /sessions/{session_id}/config` to inspect:
 - `config_source`
 - `persisted_user_config_available`
 - `persisted_user_config_updated_at`
@@ -48,15 +48,15 @@ Always treat the API-returned current config as authoritative, not local default
 
 Parallel requests on frontend init:
 1. `GET /health`
-2. `GET /services/{session_id}/status`
-3. `GET /services/{session_id}/runtime`
-4. `GET /services/{session_id}/performance`
-5. `GET /services/{session_id}/config`
-6. `GET /services/{session_id}/selection-config`
-7. `GET /services/{session_id}/strategy-config`
-8. `GET /services/{session_id}/portfolio/config`
+2. `GET /sessions/{session_id}/status`
+3. `GET /sessions/{session_id}/runtime`
+4. `GET /sessions/{session_id}/performance`
+5. `GET /sessions/{session_id}/config`
+6. `GET /sessions/{session_id}/selection-config`
+7. `GET /sessions/{session_id}/strategy-config`
+8. `GET /sessions/{session_id}/portfolio/config`
 
-To reduce requests, use `GET /services/{session_id}/analytics` which bundles `status`, `runtime`, `performance`, and `config`. However it does not include `available_selections / available_strategies / available_optimizers`, so config pages still need requests 6/7/8.
+To reduce requests, use `GET /sessions/{session_id}/analytics` which bundles `status`, `runtime`, `performance`, and `config`. However it does not include `available_selections / available_strategies / available_optimizers`, so config pages still need requests 6/7/8.
 
 ## 3. Endpoint Overview
 
@@ -65,50 +65,42 @@ To reduce requests, use `GET /services/{session_id}/analytics` which bundles `st
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/health` | Health check |
-| `GET` | `/services` | List all managed services |
-| `POST` | `/services` | Create a new service |
-| `GET` | `/services/compare` | Status comparison across services |
-| `GET` | `/services/performance/compare` | Historical performance comparison |
-| `POST` | `/data/count` | Count records for a data type |
-| `POST` | `/data/query` | Query data with filters |
-| `GET` | `/data/types` | List available data types |
-| `GET` | `/data/schema/{data_type}` | Get schema for a data type |
+| `GET` | `/sessions` | List all sessions with performance overview |
+| `POST` | `/sessions` | Create a new session |
+| `GET` | `/sessions/trends` | Multi-session trend data for chart overlay |
 
 ### Session-Scoped
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `DELETE` | `/services/{session_id}` | Remove a service |
-| `GET` | `/services/{session_id}/status` | Service status |
-| `GET` | `/services/{session_id}/runtime` | Runtime snapshot |
-| `GET` | `/services/{session_id}/performance` | Performance snapshot |
-| `GET` | `/services/{session_id}/analytics` | Aggregated analytics snapshot |
-| `GET` | `/services/{session_id}/config` | Full config snapshot |
-| `PUT` | `/services/{session_id}/config` | Replace full config |
-| `POST` | `/services/{session_id}/config/import` | Import config from uploaded file |
-| `GET` | `/services/{session_id}/config/export` | Export config as downloadable file |
-| `GET` | `/services/{session_id}/events` | Service event history |
-| `POST` | `/services/{session_id}/scheduler/start` | Start scheduler |
-| `POST` | `/services/{session_id}/scheduler/stop` | Stop scheduler |
-| `POST` | `/services/{session_id}/run-once` | Execute one cycle immediately |
-| `GET` | `/services/{session_id}/strategy-config` | Get strategy config and available strategies |
-| `POST` | `/services/{session_id}/strategy-config` | Replace all strategy configs |
-| `GET` | `/services/{session_id}/selection-config` | Get selection config and available selectors |
-| `POST` | `/services/{session_id}/selection-config` | Update selection config |
-| `GET` | `/services/{session_id}/portfolio/config` | Get portfolio config and available optimizers |
-| `POST` | `/services/{session_id}/portfolio/config` | Update portfolio config |
-| `POST` | `/services/{session_id}/portfolio/optimize` | Portfolio optimization preview |
-| `GET` | `/services/{session_id}/portfolio/analysis` | Portfolio analysis snapshot |
-| `GET` | `/services/{session_id}/portfolio/history` | Portfolio history |
-| `POST` | `/services/{session_id}/portfolio/rebalance` | Preview or execute rebalance |
-| `GET` | `/services/{session_id}/scheduler-config` | Get scheduler config |
-| `POST` | `/services/{session_id}/scheduler-config` | Update scheduler config |
-| `POST` | `/services/{session_id}/close-all-positions` | Close all positions |
-| `POST` | `/services/{session_id}/signal-buy` | Single-symbol buy signal |
-| `POST` | `/services/{session_id}/signal-sell` | Single-symbol sell signal |
-| `POST` | `/services/{session_id}/strategy-evaluate` | Evaluate strategies |
-| `GET` | `/services/{session_id}/risk-management` | Get risk management config |
-| `PUT` | `/services/{session_id}/risk-management` | Update risk management config |
+| `DELETE` | `/sessions/{session_id}` | Remove a session |
+| `GET` | `/sessions/{session_id}/status` | Session status |
+| `GET` | `/sessions/{session_id}/runtime` | Runtime snapshot |
+| `GET` | `/sessions/{session_id}/performance` | Performance snapshot |
+| `GET` | `/sessions/{session_id}/analytics` | Aggregated analytics snapshot |
+| `GET` | `/sessions/{session_id}/config` | Full config snapshot |
+| `PUT` | `/sessions/{session_id}/config` | Replace full config |
+| `POST` | `/sessions/{session_id}/config/import` | Import config from uploaded file |
+| `GET` | `/sessions/{session_id}/config/export` | Export config as downloadable file |
+| `GET` | `/sessions/{session_id}/events` | Session event history |
+| `POST` | `/sessions/{session_id}/scheduler/start` | Start scheduler |
+| `POST` | `/sessions/{session_id}/scheduler/stop` | Stop scheduler |
+| `POST` | `/sessions/{session_id}/run-once` | Execute one cycle immediately |
+| `GET` | `/sessions/{session_id}/strategy-config` | Get strategy config and available strategies |
+| `POST` | `/sessions/{session_id}/strategy-config` | Replace all strategy configs |
+| `GET` | `/sessions/{session_id}/selection-config` | Get selection config and available selectors |
+| `POST` | `/sessions/{session_id}/selection-config` | Update selection config |
+| `GET` | `/sessions/{session_id}/portfolio/config` | Get portfolio config and available optimizers |
+| `POST` | `/sessions/{session_id}/portfolio/config` | Update portfolio config |
+| `POST` | `/sessions/{session_id}/portfolio/optimize` | Portfolio optimization preview |
+| `GET` | `/sessions/{session_id}/portfolio/analysis` | Portfolio analysis snapshot |
+| `GET` | `/sessions/{session_id}/portfolio/history` | Portfolio history |
+| `POST` | `/sessions/{session_id}/portfolio/rebalance` | Preview or execute rebalance |
+| `GET` | `/sessions/{session_id}/scheduler-config` | Get scheduler config |
+| `POST` | `/sessions/{session_id}/scheduler-config` | Update scheduler config |
+| `POST` | `/sessions/{session_id}/close-all-positions` | Close all positions |
+| `POST` | `/sessions/{session_id}/signal-buy` | Single-symbol buy signal |
+| `POST` | `/sessions/{session_id}/signal-sell` | Single-symbol sell signal |
 
 ## 4. Common Response and Error Handling
 
@@ -146,9 +138,9 @@ Response:
 
 Use for: status indicator, connectivity check.
 
-### 5.2 `GET /services/{session_id}/status`
+### 5.2 `GET /sessions/{session_id}/status`
 
-Service status and scheduler state.
+Session status and scheduler state.
 
 Key fields: `session_id`, `mode`, `running`, `scheduler`, `last_error`, `last_result`.
 
@@ -175,7 +167,7 @@ Response:
 }
 ```
 
-### 5.3 `GET /services/{session_id}/runtime`
+### 5.3 `GET /sessions/{session_id}/runtime`
 
 Runtime snapshot.
 
@@ -184,7 +176,7 @@ Key fields: `positions`, `oms_state`.
 - `positions` — holdings, pending orders, current state panel.
 - `oms_state` — debugging and diagnostics.
 
-### 5.4 `GET /services/{session_id}/performance`
+### 5.4 `GET /sessions/{session_id}/performance`
 
 Performance metrics, return curves, turnover, position exposure.
 
@@ -192,7 +184,7 @@ Key fields: `summary`, `holding_returns`, `turnover`, `equity_curve`, `trade_act
 
 Use for: performance charts, holding returns, exposure analysis.
 
-### 5.5 `GET /services/{session_id}/analytics`
+### 5.5 `GET /sessions/{session_id}/analytics`
 
 Aggregated snapshot (bundles status, runtime, performance, config).
 
@@ -212,7 +204,7 @@ Use for: overview page initial load, diagnostics panel.
 
 ## 6. Config Endpoints
 
-### 6.1 `GET /services/{session_id}/config`
+### 6.1 `GET /sessions/{session_id}/config`
 
 Get full config snapshot.
 
@@ -272,7 +264,7 @@ Frontend tips:
 - Display `config_source` on overview page.
 - Always initialize settings forms from this response.
 
-### 6.2 `PUT /services/{session_id}/config`
+### 6.2 `PUT /sessions/{session_id}/config`
 
 Replace the entire config.
 
@@ -290,7 +282,7 @@ Request body:
 
 Suitable for: "import full config", "advanced mode one-click replace". Not recommended for routine settings changes — use the individual endpoints below instead.
 
-### 6.3 `POST /services/{session_id}/config/import`
+### 6.3 `POST /sessions/{session_id}/config/import`
 
 Import config from an uploaded JSON file.
 
@@ -298,7 +290,7 @@ Request: `multipart/form-data` with file field `file`.
 
 Response: `ServiceConfigUpdateResponse`.
 
-### 6.4 `GET /services/{session_id}/config/export`
+### 6.4 `GET /sessions/{session_id}/config/export`
 
 Export current config as a downloadable JSON file.
 
@@ -306,7 +298,7 @@ Response: `application/json` file download.
 
 ## 7. Scheduler Endpoints
 
-### 7.1 `POST /services/{session_id}/scheduler/start`
+### 7.1 `POST /sessions/{session_id}/scheduler/start`
 
 Start the scheduler thread.
 
@@ -315,11 +307,11 @@ Response:
 { "status": "started", "session_id": "sg-paper-001" }
 ```
 
-### 7.2 `POST /services/{session_id}/scheduler/stop`
+### 7.2 `POST /sessions/{session_id}/scheduler/stop`
 
 Stop the scheduler thread.
 
-### 7.3 `POST /services/{session_id}/run-once`
+### 7.3 `POST /sessions/{session_id}/run-once`
 
 Execute one trading cycle immediately.
 
@@ -342,13 +334,13 @@ Response:
 }
 ```
 
-### 7.4 `GET /services/{session_id}/scheduler-config`
+### 7.4 `GET /sessions/{session_id}/scheduler-config`
 
 Get current scheduler configuration.
 
 Response fields: `running`, `auto_start`, `scheduler`.
 
-### 7.5 `POST /services/{session_id}/scheduler-config`
+### 7.5 `POST /sessions/{session_id}/scheduler-config`
 
 Update scheduler configuration.
 
@@ -369,7 +361,7 @@ Frontend tip: keep scheduler settings as a separate section from selection/strat
 
 ## 8. Selection Endpoints
 
-### 8.1 `GET /services/{session_id}/selection-config`
+### 8.1 `GET /sessions/{session_id}/selection-config`
 
 Get current selection config and all available selection providers.
 
@@ -414,7 +406,7 @@ Frontend focus:
 - Use `params_schema` to dynamically render parameter forms.
 - `runtime_dependencies` is display-only.
 
-### 8.2 `POST /services/{session_id}/selection-config`
+### 8.2 `POST /sessions/{session_id}/selection-config`
 
 Update selection config.
 
@@ -447,13 +439,13 @@ Common `factor_selector` params: `factor`, `start`, `top_n`, `bottom_n`, `factor
 
 ## 9. Strategy Endpoints
 
-### 9.1 `GET /services/{session_id}/strategy-config`
+### 9.1 `GET /sessions/{session_id}/strategy-config`
 
 Get current strategy config and all available strategies.
 
 Response fields: `strategy_specs`, `available_strategies`.
 
-### 9.2 `POST /services/{session_id}/strategy-config`
+### 9.2 `POST /sessions/{session_id}/strategy-config`
 
 Replace all strategy configs (not append).
 
@@ -487,13 +479,9 @@ Built-in strategies: `turtle`, `moving_average_crossover`, `buy_and_hold`, `volu
 
 Always use `available_strategies[].params_schema` as the authoritative parameter structure.
 
-### 9.3 `POST /services/{session_id}/strategy-evaluate`
-
-Evaluate strategies against historical data.
-
 ## 10. Portfolio Endpoints
 
-### 10.1 `GET /services/{session_id}/portfolio/config`
+### 10.1 `GET /sessions/{session_id}/portfolio/config`
 
 Get current portfolio config and available optimizers.
 
@@ -501,7 +489,7 @@ Response fields: `portfolio_spec`, `available_optimizers`.
 
 Default optimizer: `riskfolio`.
 
-### 10.2 `POST /services/{session_id}/portfolio/config`
+### 10.2 `POST /sessions/{session_id}/portfolio/config`
 
 Update portfolio config.
 
@@ -543,7 +531,7 @@ Request body:
 
 Fields suitable for preset dropdowns: `objective`, `risk_measure`, `model`, `covariance_method`, `rebalance_policy.mode`. Always defer to schema and server validation.
 
-### 10.3 `POST /services/{session_id}/portfolio/optimize`
+### 10.3 `POST /sessions/{session_id}/portfolio/optimize`
 
 Run portfolio optimization preview.
 
@@ -558,19 +546,19 @@ Request body:
 
 Response fields: `status`, `optimizer`, `as_of_date`, `symbols`, `weights`, `diagnostics`, `preview_only`.
 
-### 10.4 `GET /services/{session_id}/portfolio/analysis`
+### 10.4 `GET /sessions/{session_id}/portfolio/analysis`
 
 Portfolio analysis snapshot.
 
 Response fields: `portfolio_spec`, `current_portfolio`, `drift`, `latest_optimization`, `latest_rebalance`.
 
-### 10.5 `GET /services/{session_id}/portfolio/history`
+### 10.5 `GET /sessions/{session_id}/portfolio/history`
 
 Portfolio history.
 
 Response fields: `weight_history`, `portfolio_value_history`.
 
-### 10.6 `POST /services/{session_id}/portfolio/rebalance`
+### 10.6 `POST /sessions/{session_id}/portfolio/rebalance`
 
 Preview or execute portfolio rebalancing.
 
@@ -590,7 +578,7 @@ Frontend tip: default to `preview_only=true`, let users confirm before executing
 
 ## 11. Trading Endpoints
 
-### 11.1 `POST /services/{session_id}/close-all-positions`
+### 11.1 `POST /sessions/{session_id}/close-all-positions`
 
 Close all positions.
 
@@ -601,7 +589,7 @@ Request body:
 
 Response fields: `status`, `closed_count`, `executed_trades`.
 
-### 11.2 `POST /services/{session_id}/signal-buy`
+### 11.2 `POST /sessions/{session_id}/signal-buy`
 
 Submit single-symbol buy signal.
 
@@ -610,7 +598,7 @@ Request body:
 { "symbol": "600519", "target_qty": 100, "slippage": 0.001 }
 ```
 
-### 11.3 `POST /services/{session_id}/signal-sell`
+### 11.3 `POST /sessions/{session_id}/signal-sell`
 
 Submit single-symbol sell signal. Same request format as buy.
 
@@ -618,9 +606,9 @@ Single-symbol trade response fields: `status`, `action`, `symbol`, `executed`, `
 
 ## 12. Event History
 
-### 12.1 `GET /services/{session_id}/events`
+### 12.1 `GET /sessions/{session_id}/events`
 
-Service event history.
+Session event history.
 
 Response fields: `session_id`, `count`, `events`.
 
@@ -628,25 +616,25 @@ Each event: `event_type`, `event_time`, `export_time`, `state_data`.
 
 Use for: audit timeline, state recovery debugging, config change history.
 
-## 13. Multi-Service Endpoints
+## 13. Multi-Session Endpoints
 
-### 13.1 `GET /services`
+### 13.1 `GET /sessions`
 
-List all managed services.
+List all sessions with performance overview for dashboard cards.
 
-Response fields: `services: ServiceInfoResponse[]`, `count: number`, `max_services: number`.
+Response fields: `sessions: SessionInfoResponse[]`, `count: number`, `max_sessions: number`.
 
-`ServiceInfoResponse`: `session_id`, `mode`, `running`, `strategy_count`, `selection_name`, `portfolio_enabled`, `initial_capital`, `current_value`, `last_error`, `last_result`.
+`SessionInfoResponse`: `session_id`, `mode`, `running`, `strategy_count`, `strategy_names`, `selection_name`, `portfolio_enabled`, `initial_capital`, `current_value`, `total_return_pct`, `daily_pnl`, `position_count`, `max_drawdown`, `win_rate`, `total_trades`, `total_pnl`, `last_error`, `last_result`.
 
-### 13.2 `POST /services`
+### 13.2 `POST /sessions`
 
-Create a new service.
+Create a new session.
 
 Request body:
 ```json
 {
   "config_bundle": {
-    "service": {},
+    "session": {},
     "selection_spec": null,
     "strategy_specs": [],
     "portfolio_spec": {}
@@ -657,62 +645,35 @@ Request body:
 
 Response: `{ "status": "created", "session_id": "..." }`
 
-### 13.3 `DELETE /services/{session_id}`
+### 13.3 `DELETE /sessions/{session_id}`
 
-Remove a service. Response: `{ "status": "removed", "session_id": "..." }`
+Remove a session. Response: `{ "status": "removed", "session_id": "..." }`
 
-### 13.4 `GET /services/compare`
+### 13.4 `GET /sessions/trends`
 
-Side-by-side status comparison across all services.
+Multi-session trend data for chart overlay. Returns per-session time-series of equity, returns, drawdown, and positions.
 
-Response fields: `generated_at`, `count`, `services: ComparisonSummary[]`.
+Query params: `session_ids` (optional, comma-separated), `limit` (default 8), `days` (optional, limit history to last N days).
 
-`ComparisonSummary`: `session_id`, `mode`, `running`, `initial_capital`, `current_value`, `total_return_pct`, `daily_pnl`, `position_count`, `strategy_names`, `selection_name`.
+Response fields: `generated_at`, `count`, `note` (when auto-limited), `sessions: SessionTrendItem[]`.
 
-### 13.5 `GET /services/performance/compare`
+`SessionTrendItem`: `session_id`, `mode`, `initial_capital`, `strategy_names`, `selection_name`, `trends: SessionTrendPoint[]`.
 
-Historical performance comparison with equity curves.
-
-Query params: `session_ids` (optional, comma-separated), `limit` (default 8).
-
-Response fields: `generated_at`, `count`, `note` (when auto-limited), `sessions: PerformanceComparisonItem[]`.
-
-`PerformanceComparisonItem`:
-- Snapshot: `session_id`, `mode`, `initial_capital`, `portfolio_value`, `total_return_pct`, `daily_pnl`, `position_count`, `strategy_names`, `selection_name`
-- Stats: `total_trades`, `win_rate`, `total_pnl`, `max_drawdown`
-- Time-series: `equity_curve: Array<{ trade_date, portfolio_value, cumulative_return, drawdown }>`
+`SessionTrendPoint`: `trade_date`, `portfolio_value`, `cumulative_return`, `drawdown`, `daily_pnl`, `num_positions`.
 
 When `session_ids` is omitted and total sessions exceed `limit`, only the latest N are returned with an informative `note`.
 
 Chart overlay example:
 ```ts
-const { sessions } = await fetch('/services/performance/compare?limit=8').then(r => r.json())
+const { sessions } = await fetch('/sessions/trends?limit=8').then(r => r.json())
 const series = sessions.map(s => ({
   name: `${s.session_id} (${s.strategy_names.join(', ')})`,
   type: 'line',
-  data: s.equity_curve.map(row => [row.trade_date, row.cumulative_return]),
+  data: s.trends.map(p => [p.trade_date, p.cumulative_return]),
 }))
 ```
 
-## 14. Data Endpoints
-
-### 14.1 `GET /data/types`
-
-List available data types.
-
-### 14.2 `GET /data/schema/{data_type}`
-
-Get schema for a specific data type.
-
-### 14.3 `POST /data/count`
-
-Count records for a data type.
-
-### 14.4 `POST /data/query`
-
-Query data with filters.
-
-## 15. Key Config Models
+## 14. Key Config Models
 
 ### 15.1 `ServiceConfig`
 
@@ -743,10 +704,10 @@ Fields: `enabled`, `benchmark_symbol`, `risk_free_rate`, `rolling_window`.
 Split settings into five sections:
 
 1. **Connection** — local frontend settings (`apiBase`, refresh interval).
-2. **Service** — `GET/POST /services/{session_id}/scheduler-config`.
-3. **Selection** — `GET/POST /services/{session_id}/selection-config`.
-4. **Strategy** — `GET/POST /services/{session_id}/strategy-config`.
-5. **Portfolio** — `GET/POST /services/{session_id}/portfolio/config` plus `optimize/rebalance/analysis/history`.
+2. **Service** — `GET/POST /sessions/{session_id}/scheduler-config`.
+3. **Selection** — `GET/POST /sessions/{session_id}/selection-config`.
+4. **Strategy** — `GET/POST /sessions/{session_id}/strategy-config`.
+5. **Portfolio** — `GET/POST /sessions/{session_id}/portfolio/config` plus `optimize/rebalance/analysis/history`.
 
 ## 17. Recommended Frontend State Structure
 
@@ -770,7 +731,7 @@ Keep read-only snapshots, user edit forms, and dynamic schema definitions in sep
 ### 18.1 Initial Load
 
 1. Check `GET /health`
-2. Fetch `GET /services/{session_id}/analytics`
+2. Fetch `GET /sessions/{session_id}/analytics`
 3. Fetch three config definition endpoints
 4. Initialize forms from returned data
 
@@ -779,42 +740,40 @@ Keep read-only snapshots, user edit forms, and dynamic schema definitions in sep
 1. Find selected provider from `available_selections`
 2. Render parameter form from `params_schema`
 3. Assemble `selection_spec`
-4. Submit `POST /services/{session_id}/selection-config`
-5. On success, re-fetch `GET /services/{session_id}/config` and `GET /services/{session_id}/selection-config`
+4. Submit `POST /sessions/{session_id}/selection-config`
+5. On success, re-fetch `GET /sessions/{session_id}/config` and `GET /sessions/{session_id}/selection-config`
 
 ### 18.3 Save Strategy Config
 
 1. Maintain complete `strategy_specs[]` array in frontend state
-2. Submit `POST /services/{session_id}/strategy-config`
-3. Re-fetch `GET /services/{session_id}/strategy-config`
+2. Submit `POST /sessions/{session_id}/strategy-config`
+3. Re-fetch `GET /sessions/{session_id}/strategy-config`
 
 ### 18.4 Save Portfolio Config
 
 1. Generate form from `available_optimizers[0].params_schema`
-2. Submit `POST /services/{session_id}/portfolio/config`
-3. For preview: `POST /services/{session_id}/portfolio/optimize`
-4. For rebalance preview: `POST /services/{session_id}/portfolio/rebalance`
+2. Submit `POST /sessions/{session_id}/portfolio/config`
+3. For preview: `POST /sessions/{session_id}/portfolio/optimize`
+4. For rebalance preview: `POST /sessions/{session_id}/portfolio/rebalance`
 
-### 18.5 Multi-Service Initial Load
+### 18.5 Multi-Session Initial Load
 
 1. `GET /health`
-2. `GET /services` — list all services
-3. `GET /services/compare` — real-time comparison snapshot
-4. `GET /services/performance/compare` — historical performance comparison
+2. `GET /sessions` — list all sessions with performance overview
+3. `GET /sessions/trends` — multi-session trend data for charting
 
-### 18.6 Multi-Service State
+### 18.6 Multi-Session State
 
 ```ts
-type MultiServiceState = {
-  services: ServiceInfoResponse[]
-  comparison: ServiceComparisonResponse
-  performanceComparison: PerformanceComparisonResponse
+type MultiSessionState = {
+  sessions: SessionInfoResponse[]
+  trends: SessionTrendsResponse
 }
 ```
 
 ## 19. Implementation Notes
 
-### 19.1 `POST /services/{session_id}/strategy-config` is a replacement
+### 19.1 `POST /sessions/{session_id}/strategy-config` is a replacement
 
 It replaces the entire strategies list. Do not treat individual POSTs as appends. Maintain the full array in frontend state.
 
@@ -831,7 +790,7 @@ Display both, but edit against `selection_spec.params`.
 
 ### 19.4 Full config replacement caution
 
-`PUT /services/{session_id}/config` replaces everything. It's an advanced operation — do not expose as a frequent button to regular users.
+`PUT /sessions/{session_id}/config` replaces everything. It's an advanced operation — do not expose as a frequent button to regular users.
 
 ## 20. Document Maintenance
 
@@ -844,7 +803,7 @@ Update this document when:
 - Request/response model fields change
 - New configurable components are added to the registry
 - Config precedence or persistence logic changes
-- Multi-service management features change
+- Multi-session management features change
 
 ## 21. Running the Service
 

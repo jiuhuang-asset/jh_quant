@@ -6,7 +6,6 @@ from pydantic import BaseModel, Field, field_serializer, field_validator
 
 from .enums import Frequency
 from .portfolio import PortfolioAnalysisSpec, PortfolioSpec, RebalancePolicySpec
-from .risk_management import RiskManagementParamsConfig
 from .selection import SelectionSpec
 from .strategy import StrategySpec
 
@@ -60,10 +59,6 @@ class SessionServiceConfig(BaseModel):
     selection_spec: Optional[SelectionSpec] = Field(default=None, description="当前使用的选股器配置。")
     strategy_specs: List[StrategySpec] = Field(default_factory=list, description="当前启用的策略配置列表。")
     portfolio_spec: PortfolioSpec = Field(default_factory=PortfolioSpec, description="组合优化与调仓配置。")
-    risk_management_specs: Dict[str, RiskManagementParamsConfig] = Field(
-        default_factory=dict,
-        description="Per-strategy risk management params, keyed by strategy name or alias.",
-    )
 
     @classmethod
     def defaults(cls) -> "SessionServiceConfig":
@@ -308,22 +303,6 @@ class SessionServiceConfigBuilder:
         self._config.portfolio_spec = portfolio_spec
         return self
 
-    def with_risk_management(
-        self,
-        risk_management_specs: Dict[str, RiskManagementParamsConfig],
-    ) -> "SessionServiceConfigBuilder":
-        """Replace the entire per-strategy risk management config map."""
-        self._config.risk_management_specs = dict(risk_management_specs)
-        return self
-
-    def set_strategy_risk_management(
-        self,
-        strategy_name: str,
-        rmp: RiskManagementParamsConfig,
-    ) -> "SessionServiceConfigBuilder":
-        """Set risk management params for a single strategy."""
-        self._config.risk_management_specs[strategy_name] = rmp
-        return self
 
     def build(self) -> SessionServiceConfig:
         """生成最终配置对象。"""

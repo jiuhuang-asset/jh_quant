@@ -38,7 +38,6 @@ from .session import (
     build_session_config,
     default_session_config,
 )
-from .risk_management import RiskManagementParamsConfig
 from .strategy import (
     STRATEGY_CONFIG_MODELS,
     STRATEGY_REGISTRY,
@@ -74,7 +73,6 @@ __all__ = [
     "PortfolioSpec",
     "RebalanceMode",
     "RebalancePolicySpec",
-    "RiskManagementParamsConfig",
     "SELECTION_PROVIDER_CONFIG_MODELS",
     "SELECTION_PROVIDER_REGISTRY",
     "SELECTION_PROVIDER_RUNTIME_DEPENDENCIES",

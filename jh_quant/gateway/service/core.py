@@ -16,7 +16,6 @@ from ..config import (
     PortfolioSpec,
     SELECTION_PROVIDER_REGISTRY,
     STRATEGY_REGISTRY,
-    RiskManagementParamsConfig,
     SelectionProvider,
     SelectionSpec,
     SessionServiceConfig,
@@ -41,27 +40,21 @@ from ..utils import rprint
 from .schemas import (
     AnalyticsSnapshotResponse,
     CloseAllPositionsResponse,
-    ComparisonSummary,
-    DataCountResponse,
-    DataQueryResponse,
-    DataSchemaResponse,
-    DataTypesListResponse,
-    DEFAULT_PERFORMANCE_COMPARE_LIMIT,
-    MAX_DATA_QUERY_ROWS,
-    PerformanceComparisonItem,
-    PerformanceComparisonResponse,
+    DEFAULT_TRENDS_LIMIT,
     PerformanceSnapshotResponse,
     RuntimeSnapshotResponse,
     SchedulerConfigSnapshotResponse,
     SchedulerConfigUpdateResponse,
     SchedulerStatus,
-    SessionComparisonResponse,
     SessionConfigResponse,
     SessionConfigUpdateResponse,
     SessionEventHistoryResponse,
     SessionInfoResponse,
     SessionListResponse,
     SessionStatusResponse,
+    SessionTrendPoint,
+    SessionTrendItem,
+    SessionTrendsResponse,
     SingleSymbolTradeResponse,
     TradingCycleResult,
     TradingCycleResultResponse,
@@ -1296,122 +1289,6 @@ class SessionService:
             self.stop_scheduler()
         self._persist_runtime_state(extra={"event": "service_shutdown"})
 
-    # ── Data API ──────────────────────────────────────────────
-
-    def _get_jhdata(self):
-        """Resolve JHData instance from the gateway's market_data_provider."""
-        from ..market_data import JHMarketDataProvider
-
-        provider = getattr(self.gateway, "market_data_provider", None)
-        if provider is None:
-            raise RuntimeError("MarketDataProvider is not configured on the gateway")
-        if not isinstance(provider, JHMarketDataProvider):
-            raise RuntimeError(
-                f"Data API requires a JHMarketDataProvider, got {type(provider).__name__}"
-            )
-        return provider.jhd
-
-    def _validate_data_type(self, data_type_str: str):
-        from jh_quant.data import DataTypes
-
-        try:
-            return DataTypes(data_type_str)
-        except ValueError:
-            raise ValueError(
-                f"Unknown data_type '{data_type_str}'. "
-                f"Use GET /data/types to list available types."
-            )
-
-    def get_data_count(self, *, data_type: str, symbol: Optional[str] = None, ts_code: Optional[str] = None, start: Optional[str] = None, end: Optional[str] = None) -> Dict[str, Any]:
-        dt = self._validate_data_type(data_type)
-        jhd = self._get_jhdata()
-        kwargs = {}
-        if symbol:
-            kwargs["symbol"] = symbol
-        if ts_code:
-            kwargs["ts_code"] = ts_code
-        if start:
-            kwargs["start"] = start
-        if end:
-            kwargs["end"] = end
-        count = jhd.get_data_total(dt, **kwargs)
-        return DataCountResponse(data_type=data_type, count=count).model_dump()
-
-    def get_data_query(self, *, data_type: str, symbol: Optional[str] = None, ts_code: Optional[str] = None, start: Optional[str] = None, end: Optional[str] = None, remote: bool = False) -> Dict[str, Any]:
-        dt = self._validate_data_type(data_type)
-        jhd = self._get_jhdata()
-        kwargs = {}
-        if symbol:
-            kwargs["symbol"] = symbol
-        if ts_code:
-            kwargs["ts_code"] = ts_code
-        if start:
-            kwargs["start"] = start
-        if end:
-            kwargs["end"] = end
-
-        total = jhd.get_data_total(dt, **kwargs)
-        if total == 0:
-            return DataQueryResponse(
-                status="empty",
-                data_type=data_type,
-                count=0,
-                message="No data available for the given parameters.",
-            ).model_dump()
-
-        if total > MAX_DATA_QUERY_ROWS:
-            suggestion = "Please narrow your query by providing one or more of: symbol, ts_code, start, end."
-            return DataQueryResponse(
-                status="too_large",
-                data_type=data_type,
-                count=total,
-                message=f"Data count ({total}) exceeds the maximum direct-return threshold ({MAX_DATA_QUERY_ROWS}).",
-                suggestion=suggestion,
-            ).model_dump()
-
-        df = jhd.get_data(dt, remote=remote, **kwargs)
-        if df is None or (hasattr(df, "empty") and df.empty):
-            return DataQueryResponse(
-                status="empty",
-                data_type=data_type,
-                count=0,
-                message="No data returned after fetch.",
-            ).model_dump()
-
-        if hasattr(df, "to_df"):
-            df = df.to_df()
-        records = df.to_dict(orient="records")
-        return DataQueryResponse(
-            status="ok",
-            data_type=data_type,
-            count=len(records),
-            data=records,
-            message=f"Returned {len(records)} rows.",
-        ).model_dump()
-
-    def list_data_types(self) -> Dict[str, Any]:
-        from jh_quant.data import DataTypes
-
-        types = [
-            {"value": dt.value, "name": dt.name}
-            for dt in DataTypes
-        ]
-        return DataTypesListResponse(types=types, count=len(types)).model_dump()
-
-    def get_data_schema(self, data_type: str) -> Dict[str, Any]:
-        from jh_quant.data.data_types import get_table_fields, get_table_unique_keys, get_table_dt_field
-
-        dt = self._validate_data_type(data_type)
-        fields = get_table_fields(dt)
-        unique_keys = get_table_unique_keys(dt)
-        dt_field = get_table_dt_field(dt)
-        return DataSchemaResponse(
-            data_type=data_type,
-            fields=fields,
-            unique_keys=unique_keys,
-            dt_field=dt_field,
-        ).model_dump()
-
     def close_all_positions(self, slippage: float = 0.0) -> CloseAllPositionsResponse:
         with self._lock:
             holdings = self.gateway.oms.executable_holds
@@ -1431,105 +1308,6 @@ class SessionService:
                 executed_trades=[trade.model_dump(mode="json") for trade in trades],
             )
 
-    def evaluate_strategies(
-        self,
-        symbol_source: str = "selection",
-        as_of_date: Optional[str] = None,
-        lookback_days: Optional[int] = None,
-        commission_rate: float = 0.0002,
-        stamp_tax_rate: float = 0.0005,
-    ) -> Dict[str, Any]:
-        """Evaluate configured strategies on historical price data.
-
-        Uses the backtest module's evaluate_strategies() to compute per-stock,
-        per-strategy performance metrics.
-
-        Args:
-            symbol_source: 'selection' or 'holdings'.
-            as_of_date: Evaluation end date in YYYY-MM-DD format.
-            lookback_days: Override for lookback days.
-            commission_rate: Commission rate.
-            stamp_tax_rate: Stamp tax rate for sells.
-        """
-        if not self.gateway.strategy_pool:
-            raise ValueError("No strategies configured in the strategy pool")
-
-        cycle_date = self._as_of_date(as_of_date)
-        actual_lookback = lookback_days or self.config.price_lookback_days
-        price_start = (
-            datetime.strptime(cycle_date, "%Y-%m-%d") - timedelta(days=actual_lookback)
-        ).strftime("%Y-%m-%d")
-
-        if symbol_source == "holdings":
-            positions = self.gateway.oms.get_positions()
-            symbols = [h.symbol for h in positions.holds]
-            if not symbols:
-                raise ValueError("No holdings available for evaluation")
-        else:
-            selection = self.selection_provider.select(as_of_date=cycle_date)
-            symbols = list(selection.top_selections)
-            if not symbols:
-                raise ValueError("No selection symbols available for evaluation")
-
-        price = self.gateway.get_price_data(
-            symbols=symbols,
-            start_date=price_start,
-            end_date=cycle_date,
-            frequency=self.config.frequency,
-        )
-        if price.empty:
-            raise ValueError("No price data available for the requested period")
-
-        strategies: Dict[str, Any] = {
-            item["name"]: item["strategy"]
-            for item in self.gateway.strategy_pool
-        }
-
-        from jh_quant.backtest.risk_management import RiskManagementParams
-
-        rmps: Dict[str, RiskManagementParams] = {}
-        for name, config in self.session_config.risk_management_specs.items():
-            rmps[name] = config.to_backtest_rmp()
-
-        combined_performance, trading_history_data = backtest_evaluate_strategies(
-            price=price,
-            strategies=strategies,
-            rmps=rmps,
-            commission_rate=commission_rate,
-            stamp_tax_rate=stamp_tax_rate,
-        )
-
-        th_df = trading_history_data.to_df() if hasattr(trading_history_data, "to_df") else trading_history_data
-
-        return {
-            "status": "completed",
-            "as_of_date": cycle_date,
-            "symbol_source": symbol_source,
-            "symbols": symbols,
-            "strategy_count": len(strategies),
-            "metrics": self._records_from_frame(combined_performance),
-            "trading_history": self._records_from_frame(th_df),
-        }
-
-    def get_risk_management_config(self) -> Dict[str, Any]:
-        """Return the current per-strategy risk management configuration."""
-        return {
-            "risk_management_specs": self.session_config.risk_management_specs,
-        }
-
-    def update_risk_management_config(
-        self,
-        risk_management_specs: Dict[str, RiskManagementParamsConfig],
-    ) -> Dict[str, Any]:
-        """Replace the entire per-strategy risk management configuration."""
-        with self._lock:
-            self.session_config.risk_management_specs = dict(risk_management_specs)
-            self._persist_user_config(source="runtime_update")
-            self._persist_runtime_state(extra={"event": "risk_management_config_updated"})
-        return {
-            "status": "updated",
-            "risk_management_specs": self.session_config.risk_management_specs,
-        }
 
     def signal_buy_symbol(
         self,
@@ -1805,29 +1583,19 @@ class MultiSessionService:
             max_sessions=self._max_sessions,
         )
 
-    def get_comparison(self) -> SessionComparisonResponse:
-        """Aggregate performance/status across all services for comparison."""
-        summaries: list[ComparisonSummary] = []
-        with self._lock:
-            for session_id, svc in self._sessions.items():
-                summaries.append(self._build_comparison_summary(session_id, svc))
-        return SessionComparisonResponse(
-            generated_at=datetime.now().isoformat(),
-            count=len(summaries),
-            sessions=summaries,
-        )
-
-    def get_performance_comparison(
+    def get_session_trends(
         self,
         session_ids: Optional[List[str]] = None,
-        limit: int = DEFAULT_PERFORMANCE_COMPARE_LIMIT,
-    ) -> PerformanceComparisonResponse:
-        """Compare historical performance (incl. equity curves) across sessions.
+        limit: int = DEFAULT_TRENDS_LIMIT,
+        days: Optional[int] = None,
+    ) -> SessionTrendsResponse:
+        """Return time-series trend data for multiple sessions.
 
         Args:
-            session_ids: Specific sessions to compare. If None, returns the
+            session_ids: Specific sessions to return. If None, returns the
                 latest sessions up to *limit*.
             limit: Max sessions when session_ids is not specified.
+            days: If set, return only the most recent N calendar days of trends.
         """
         with self._lock:
             all_ids = list(self._sessions.keys())
@@ -1838,7 +1606,7 @@ class MultiSessionService:
             else:
                 target_ids = list(all_ids)
 
-        items: list[PerformanceComparisonItem] = []
+        items: list[SessionTrendItem] = []
         note: Optional[str] = None
         if session_ids is None and len(all_ids) > limit:
             note = (
@@ -1851,13 +1619,57 @@ class MultiSessionService:
                 svc = self._sessions.get(sid)
             if svc is None:
                 continue
-            items.append(self._build_performance_comparison_item(sid, svc))
+            items.append(self._build_session_trend_item(sid, svc, days=days))
 
-        return PerformanceComparisonResponse(
+        return SessionTrendsResponse(
             generated_at=datetime.now().isoformat(),
             count=len(items),
             sessions=items,
             note=note,
+        )
+
+    def _build_session_trend_item(
+        self,
+        session_id: str,
+        svc: SessionService,
+        days: Optional[int] = None,
+    ) -> SessionTrendItem:
+        selection_name = getattr(svc.selection_specs, "alias", None) or getattr(svc.selection_specs, "name", None)
+        initial_capital = float(getattr(svc.gateway.oms, "initial_capital", 0.0))
+
+        report = self._shared_persistence.get_performance_report(session_id)
+        equity_curve = report.get("equity_curve")
+
+        trend_points: list[SessionTrendPoint] = []
+        if equity_curve is not None and not equity_curve.empty:
+            curve = equity_curve.copy()
+            if days is not None and days > 0:
+                curve = curve.tail(days)
+            for _, row in curve.iterrows():
+                trend_points.append(SessionTrendPoint(
+                    trade_date=str(row.get("trade_date", "")),
+                    portfolio_value=float(row.get("portfolio_value", 0.0)),
+                    cumulative_return=(
+                        float(row["cumulative_return"])
+                        if row.get("cumulative_return") is not None and not pd.isna(row["cumulative_return"])
+                        else None
+                    ),
+                    drawdown=float(row.get("drawdown", 0.0)),
+                    daily_pnl=(
+                        float(row["daily_pnl"])
+                        if row.get("daily_pnl") is not None and not pd.isna(row["daily_pnl"])
+                        else None
+                    ),
+                    num_positions=int(row.get("num_positions", 0)),
+                ))
+
+        return SessionTrendItem(
+            session_id=session_id,
+            mode=svc.config.mode,
+            initial_capital=initial_capital,
+            strategy_names=[spec.alias or spec.name for spec in svc.strategy_specs],
+            selection_name=str(selection_name) if selection_name else None,
+            trends=trend_points,
         )
 
     # ── helpers ────────────────────────────────────────────────
@@ -1865,79 +1677,43 @@ class MultiSessionService:
     def _build_session_info(self, session_id: str, svc: SessionService) -> SessionInfoResponse:
         positions = svc.gateway.oms.get_positions()
         current_value = float(positions.total) if positions else None
+        initial_capital = float(getattr(svc.gateway.oms, "initial_capital", 0.0))
         selection_name = getattr(svc.selection_specs, "alias", None) or getattr(svc.selection_specs, "name", None)
         portfolio_enabled = bool(getattr(svc.portfolio_spec, "enabled", False))
+
+        total_return_pct = None
+        if current_value is not None and initial_capital > 0:
+            total_return_pct = round((current_value - initial_capital) / initial_capital * 100, 2)
+
+        daily_pnl = float(getattr(positions, "daily_profit", 0.0)) if positions else None
+        position_count = len(getattr(positions, "holds", []))
+        strategy_names = [spec.alias or spec.name for spec in svc.strategy_specs]
+
+        report = self._shared_persistence.get_performance_report(session_id)
+        summary = report.get("summary", {})
+        max_drawdown = float(summary.get("max_drawdown", 0.0))
+        win_rate = summary.get("win_rate")
+        total_trades = int(summary.get("total_trades", 0))
+        total_pnl = float(summary.get("total_pnl", 0.0))
 
         return SessionInfoResponse(
             session_id=session_id,
             mode=svc.config.mode,
             running=svc._scheduler_running,
             strategy_count=len(svc.strategy_specs),
+            strategy_names=strategy_names,
             selection_name=str(selection_name) if selection_name else None,
             portfolio_enabled=portfolio_enabled,
-            initial_capital=getattr(svc.gateway.oms, "initial_capital", 0.0),
-            current_value=current_value,
-            last_error=svc._last_error,
-            last_result=svc._serialize_result(svc._last_result),
-        )
-
-    def _build_comparison_summary(self, session_id: str, svc: SessionService) -> ComparisonSummary:
-        positions = svc.gateway.oms.get_positions()
-        current_value = float(positions.total) if positions else None
-        initial_capital = float(getattr(svc.gateway.oms, "initial_capital", 0.0))
-        total_return_pct = None
-        if current_value is not None and initial_capital > 0:
-            total_return_pct = round((current_value - initial_capital) / initial_capital * 100, 2)
-        daily_pnl = float(getattr(positions, "daily_profit", 0.0)) if positions else None
-        selection_name = getattr(svc.selection_specs, "alias", None) or getattr(svc.selection_specs, "name", None)
-
-        return ComparisonSummary(
-            session_id=session_id,
-            mode=svc.config.mode,
-            running=svc._scheduler_running,
             initial_capital=initial_capital,
             current_value=current_value,
             total_return_pct=total_return_pct,
             daily_pnl=daily_pnl,
-            position_count=len(getattr(positions, "holds", [])),
-            strategy_names=[spec.alias or spec.name for spec in svc.strategy_specs],
-            selection_name=str(selection_name) if selection_name else None,
+            position_count=position_count,
+            max_drawdown=max_drawdown,
+            win_rate=win_rate,
+            total_trades=total_trades,
+            total_pnl=total_pnl,
+            last_error=svc._last_error,
+            last_result=svc._serialize_result(svc._last_result),
         )
 
-    def _build_performance_comparison_item(self, session_id: str, svc: SessionService) -> PerformanceComparisonItem:
-        report = self._shared_persistence.get_performance_report(session_id)
-        summary = report.get("summary", {})
-        equity_curve = report.get("equity_curve")
-        positions = svc.gateway.oms.get_positions()
-        current_value = float(positions.total) if positions else None
-        initial_capital = float(getattr(svc.gateway.oms, "initial_capital", 0.0))
-        total_return_pct = None
-        if current_value is not None and initial_capital > 0:
-            total_return_pct = round((current_value - initial_capital) / initial_capital * 100, 2)
-
-        equity_rows: list[dict] = []
-        if equity_curve is not None and not equity_curve.empty:
-            curve = equity_curve.copy()
-            if hasattr(curve, "to_dict"):
-                equity_rows = curve.to_dict(orient="records")
-            else:
-                equity_rows = list(curve)
-
-        selection_name = getattr(svc.selection_specs, "alias", None) or getattr(svc.selection_specs, "name", None)
-
-        return PerformanceComparisonItem(
-            session_id=session_id,
-            mode=svc.config.mode,
-            initial_capital=initial_capital,
-            strategy_names=[spec.alias or spec.name for spec in svc.strategy_specs],
-            selection_name=str(selection_name) if selection_name else None,
-            portfolio_value=current_value,
-            total_return_pct=total_return_pct,
-            daily_pnl=float(getattr(positions, "daily_profit", 0.0)) if positions else None,
-            position_count=len(getattr(positions, "holds", [])),
-            total_trades=int(summary.get("total_trades", 0)),
-            win_rate=summary.get("win_rate"),
-            total_pnl=float(summary.get("total_pnl", 0.0)),
-            max_drawdown=float(summary.get("max_drawdown", 0.0)),
-            equity_curve=equity_rows,
-        )

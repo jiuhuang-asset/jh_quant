@@ -1,80 +1,70 @@
 # SignalGateway Service API Changelog
 
-## v3 (2026-04-29)
+## v4 (2026-04-30)
 
 ### Breaking Changes
 
-#### Unified API Architecture
-- All service endpoints moved from `/service/*` to `/services/{session_id}/*`.
-- Single-service mode now uses `MultiServiceManager` internally — every service is managed by session ID.
-- `create_service_app(service)` wraps the service into a `MultiServiceManager(max_services=1)` and delegates to `create_unified_app(manager)`.
-- `run_service_app()` always uses the unified app internally. The old dual-track routing is removed.
+#### Route prefix: `/services` → `/sessions`
+All collection-prefix routes changed from `/services` to `/sessions`, aligning with the codebase naming convention.
 
-#### New Endpoints Added
-- `PUT /services/{session_id}/config` — full config replacement (was missing from v2 multi-service routes)
-- `POST /services/{session_id}/config/import` — import config from uploaded JSON file
-- `GET /services/{session_id}/config/export` — export config as downloadable JSON file
-- `POST /services/{session_id}/strategy-evaluate` — evaluate strategies against historical data
-- `GET /services/{session_id}/risk-management` — get risk management config
-- `PUT /services/{session_id}/risk-management` — update risk management config
-- `GET /data/types` — list available data types
-- `GET /data/schema/{data_type}` — get schema for a data type
-- `POST /data/count` — count records for a data type
-- `POST /data/query` — query data with filters
+#### Consolidated overview: compare merged into list
+- `GET /sessions/compare` removed — its data (session status, return, PnL, position count) is now included in `GET /sessions`.
+- `GET /sessions/performance/compare` removed — replaced by `GET /sessions/trends` with a cleaner time-series model.
 
-#### Removed Paths
-All legacy `/service/*` paths are removed:
-- `/service/status` → `/services/{session_id}/status`
-- `/service/runtime` → `/services/{session_id}/runtime`
-- `/service/performance` → `/services/{session_id}/performance`
-- `/service/analytics` → `/services/{session_id}/analytics`
-- `/service/config` → `/services/{session_id}/config`
-- `/service/events` → `/services/{session_id}/events`
-- `/service/scheduler/start` → `/services/{session_id}/scheduler/start`
-- `/service/scheduler/stop` → `/services/{session_id}/scheduler/stop`
-- `/service/run-once` → `/services/{session_id}/run-once`
-- `/service/strategy-config` → `/services/{session_id}/strategy-config`
-- `/service/selection-config` → `/services/{session_id}/selection-config`
-- `/service/portfolio/config` → `/services/{session_id}/portfolio/config`
-- `/service/portfolio/optimize` → `/services/{session_id}/portfolio/optimize`
-- `/service/portfolio/analysis` → `/services/{session_id}/portfolio/analysis`
-- `/service/portfolio/history` → `/services/{session_id}/portfolio/history`
-- `/service/portfolio/rebalance` → `/services/{session_id}/portfolio/rebalance`
-- `/service/scheduler-config` → `/services/{session_id}/scheduler-config`
-- `/service/close-all-positions` → `/services/{session_id}/close-all-positions`
-- `/service/signal-buy` → `/services/{session_id}/signal-buy`
-- `/service/signal-sell` → `/services/{session_id}/signal-sell`
+#### Removed endpoints
+- `GET /sessions/compare` — merged into `GET /sessions`
+- `GET /sessions/performance/compare` — replaced by `GET /sessions/trends`
+- `POST /sessions/{session_id}/strategy-evaluate` — removed
+- `GET /sessions/{session_id}/risk-management` — removed
+- `PUT /sessions/{session_id}/risk-management` — removed
+- `POST /data/count` — removed (data endpoints extracted to separate service)
+- `POST /data/query` — removed
+- `GET /data/types` — removed
+- `GET /data/schema/{data_type}` — removed
 
-#### Config I/O Module
-- New `jh_quant.signalgateway.config.io` module with `export_config_to_file()`, `export_config_to_json_string()`, `import_config_from_file()`, `import_config_from_dict()`.
+#### New endpoint
+- `GET /sessions/trends` — multi-session time-series data for chart overlay. Query params: `session_ids` (comma-separated, optional), `limit` (default 8), `days` (optional, limit history to last N days). Returns `SessionTrendsResponse` with per-session `SessionTrendItem[]` each containing `trends: SessionTrendPoint[]` (trade_date, portfolio_value, cumulative_return, drawdown, daily_pnl, num_positions).
+
+#### Model changes
+- **Enhanced `SessionInfoResponse`** — added `strategy_names`, `total_return_pct`, `daily_pnl`, `position_count`, `max_drawdown`, `win_rate`, `total_trades`, `total_pnl`. One call now provides everything needed for dashboard overview cards.
+- **New models**: `SessionTrendPoint`, `SessionTrendItem`, `SessionTrendsResponse`
+- **Removed models**: `ComparisonSummary`, `SessionComparisonResponse`, `PerformanceComparisonItem`, `PerformanceComparisonResponse`, `PerformanceComparisonRequest`
 
 ### Migration Guide
 
-**Old (v2):**
-```python
-from jh_quant.signalgateway.service import create_service_app, run_service_app
-
-app = create_service_app(service)
-run_service_app(service=service, host=host, port=port)
+**Old (v3):**
+```
+GET /services                           # basic session list
+GET /services/compare                   # status comparison (separate call)
+GET /services/performance/compare       # performance + equity curves (separate call)
+GET /services/{session_id}/risk-management
 ```
 
-**Old API calls (v2):**
+**New (v4):**
 ```
-GET /service/status
-POST /service/scheduler/start
-```
-
-**New (v3):**
-```python
-# Same Python API — no code changes needed
-app = create_service_app(service)  # still works, uses manager internally
-run_service_app(service=service, host=host, port=port)
+GET /sessions                         # full overview with performance metrics (one call)
+GET /sessions/trends                  # multi-session trend data
 ```
 
-**New API calls (v3):**
-```
-GET /services/{session_id}/status
-POST /services/{session_id}/scheduler/start
+**Frontend migration (v3 → v4):**
+```ts
+// Old: two requests
+const [list, compare] = await Promise.all([
+  fetch('/services').then(r => r.json()),
+  fetch('/services/compare').then(r => r.json()),
+])
+
+// New: single request
+const { sessions, count, max_sessions } = await fetch('/sessions').then(r => r.json())
+// sessions[0].total_return_pct, .max_drawdown, .win_rate, etc. are now directly available
+
+// Old: performance compare chart
+const { sessions } = await fetch('/services/performance/compare?limit=8').then(r => r.json())
+chart(sessions.map(s => ({ name: s.session_id, data: s.equity_curve })))
+
+// New: trends endpoint
+const { sessions } = await fetch('/sessions/trends?limit=8&days=90').then(r => r.json())
+chart(sessions.map(s => ({ name: s.session_id, data: s.trends })))
 ```
 
 ---

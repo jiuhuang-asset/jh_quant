@@ -134,16 +134,16 @@ def main_multi() -> None:
         market_data_provider=md_provider,
     )
 
-    # Session A
-    config_a = build_default_config("SESSION_A", auto_start=auto_start)
-    sid_a = manager.create_session(config=config_a, initial_capital=100000)
-    print(f"Created session A: {sid_a}")
+    # Session C
+    config_c = build_default_config("SESSION_C", auto_start=auto_start)
+    sid_c = manager.create_session(config=config_c, initial_capital=100000)
+    print(f"Created session A: {sid_c}")
 
-    # Session B
-    config_b = (
+    # Session D
+    config_d = (
         SessionServiceConfigBuilder.defaults()
         .with_session(
-            session_id="SESSION_B",
+            session_id="SESSION_D",
             mode="paper",
             interval_seconds=300,
             price_lookback_days=200,
@@ -167,27 +167,17 @@ def main_multi() -> None:
         )
         .build()
     )
-    sid_b = manager.create_session(config=config_b, initial_capital=100000)
-    print(f"Created session B: {sid_b}")
+    sid_d = manager.create_session(config=config_d, initial_capital=100000)
+    print(f"Created session B: {sid_d}")
 
     # Run one demo cycle for each
-    # svc_a = manager.get_session(sid_a)
-    # svc_b = manager.get_session(sid_b)
-    # print("--- Session A run_once ---")
-    # print(svc_a.run_once())
-    # print("--- Session B run_once ---")
-    # print(svc_b.run_once())
+    svc_c = manager.get_session(sid_c)
+    svc_d = manager.get_session(sid_d)
+    print("--- Session C run_once ---")
+    print(svc_c.run_once())
+    print("--- Session D run_once ---")
+    print(svc_d.run_once())
 
-    # # Show comparison
-    # print("--- Comparison ---")
-    # comparison = manager.get_comparison()
-    # for s in comparison.sessions:
-    #     print(
-    #         f"  {s.session_id}: value={s.current_value}, "
-    #         f"return={s.total_return_pct}%, "
-    #         f"positions={s.position_count}, "
-    #         f"strategies={s.strategy_names}"
-    #     )
     os.environ["GATEWAY_RUN_SERVER"] = "1"
     if os.getenv("GATEWAY_RUN_SERVER", "0") == "1":
         run_gateway_app(manager=manager, host=host, port=port)

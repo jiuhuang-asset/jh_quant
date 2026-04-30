@@ -9,7 +9,6 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 from ..config import PortfolioSpec, SelectionSpec, SessionServiceConfig, StrategySpec
-from ..config.risk_management import RiskManagementParamsConfig
 
 
 class HealthResponse(BaseModel):
@@ -340,160 +339,32 @@ class SingleSymbolTradeResponse(BaseModel):
     message: str = Field(description="Result description.")
 
 
-class StrategyEvaluateRequest(BaseModel):
-    """Request model for strategy evaluation."""
-
-    symbol_source: str = Field(
-        default="selection",
-        description="Source of symbols: 'selection' (from SelectionProvider) or 'holdings' (from OMS positions).",
-    )
-    as_of_date: Optional[str] = Field(
-        default=None,
-        description="Evaluation end date in YYYY-MM-DD format. Defaults to today.",
-    )
-    lookback_days: Optional[int] = Field(
-        default=None, ge=1,
-        description="Override for price lookback days. Falls back to service config value.",
-    )
-    commission_rate: float = Field(
-        default=0.0002, ge=0.0,
-        description="Commission rate (e.g. 0.0002 = 0.02%).",
-    )
-    stamp_tax_rate: float = Field(
-        default=0.0005, ge=0.0,
-        description="Stamp tax rate for sells (e.g. 0.0005 = 0.05%).",
-    )
-
-
-class StrategyEvaluateResponse(BaseModel):
-    """Response model for strategy evaluation results."""
-
-    status: str = Field(description="Evaluation result status.")
-    as_of_date: str = Field(description="Evaluation end date.")
-    symbol_source: str = Field(description="Source of symbols used.")
-    symbols: List[str] = Field(default_factory=list, description="Symbols evaluated.")
-    strategy_count: int = Field(description="Number of strategies evaluated.")
-    metrics: List[Dict[str, Any]] = Field(
-        default_factory=list,
-        description="Per-strategy, per-symbol performance metrics records.",
-    )
-    trading_history: List[Dict[str, Any]] = Field(
-        default_factory=list,
-        description="Trading history rows with strategy_return, cumulative_return, drawdown, etc.",
-    )
-
-
-class RiskManagementConfigResponse(BaseModel):
-    """Response model for risk management configuration."""
-
-    risk_management_specs: Dict[str, RiskManagementParamsConfig] = Field(
-        default_factory=dict,
-        description="Current per-strategy risk management params.",
-    )
-
-
-class RiskManagementConfigUpdateRequest(BaseModel):
-    """Request model for updating risk management configuration."""
-
-    risk_management_specs: Dict[str, RiskManagementParamsConfig] = Field(
-        default_factory=dict,
-        description="Complete replacement of per-strategy risk management params.",
-    )
-
-
-class RiskManagementConfigUpdateResponse(BaseModel):
-    """Response model for risk management configuration update."""
-
-    status: str = Field(description="Update result status.")
-    risk_management_specs: Dict[str, RiskManagementParamsConfig] = Field(
-        default_factory=dict,
-        description="Updated per-strategy risk management params.",
-    )
-
-
-# ── Data API models ──────────────────────────────────────────────
-
-MAX_DATA_QUERY_ROWS = 10_000
-
-
-class DataCountRequest(BaseModel):
-    """Request to count data rows for a given data type and optional filters."""
-
-    data_type: str = Field(description="Data type identifier (e.g. 'ak_stock_zh_a_hist').")
-    symbol: Optional[str] = Field(default=None, description="Stock symbol filter (comma-separated for multiple).")
-    ts_code: Optional[str] = Field(default=None, description="Tushare code filter (comma-separated for multiple).")
-    start: Optional[str] = Field(default=None, description="Start date (YYYY-MM-DD).")
-    end: Optional[str] = Field(default=None, description="End date (YYYY-MM-DD).")
-
-
-class DataCountResponse(BaseModel):
-    """Response with row count for the requested data type."""
-
-    data_type: str = Field(description="Queried data type identifier.")
-    count: int = Field(description="Total row count matching the filters.")
-    max_query_rows: int = Field(default=MAX_DATA_QUERY_ROWS, description="Threshold for direct data return.")
-
-
-class DataQueryRequest(BaseModel):
-    """Request to query data with automatic size checking."""
-
-    data_type: str = Field(description="Data type identifier (e.g. 'ak_stock_zh_a_hist').")
-    symbol: Optional[str] = Field(default=None, description="Stock symbol filter (comma-separated for multiple).")
-    ts_code: Optional[str] = Field(default=None, description="Tushare code filter (comma-separated for multiple).")
-    start: Optional[str] = Field(default=None, description="Start date (YYYY-MM-DD).")
-    end: Optional[str] = Field(default=None, description="End date (YYYY-MM-DD).")
-    remote: bool = Field(default=False, description="Force fetch from remote API (bypass cache).")
-
-
-class DataQueryResponse(BaseModel):
-    """Response with queried data, or a signal that filters are required."""
-
-    status: str = Field(description="Query status: 'ok', 'too_large', or 'empty'.")
-    data_type: str = Field(description="Queried data type identifier.")
-    count: int = Field(default=0, description="Total matching rows (0 for empty).")
-    max_query_rows: int = Field(default=MAX_DATA_QUERY_ROWS, description="Threshold for direct data return.")
-    message: str = Field(default="", description="Human-readable status message.")
-    suggestion: Optional[str] = Field(default=None, description="Suggestion for narrowing the query (when too_large).")
-    data: Optional[List[Dict[str, Any]]] = Field(default=None, description="Result records (only when status='ok').")
-
-
-class DataTypeInfo(BaseModel):
-    """Metadata for a single available data type."""
-
-    value: str = Field(description="Enum value string (e.g. 'ak_stock_zh_a_hist').")
-    name: str = Field(description="Enum member name (e.g. 'AK_STOCK_ZH_A_HIST').")
-
-
-class DataTypesListResponse(BaseModel):
-    """Response listing all available data types."""
-
-    types: List[DataTypeInfo] = Field(default_factory=list, description="Available data types.")
-    count: int = Field(description="Total number of available data types.")
-
-
-class DataSchemaResponse(BaseModel):
-    """Response with table schema for a data type."""
-
-    data_type: str = Field(description="Data type identifier.")
-    fields: List[str] = Field(default_factory=list, description="Ordered table column names.")
-    unique_keys: List[str] = Field(default_factory=list, description="Unique constraint key columns.")
-    dt_field: Optional[str] = Field(default=None, description="Date/time column name (for time-series ordering).")
-
 
 # ── Multi-Session API models ────────────────────────────────────────
 
 
 class SessionInfoResponse(BaseModel):
-    """Summary metadata for a single managed session instance."""
+    """Summary metadata for a single managed session instance.
+
+    Includes key performance metrics for dashboard overview cards.
+    """
 
     session_id: str = Field(description="Service session ID.")
     mode: str = Field(description="Running mode: paper or live.")
     running: bool = Field(description="Whether the scheduler is currently running.")
     strategy_count: int = Field(description="Number of configured strategies.")
+    strategy_names: List[str] = Field(default_factory=list, description="Configured strategy names/aliases.")
     selection_name: Optional[str] = Field(default=None, description="Selection provider name or alias.")
     portfolio_enabled: bool = Field(default=False, description="Whether portfolio optimization is enabled.")
     initial_capital: float = Field(description="Initial capital for this session.")
     current_value: Optional[float] = Field(default=None, description="Current portfolio total value.")
+    total_return_pct: Optional[float] = Field(default=None, description="Total return percentage.")
+    daily_pnl: Optional[float] = Field(default=None, description="Current daily PnL.")
+    position_count: int = Field(default=0, description="Number of current positions.")
+    max_drawdown: float = Field(default=0.0, description="Maximum historical drawdown (negative).")
+    win_rate: Optional[float] = Field(default=None, description="Win rate (0.0-1.0).")
+    total_trades: int = Field(default=0, description="Total number of trades.")
+    total_pnl: float = Field(default=0.0, description="Total realized + unrealized PnL.")
     last_error: Optional[str] = Field(default=None, description="Most recent runtime error.")
     last_result: Optional[TradingCycleResultResponse] = Field(default=None, description="Most recent trading cycle result.")
     created_at: Optional[str] = Field(default=None, description="Service creation time.")
@@ -529,88 +400,38 @@ class SessionRemoveResponse(BaseModel):
     session_id: str = Field(description="Session ID of the removed service.")
 
 
-class ComparisonSummary(BaseModel):
-    """Per-service summary for side-by-side comparison."""
-
-    session_id: str = Field(description="Service session ID.")
-    mode: str = Field(description="Running mode.")
-    running: bool = Field(description="Whether the scheduler is running.")
-    initial_capital: float = Field(description="Initial capital.")
-    current_value: Optional[float] = Field(default=None, description="Current portfolio total value.")
-    total_return_pct: Optional[float] = Field(default=None, description="Total return percentage.")
-    daily_pnl: Optional[float] = Field(default=None, description="Current daily PnL.")
-    position_count: int = Field(default=0, description="Number of current positions.")
-    strategy_names: List[str] = Field(default_factory=list, description="Configured strategy names/aliases.")
-    selection_name: Optional[str] = Field(default=None, description="Selection provider name.")
+# ── Multi-Session Trends API models ──────────────────────────────────
 
 
-class SessionComparisonResponse(BaseModel):
-    """Aggregated comparison across all managed sessions."""
-
-    generated_at: str = Field(description="Comparison generation time.")
-    count: int = Field(description="Number of sessions compared.")
-    sessions: List[ComparisonSummary] = Field(default_factory=list, description="Per-session comparison summaries.")
+DEFAULT_TRENDS_LIMIT = 8
 
 
-# ── Performance Comparison API models ───────────────────────────────
+class SessionTrendPoint(BaseModel):
+    """A single data point in a session's trend series."""
+
+    trade_date: str = Field(description="Trade date in YYYY-MM-DD format.")
+    portfolio_value: float = Field(description="Total portfolio value on this date.")
+    cumulative_return: Optional[float] = Field(default=None, description="Cumulative return from inception.")
+    drawdown: float = Field(default=0.0, description="Drawdown from peak portfolio value.")
+    daily_pnl: Optional[float] = Field(default=None, description="Daily PnL.")
+    num_positions: int = Field(default=0, description="Number of open positions on this date.")
 
 
-DEFAULT_PERFORMANCE_COMPARE_LIMIT = 8
-
-
-class PerformanceComparisonRequest(BaseModel):
-    """Request to compare historical performance across multiple sessions."""
-
-    session_ids: Optional[List[str]] = Field(
-        default=None,
-        description="Specific session IDs to compare. If omitted, returns the latest sessions (up to limit).",
-    )
-    limit: int = Field(
-        default=DEFAULT_PERFORMANCE_COMPARE_LIMIT,
-        ge=1,
-        le=50,
-        description="Max sessions to return when session_ids is not specified.",
-    )
-
-
-class PerformanceComparisonItem(BaseModel):
-    """Performance data for a single session in a comparison."""
+class SessionTrendItem(BaseModel):
+    """Trend series for a single session."""
 
     session_id: str = Field(description="Session ID.")
     mode: str = Field(description="Running mode (paper/live).")
     initial_capital: float = Field(description="Initial capital.")
     strategy_names: List[str] = Field(default_factory=list, description="Strategy names/aliases.")
     selection_name: Optional[str] = Field(default=None, description="Selection provider name.")
-
-    # current snapshot
-    portfolio_value: Optional[float] = Field(default=None, description="Latest portfolio total value.")
-    total_return_pct: Optional[float] = Field(default=None, description="Total return percentage.")
-    daily_pnl: Optional[float] = Field(default=None, description="Current daily PnL.")
-    position_count: int = Field(default=0, description="Current number of positions.")
-
-    # summary stats
-    total_trades: int = Field(default=0, description="Total number of trades.")
-    win_rate: Optional[float] = Field(default=None, description="Win rate (0.0-1.0).")
-    total_pnl: float = Field(default=0.0, description="Total realized + unrealized PnL.")
-    max_drawdown: float = Field(default=0.0, description="Maximum historical drawdown (negative).")
-
-    # time-series data for chart overlay
-    equity_curve: List[Dict[str, Any]] = Field(
-        default_factory=list,
-        description="Daily equity curve rows: trade_date, portfolio_value, cumulative_return, drawdown.",
-    )
+    trends: List[SessionTrendPoint] = Field(default_factory=list, description="Daily trend data points.")
 
 
-class PerformanceComparisonResponse(BaseModel):
-    """Historical performance comparison across multiple sessions."""
+class SessionTrendsResponse(BaseModel):
+    """Multi-session trend data for chart overlay."""
 
-    generated_at: str = Field(description="Comparison generation time.")
-    count: int = Field(description="Number of sessions compared.")
-    sessions: List[PerformanceComparisonItem] = Field(
-        default_factory=list,
-        description="Per-session performance data including equity curves.",
-    )
-    note: Optional[str] = Field(
-        default=None,
-        description="Informational message (e.g. when sessions were auto-limited).",
-    )
+    generated_at: str = Field(description="Trends generation time.")
+    count: int = Field(description="Number of sessions included.")
+    sessions: List[SessionTrendItem] = Field(default_factory=list, description="Per-session trend series.")
+    note: Optional[str] = Field(default=None, description="Informational message (e.g. when sessions were auto-limited).")
