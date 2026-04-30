@@ -1,104 +1,127 @@
-# SignalGateway Service API 文档 v2
+# SignalGateway Service API Documentation v3
 
-本文档版本：`v2`（更新日志：[CHANGELOG.md](CHANGELOG.md)）
+Document version: `v3` (changelog: [CHANGELOG.md](CHANGELOG.md))
 
-本文档面向前端开发人员，描述 `jh_quant.signalgateway.service.api` 当前暴露�?HTTP API、关键数据模型，以及推荐的前端对接方式�?
-## 1. 基本信息
+This document describes the HTTP API exposed by `jh_quant.signalgateway.service.api`, the key data models, and recommended frontend integration patterns.
 
-- 默认服务地址：`http://127.0.0.1:8000`
-- 协议：`HTTP + JSON`
-- CORS：已开启，允许任意来源 `*`
-- 时间字段：默认使�?ISO 8601 字符�?- 当前代码入口：[api.py](/e:/个人/jiuhuang-asset/jh_quant/jh_quant/signalgateway/service/api.py:1)
-- 主要响应模型定义：[schemas.py](/e:/个人/jiuhuang-asset/jh_quant/jh_quant/signalgateway/service/schemas.py:1)
+## 1. Basics
 
-## 2. 前端最重要的对接原�?
-### 2.1 配置不是写死表单，而是“后�?schema 驱动�?
-前端不要�?`selection / strategy / portfolio` 的参数写死在页面里。推荐流程：
+- Default base URL: `http://127.0.0.1:8000`
+- Protocol: HTTP + JSON
+- CORS: Enabled, allows any origin (`*`)
+- Timestamps: ISO 8601 strings
+- Code entry point: [api.py](../../../service/api.py)
+- Response models: [schemas.py](../../../service/schemas.py)
 
-1. 先调用：
-   - `GET /service/selection-config`
-   - `GET /service/strategy-config`
-   - `GET /service/portfolio/config`
-2. 从返回中的以下字段读取可配置定义�?   - `available_selections[].params_schema`
+## 2. Core Integration Principles
+
+### 2.1 Schema-Driven Configuration
+
+Do not hardcode `selection / strategy / portfolio` parameters in the frontend. The recommended flow:
+
+1. Call the GET config endpoints:
+   - `GET /services/{session_id}/selection-config`
+   - `GET /services/{session_id}/strategy-config`
+   - `GET /services/{session_id}/portfolio/config`
+2. Extract configurable definitions from:
+   - `available_selections[].params_schema`
    - `available_strategies[].params_schema`
    - `available_optimizers[].params_schema`
-3. 根据 `params_schema` 动态渲染表单�?
-这也是设置页实现关注点分离的基础�?
-### 2.2 配置优先�?
-服务当前已经支持“启动配置”和“用户持久化配置”并存�?
-推荐前端理解为：
+3. Dynamically render forms based on `params_schema`.
 
-1. `bootstrap config`
-   启动 `SignalGateway` 时传入的初始配置�?2. `persisted user config`
-   用户在运行中通过 API 修改后，持久化到数据库的配置�?3. 当前运行配置
-   实际生效配置�?
-通过 `GET /service/config` 可以看到�?
+### 2.2 Config Precedence
+
+The service supports both bootstrap config and persisted user config:
+
+1. **Bootstrap config** — initial config passed when constructing `SignalGatewayService`.
+2. **Persisted user config** — config persisted to database after API modifications.
+3. **Current running config** — the actual effective config.
+
+Use `GET /services/{session_id}/config` to inspect:
 - `config_source`
 - `persisted_user_config_available`
 - `persisted_user_config_updated_at`
 
-通常应以接口返回的当前运行配置为准，而不是以页面本地默认值为准�?
-### 2.3 建议的首屏加载顺�?
-推荐前端初始化时并行请求�?
+Always treat the API-returned current config as authoritative, not local defaults.
+
+### 2.3 Recommended Initial Load Sequence
+
+Parallel requests on frontend init:
 1. `GET /health`
-2. `GET /service/status`
-3. `GET /service/runtime`
-4. `GET /service/performance`
-5. `GET /service/config`
-6. `GET /service/selection-config`
-7. `GET /service/strategy-config`
-8. `GET /service/portfolio/config`
+2. `GET /services/{session_id}/status`
+3. `GET /services/{session_id}/runtime`
+4. `GET /services/{session_id}/performance`
+5. `GET /services/{session_id}/config`
+6. `GET /services/{session_id}/selection-config`
+7. `GET /services/{session_id}/strategy-config`
+8. `GET /services/{session_id}/portfolio/config`
 
-如果想减少请求次数，也可以直接优先使用：
+To reduce requests, use `GET /services/{session_id}/analytics` which bundles `status`, `runtime`, `performance`, and `config`. However it does not include `available_selections / available_strategies / available_optimizers`, so config pages still need requests 6/7/8.
 
-- `GET /service/analytics`
+## 3. Endpoint Overview
 
-它会返回�?
-- `status`
-- `runtime`
-- `performance`
-- `config`
+### App-Level
 
-但它不包�?`available_selections / available_strategies / available_optimizers`，所以配置页仍然需要额外请�?6/7/8�?
-## 3. 接口总览
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/health` | Health check |
+| `GET` | `/services` | List all managed services |
+| `POST` | `/services` | Create a new service |
+| `GET` | `/services/compare` | Status comparison across services |
+| `GET` | `/services/performance/compare` | Historical performance comparison |
+| `POST` | `/data/count` | Count records for a data type |
+| `POST` | `/data/query` | Query data with filters |
+| `GET` | `/data/types` | List available data types |
+| `GET` | `/data/schema/{data_type}` | Get schema for a data type |
 
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| `GET` | `/health` | 健康检�?|
-| `GET` | `/service/status` | 服务状�?|
-| `GET` | `/service/runtime` | 运行时快�?|
-| `GET` | `/service/performance` | 绩效快照 |
-| `GET` | `/service/analytics` | 聚合分析快照 |
-| `GET` | `/service/config` | 当前完整配置快照 |
-| `PUT` | `/service/config` | 整体替换完整配置 |
-| `GET` | `/service/events` | 服务事件历史 |
-| `POST` | `/service/scheduler/start` | 启动调度 |
-| `POST` | `/service/scheduler/stop` | 停止调度 |
-| `POST` | `/service/run-once` | 立即执行一�?|
-| `GET` | `/service/strategy-config` | 获取策略配置与可选策�?|
-| `POST` | `/service/strategy-config` | 替换全部策略配置 |
-| `GET` | `/service/selection-config` | 获取选股配置与可选选股�?|
-| `POST` | `/service/selection-config` | 更新选股配置 |
-| `GET` | `/service/portfolio/config` | 获取组合配置与可选优化器 |
-| `POST` | `/service/portfolio/config` | 更新组合配置 |
-| `POST` | `/service/portfolio/optimize` | 组合优化预览 |
-| `GET` | `/service/portfolio/analysis` | 组合分析快照 |
-| `GET` | `/service/portfolio/history` | 组合历史 |
-| `POST` | `/service/portfolio/rebalance` | 组合调仓预览或执�?|
-| `GET` | `/service/scheduler-config` | 获取调度配置 |
-| `POST` | `/service/scheduler-config` | 更新调度配置 |
-| `POST` | `/service/close-all-positions` | 一键平�?|
-| `POST` | `/service/signal-buy` | 单标的买入信�?|
-| `POST` | `/service/signal-sell` | 单标的卖出信�?|
+### Session-Scoped
 
-## 4. 通用响应和错误处�?
-### 4.1 成功响应
+| Method | Path | Description |
+|--------|------|-------------|
+| `DELETE` | `/services/{session_id}` | Remove a service |
+| `GET` | `/services/{session_id}/status` | Service status |
+| `GET` | `/services/{session_id}/runtime` | Runtime snapshot |
+| `GET` | `/services/{session_id}/performance` | Performance snapshot |
+| `GET` | `/services/{session_id}/analytics` | Aggregated analytics snapshot |
+| `GET` | `/services/{session_id}/config` | Full config snapshot |
+| `PUT` | `/services/{session_id}/config` | Replace full config |
+| `POST` | `/services/{session_id}/config/import` | Import config from uploaded file |
+| `GET` | `/services/{session_id}/config/export` | Export config as downloadable file |
+| `GET` | `/services/{session_id}/events` | Service event history |
+| `POST` | `/services/{session_id}/scheduler/start` | Start scheduler |
+| `POST` | `/services/{session_id}/scheduler/stop` | Stop scheduler |
+| `POST` | `/services/{session_id}/run-once` | Execute one cycle immediately |
+| `GET` | `/services/{session_id}/strategy-config` | Get strategy config and available strategies |
+| `POST` | `/services/{session_id}/strategy-config` | Replace all strategy configs |
+| `GET` | `/services/{session_id}/selection-config` | Get selection config and available selectors |
+| `POST` | `/services/{session_id}/selection-config` | Update selection config |
+| `GET` | `/services/{session_id}/portfolio/config` | Get portfolio config and available optimizers |
+| `POST` | `/services/{session_id}/portfolio/config` | Update portfolio config |
+| `POST` | `/services/{session_id}/portfolio/optimize` | Portfolio optimization preview |
+| `GET` | `/services/{session_id}/portfolio/analysis` | Portfolio analysis snapshot |
+| `GET` | `/services/{session_id}/portfolio/history` | Portfolio history |
+| `POST` | `/services/{session_id}/portfolio/rebalance` | Preview or execute rebalance |
+| `GET` | `/services/{session_id}/scheduler-config` | Get scheduler config |
+| `POST` | `/services/{session_id}/scheduler-config` | Update scheduler config |
+| `POST` | `/services/{session_id}/close-all-positions` | Close all positions |
+| `POST` | `/services/{session_id}/signal-buy` | Single-symbol buy signal |
+| `POST` | `/services/{session_id}/signal-sell` | Single-symbol sell signal |
+| `POST` | `/services/{session_id}/strategy-evaluate` | Evaluate strategies |
+| `GET` | `/services/{session_id}/risk-management` | Get risk management config |
+| `PUT` | `/services/{session_id}/risk-management` | Update risk management config |
 
-所有接口默认返�?JSON�?
-### 4.2 失败响应
+## 4. Common Response and Error Handling
 
-接口内部没有统一自定义错误模型，异常通常会表现为 HTTP �?2xx，并带文本错误信息�?
-前端建议统一处理�?
+### 4.1 Success Responses
+
+All endpoints return JSON.
+
+### 4.2 Error Handling
+
+The API does not use a unified custom error model. Errors manifest as non-2xx HTTP status with text error messages.
+
+Recommended frontend wrapper:
+
 ```ts
 async function request(path: string, options: RequestInit = {}) {
   const response = await fetch(`${apiBase}${path}`, options)
@@ -110,33 +133,26 @@ async function request(path: string, options: RequestInit = {}) {
 }
 ```
 
-## 5. 基础状态接�?
+## 5. Status Endpoints
+
 ### 5.1 `GET /health`
 
-用途：基础健康检查�?
-响应示例�?
+Health check.
+
+Response:
 ```json
-{
-  "status": "ok"
-}
+{ "status": "ok" }
 ```
 
-前端用途：
+Use for: status indicator, connectivity check.
 
-- 顶部健康状态灯
-- 联调时判断服务是否可�?
-### 5.2 `GET /service/status`
+### 5.2 `GET /services/{session_id}/status`
 
-用途：获取服务运行状态和调度状态�?
-关键字段�?
-- `session_id`
-- `mode`
-- `running`
-- `scheduler`
-- `last_error`
-- `last_result`
+Service status and scheduler state.
 
-响应示例�?
+Key fields: `session_id`, `mode`, `running`, `scheduler`, `last_error`, `last_result`.
+
+Response:
 ```json
 {
   "session_id": "sg-paper-001",
@@ -159,36 +175,28 @@ async function request(path: string, options: RequestInit = {}) {
 }
 ```
 
-### 5.3 `GET /service/runtime`
+### 5.3 `GET /services/{session_id}/runtime`
 
-用途：获取运行时状态快照�?
-关键字段�?
-- `positions`
-- `oms_state`
+Runtime snapshot.
 
-说明�?
-- `positions` 适合用于持仓、待执行订单、当前运行态面板�?- `oms_state` 更偏调试和诊断�?
-### 5.4 `GET /service/performance`
+Key fields: `positions`, `oms_state`.
 
-用途：获取绩效、收益曲线、换手、仓位暴露等信息�?
-关键字段�?
-- `summary`
-- `holding_returns`
-- `turnover`
-- `equity_curve`
-- `trade_activity`
-- `position_exposure`
-- `latest_portfolio`
+- `positions` — holdings, pending orders, current state panel.
+- `oms_state` — debugging and diagnostics.
 
-前端用途：
+### 5.4 `GET /services/{session_id}/performance`
 
-- 绩效图表
-- 持仓收益�?- 曝险分析
+Performance metrics, return curves, turnover, position exposure.
 
-### 5.5 `GET /service/analytics`
+Key fields: `summary`, `holding_returns`, `turnover`, `equity_curve`, `trade_activity`, `position_exposure`, `latest_portfolio`.
 
-用途：一次性获取聚合快照�?
-响应结构�?
+Use for: performance charts, holding returns, exposure analysis.
+
+### 5.5 `GET /services/{session_id}/analytics`
+
+Aggregated snapshot (bundles status, runtime, performance, config).
+
+Response structure:
 ```json
 {
   "session_id": "sg-paper-001",
@@ -200,25 +208,17 @@ async function request(path: string, options: RequestInit = {}) {
 }
 ```
 
-适合�?
-- 总览页首屏加�?- 诊断页原始快照展�?
-## 6. 配置相关接口
+Use for: overview page initial load, diagnostics panel.
 
-### 6.1 `GET /service/config`
+## 6. Config Endpoints
 
-用途：获取当前完整配置快照�?
-关键字段�?
-- `config_bundle`
-- `service`
-- `selection_spec`
-- `selection_provider`
-- `strategy_specs`
-- `portfolio_spec`
-- `config_source`
-- `persisted_user_config_available`
-- `persisted_user_config_updated_at`
+### 6.1 `GET /services/{session_id}/config`
 
-响应示例�?
+Get full config snapshot.
+
+Key fields: `config_bundle`, `service`, `selection_spec`, `selection_provider`, `strategy_specs`, `portfolio_spec`, `config_source`, `persisted_user_config_available`, `persisted_user_config_updated_at`.
+
+Response:
 ```json
 {
   "session_id": "sg-paper-001",
@@ -238,7 +238,7 @@ async function request(path: string, options: RequestInit = {}) {
     },
     "selection_spec": {
       "name": "factor_selector",
-      "alias": "月频因子选股",
+      "alias": "Monthly Factor Selection",
       "params": {
         "factor": "momentum",
         "start": "2020-01-01",
@@ -268,14 +268,15 @@ async function request(path: string, options: RequestInit = {}) {
 }
 ```
 
-前端建议�?
-- 总览页显�?`config_source`
-- 设置页初始值始终以该接口返回为�?
-### 6.2 `PUT /service/config`
+Frontend tips:
+- Display `config_source` on overview page.
+- Always initialize settings forms from this response.
 
-用途：整体替换完整配置�?
-请求体：
+### 6.2 `PUT /services/{session_id}/config`
 
+Replace the entire config.
+
+Request body:
 ```json
 {
   "config_bundle": {
@@ -287,32 +288,42 @@ async function request(path: string, options: RequestInit = {}) {
 }
 ```
 
-适合�?
-- 做“导入完整配置�?- 做“高级模式一键替换�?
-不太适合�?
-- 普通设置页逐项更新
+Suitable for: "import full config", "advanced mode one-click replace". Not recommended for routine settings changes — use the individual endpoints below instead.
 
-普通设置页更推荐用下面拆分后的接口�?
-## 7. 调度控制接口
+### 6.3 `POST /services/{session_id}/config/import`
 
-### 7.1 `POST /service/scheduler/start`
+Import config from an uploaded JSON file.
 
-用途：启动调度线程�?
-响应示例�?
+Request: `multipart/form-data` with file field `file`.
+
+Response: `ServiceConfigUpdateResponse`.
+
+### 6.4 `GET /services/{session_id}/config/export`
+
+Export current config as a downloadable JSON file.
+
+Response: `application/json` file download.
+
+## 7. Scheduler Endpoints
+
+### 7.1 `POST /services/{session_id}/scheduler/start`
+
+Start the scheduler thread.
+
+Response:
 ```json
-{
-  "status": "started",
-  "session_id": "sg-paper-001"
-}
+{ "status": "started", "session_id": "sg-paper-001" }
 ```
 
-### 7.2 `POST /service/scheduler/stop`
+### 7.2 `POST /services/{session_id}/scheduler/stop`
 
-用途：停止调度线程�?
-### 7.3 `POST /service/run-once`
+Stop the scheduler thread.
 
-用途：立即执行一轮选股/策略/调仓流程�?
-响应示例�?
+### 7.3 `POST /services/{session_id}/run-once`
+
+Execute one trading cycle immediately.
+
+Response:
 ```json
 {
   "session_id": "sg-paper-001",
@@ -331,19 +342,17 @@ async function request(path: string, options: RequestInit = {}) {
 }
 ```
 
-### 7.4 `GET /service/scheduler-config`
+### 7.4 `GET /services/{session_id}/scheduler-config`
 
-用途：获取当前调度配置�?
-响应字段�?
-- `running`
-- `auto_start`
-- `scheduler`
+Get current scheduler configuration.
 
-### 7.5 `POST /service/scheduler-config`
+Response fields: `running`, `auto_start`, `scheduler`.
 
-用途：更新调度配置�?
-请求体：
+### 7.5 `POST /services/{session_id}/scheduler-config`
 
+Update scheduler configuration.
+
+Request body (all fields optional):
 ```json
 {
   "interval_seconds": 300,
@@ -353,29 +362,25 @@ async function request(path: string, options: RequestInit = {}) {
 }
 ```
 
-说明�?
-- 字段都是可选的�?- `interval_seconds >= 1`
-- `cron_expression` 可传 `null`
+- `interval_seconds >= 1`
+- `cron_expression` can be `null`
 
-前端建议�?
-- “服务调度”单独作为一个设置分�?- 不要�?`selection / strategy / portfolio` 参数混在同一个表单里
+Frontend tip: keep scheduler settings as a separate section from selection/strategy/portfolio params.
 
-## 8. 选股配置接口
+## 8. Selection Endpoints
 
-### 8.1 `GET /service/selection-config`
+### 8.1 `GET /services/{session_id}/selection-config`
 
-用途：获取当前选股配置和所有可选选股器定义�?
-响应字段�?
-- `selection_spec`
-- `active_selection_config`
-- `available_selections`
+Get current selection config and all available selection providers.
 
-响应示例�?
+Response fields: `selection_spec`, `active_selection_config`, `available_selections`.
+
+Response:
 ```json
 {
   "selection_spec": {
     "name": "factor_selector",
-    "alias": "月频动量",
+    "alias": "Monthly Momentum",
     "params": {
       "factor": "momentum",
       "start": "2020-01-01",
@@ -397,29 +402,28 @@ async function request(path: string, options: RequestInit = {}) {
   "available_selections": [
     {
       "name": "factor_selector",
-      "params_schema": {
-        "type": "object",
-        "properties": {}
-      },
+      "params_schema": { "type": "object", "properties": {} },
       "runtime_dependencies": ["jh_data"]
     }
   ]
 }
 ```
 
-前端重点�?
-- 使用 `available_selections` 渲染可�?`Selection Provider`
-- 使用 `params_schema` 动态渲染参数表�?- `runtime_dependencies` 只做展示提示，不需要前端填�?
-### 8.2 `POST /service/selection-config`
+Frontend focus:
+- Use `available_selections` to render available selection providers.
+- Use `params_schema` to dynamically render parameter forms.
+- `runtime_dependencies` is display-only.
 
-用途：更新选股配置�?
-请求体：
+### 8.2 `POST /services/{session_id}/selection-config`
 
+Update selection config.
+
+Request body:
 ```json
 {
   "selection_spec": {
     "name": "factor_selector",
-    "alias": "月频动量",
+    "alias": "Monthly Momentum",
     "params": {
       "factor": "momentum",
       "start": "2020-01-01",
@@ -437,53 +441,36 @@ async function request(path: string, options: RequestInit = {}) {
 }
 ```
 
-当前内置选股器：
+Built-in selectors: `factor_selector`.
 
-- `factor_selector`
+Common `factor_selector` params: `factor`, `start`, `top_n`, `bottom_n`, `factor_alpha`, `default_weight`, `period`, `insignificant_weight_ratio`, `missing_data_threshold`, `test_window`, `verbose`.
 
-当前 `factor_selector` 常用字段�?
-- `factor`
-- `start`
-- `top_n`
-- `bottom_n`
-- `factor_alpha`
-- `default_weight`
-- `period`
-- `insignificant_weight_ratio`
-- `missing_data_threshold`
-- `test_window`
-- `verbose`
+## 9. Strategy Endpoints
 
-## 9. 策略配置接口
+### 9.1 `GET /services/{session_id}/strategy-config`
 
-### 9.1 `GET /service/strategy-config`
+Get current strategy config and all available strategies.
 
-用途：获取当前策略配置和可选策略定义�?
-响应字段�?
-- `strategy_specs`
-- `available_strategies`
+Response fields: `strategy_specs`, `available_strategies`.
 
-### 9.2 `POST /service/strategy-config`
+### 9.2 `POST /services/{session_id}/strategy-config`
 
-用途：整体替换当前策略列表�?
-请求体：
+Replace all strategy configs (not append).
 
+Request body:
 ```json
 {
   "strategy_specs": [
     {
       "name": "moving_average_crossover",
       "weight": 1,
-      "alias": "均线交叉",
-      "params": {
-        "short_window": 20,
-        "long_window": 60
-      }
+      "alias": "MA Crossover",
+      "params": { "short_window": 20, "long_window": 60 }
     },
     {
       "name": "rsi",
       "weight": 0.8,
-      "alias": "RSI 策略",
+      "alias": "RSI Strategy",
       "params": {
         "rsi_window": 14,
         "rsi_oversold": 30,
@@ -496,40 +483,29 @@ async function request(path: string, options: RequestInit = {}) {
 }
 ```
 
-说明�?
-- 这是“替换全部”的语义，不�?append�?- 前端应维护完整策略数组，再一次性提交�?
-当前内置策略�?
-- `turtle`
-- `moving_average_crossover`
-- `buy_and_hold`
-- `volume_trend`
-- `volume_divergence`
-- `mean_reversion`
-- `rsi`
-- `bollinger_bands`
-- `momentum`
-- `breakout`
-- `dual_thrust`
+Built-in strategies: `turtle`, `moving_average_crossover`, `buy_and_hold`, `volume_trend`, `volume_divergence`, `mean_reversion`, `rsi`, `bollinger_bands`, `momentum`, `breakout`, `dual_thrust`.
 
-每个策略的参数结构应�?`available_strategies[].params_schema` 为准�?
-## 10. 组合配置接口
+Always use `available_strategies[].params_schema` as the authoritative parameter structure.
 
-### 10.1 `GET /service/portfolio/config`
+### 9.3 `POST /services/{session_id}/strategy-evaluate`
 
-用途：获取当前组合配置和可选优化器定义�?
-响应字段�?
-- `portfolio_spec`
-- `available_optimizers`
+Evaluate strategies against historical data.
 
-当前默认优化器：
+## 10. Portfolio Endpoints
 
-- `riskfolio`
+### 10.1 `GET /services/{session_id}/portfolio/config`
 
-### 10.2 `POST /service/portfolio/config`
+Get current portfolio config and available optimizers.
 
-用途：更新组合配置�?
-请求体示例：
+Response fields: `portfolio_spec`, `available_optimizers`.
 
+Default optimizer: `riskfolio`.
+
+### 10.2 `POST /services/{session_id}/portfolio/config`
+
+Update portfolio config.
+
+Request body:
 ```json
 {
   "portfolio_spec": {
@@ -565,20 +541,13 @@ async function request(path: string, options: RequestInit = {}) {
 }
 ```
 
-前端中适合做预设选项的字段：
+Fields suitable for preset dropdowns: `objective`, `risk_measure`, `model`, `covariance_method`, `rebalance_policy.mode`. Always defer to schema and server validation.
 
-- `objective`
-- `risk_measure`
-- `model`
-- `covariance_method`
-- `rebalance_policy.mode`
+### 10.3 `POST /services/{session_id}/portfolio/optimize`
 
-这些字段仍建议最终以 schema 和后端校验结果为准�?
-### 10.3 `POST /service/portfolio/optimize`
+Run portfolio optimization preview.
 
-用途：执行组合优化预览�?
-请求体：
-
+Request body:
 ```json
 {
   "as_of_date": "2026-04-28",
@@ -587,37 +556,25 @@ async function request(path: string, options: RequestInit = {}) {
 }
 ```
 
-响应字段�?
-- `status`
-- `optimizer`
-- `as_of_date`
-- `symbols`
-- `weights`
-- `diagnostics`
-- `preview_only`
+Response fields: `status`, `optimizer`, `as_of_date`, `symbols`, `weights`, `diagnostics`, `preview_only`.
 
-### 10.4 `GET /service/portfolio/analysis`
+### 10.4 `GET /services/{session_id}/portfolio/analysis`
 
-用途：获取当前组合分析快照�?
-响应字段�?
-- `portfolio_spec`
-- `current_portfolio`
-- `drift`
-- `latest_optimization`
-- `latest_rebalance`
+Portfolio analysis snapshot.
 
-### 10.5 `GET /service/portfolio/history`
+Response fields: `portfolio_spec`, `current_portfolio`, `drift`, `latest_optimization`, `latest_rebalance`.
 
-用途：获取组合历史�?
-响应字段�?
-- `weight_history`
-- `portfolio_value_history`
+### 10.5 `GET /services/{session_id}/portfolio/history`
 
-### 10.6 `POST /service/portfolio/rebalance`
+Portfolio history.
 
-用途：进行组合调仓预览或执行�?
-请求体：
+Response fields: `weight_history`, `portfolio_value_history`.
 
+### 10.6 `POST /services/{session_id}/portfolio/rebalance`
+
+Preview or execute portfolio rebalancing.
+
+Request body:
 ```json
 {
   "as_of_date": "2026-04-28",
@@ -627,176 +584,172 @@ async function request(path: string, options: RequestInit = {}) {
 }
 ```
 
-响应关键字段�?
-- `should_rebalance`
-- `reason`
-- `execution_path`
-- `target_allocations`
-- `buy_orders`
-- `sell_orders`
-- `blocked_buy_orders`
-- `blocked_sell_orders`
-- `projected_buy_cost`
-- `projected_sell_value`
-- `projected_cash_after`
-- `drift`
-- `executed_buy_count`
-- `executed_sell_count`
+Key response fields: `should_rebalance`, `reason`, `execution_path`, `target_allocations`, `buy_orders`, `sell_orders`, `blocked_buy_orders`, `blocked_sell_orders`, `projected_buy_cost`, `projected_sell_value`, `projected_cash_after`, `drift`, `executed_buy_count`, `executed_sell_count`.
 
-前端建议�?
-- `preview_only=true` 作为默认�?- 先预览，再允许用户确认执�?
-## 11. 交易操作接口
+Frontend tip: default to `preview_only=true`, let users confirm before executing.
 
-### 11.1 `POST /service/close-all-positions`
+## 11. Trading Endpoints
 
-用途：一键平仓�?
-请求体：
+### 11.1 `POST /services/{session_id}/close-all-positions`
 
+Close all positions.
+
+Request body:
+```json
+{ "slippage": 0.001 }
+```
+
+Response fields: `status`, `closed_count`, `executed_trades`.
+
+### 11.2 `POST /services/{session_id}/signal-buy`
+
+Submit single-symbol buy signal.
+
+Request body:
+```json
+{ "symbol": "600519", "target_qty": 100, "slippage": 0.001 }
+```
+
+### 11.3 `POST /services/{session_id}/signal-sell`
+
+Submit single-symbol sell signal. Same request format as buy.
+
+Single-symbol trade response fields: `status`, `action`, `symbol`, `executed`, `trade`, `message`.
+
+## 12. Event History
+
+### 12.1 `GET /services/{session_id}/events`
+
+Service event history.
+
+Response fields: `session_id`, `count`, `events`.
+
+Each event: `event_type`, `event_time`, `export_time`, `state_data`.
+
+Use for: audit timeline, state recovery debugging, config change history.
+
+## 13. Multi-Service Endpoints
+
+### 13.1 `GET /services`
+
+List all managed services.
+
+Response fields: `services: ServiceInfoResponse[]`, `count: number`, `max_services: number`.
+
+`ServiceInfoResponse`: `session_id`, `mode`, `running`, `strategy_count`, `selection_name`, `portfolio_enabled`, `initial_capital`, `current_value`, `last_error`, `last_result`.
+
+### 13.2 `POST /services`
+
+Create a new service.
+
+Request body:
 ```json
 {
-  "slippage": 0.001
+  "config_bundle": {
+    "service": {},
+    "selection_spec": null,
+    "strategy_specs": [],
+    "portfolio_spec": {}
+  },
+  "initial_capital": 100000
 }
 ```
 
-响应字段�?
-- `status`
-- `closed_count`
-- `executed_trades`
+Response: `{ "status": "created", "session_id": "..." }`
 
-### 11.2 `POST /service/signal-buy`
+### 13.3 `DELETE /services/{session_id}`
 
-用途：触发单标的买入�?
-请求体：
+Remove a service. Response: `{ "status": "removed", "session_id": "..." }`
 
-```json
-{
-  "symbol": "600519",
-  "target_qty": 100,
-  "slippage": 0.001
-}
+### 13.4 `GET /services/compare`
+
+Side-by-side status comparison across all services.
+
+Response fields: `generated_at`, `count`, `services: ComparisonSummary[]`.
+
+`ComparisonSummary`: `session_id`, `mode`, `running`, `initial_capital`, `current_value`, `total_return_pct`, `daily_pnl`, `position_count`, `strategy_names`, `selection_name`.
+
+### 13.5 `GET /services/performance/compare`
+
+Historical performance comparison with equity curves.
+
+Query params: `session_ids` (optional, comma-separated), `limit` (default 8).
+
+Response fields: `generated_at`, `count`, `note` (when auto-limited), `sessions: PerformanceComparisonItem[]`.
+
+`PerformanceComparisonItem`:
+- Snapshot: `session_id`, `mode`, `initial_capital`, `portfolio_value`, `total_return_pct`, `daily_pnl`, `position_count`, `strategy_names`, `selection_name`
+- Stats: `total_trades`, `win_rate`, `total_pnl`, `max_drawdown`
+- Time-series: `equity_curve: Array<{ trade_date, portfolio_value, cumulative_return, drawdown }>`
+
+When `session_ids` is omitted and total sessions exceed `limit`, only the latest N are returned with an informative `note`.
+
+Chart overlay example:
+```ts
+const { sessions } = await fetch('/services/performance/compare?limit=8').then(r => r.json())
+const series = sessions.map(s => ({
+  name: `${s.session_id} (${s.strategy_names.join(', ')})`,
+  type: 'line',
+  data: s.equity_curve.map(row => [row.trade_date, row.cumulative_return]),
+}))
 ```
 
-### 11.3 `POST /service/signal-sell`
+## 14. Data Endpoints
 
-用途：触发单标的卖出�?
-请求体与买入一致�?
-单标的交易响应字段：
+### 14.1 `GET /data/types`
 
-- `status`
-- `action`
-- `symbol`
-- `executed`
-- `trade`
-- `message`
+List available data types.
 
-## 12. 事件历史接口
+### 14.2 `GET /data/schema/{data_type}`
 
-### 12.1 `GET /service/events`
+Get schema for a specific data type.
 
-用途：查看服务事件历史�?
-响应字段�?
-- `session_id`
-- `count`
-- `events`
+### 14.3 `POST /data/count`
 
-每条 `event` 包含�?
-- `event_type`
-- `event_time`
-- `export_time`
-- `state_data`
+Count records for a data type.
 
-适合�?
-- 审计时间�?- 调试状态恢复逻辑
-- 展示配置变更历史
+### 14.4 `POST /data/query`
 
-## 13. 关键配置模型说明
+Query data with filters.
 
-### 13.1 `ServiceConfig`
+## 15. Key Config Models
 
-主要字段�?
-- `session_id`
-- `mode`: `paper | live`
-- `price_lookback_days`
-- `max_candidates`
-- `auto_start`
-- `frequency`
-- `price_slippage`
-- `interval_seconds`
-- `cron_expression`
-- `timezone`
-- `restore_persisted_state`
+### 15.1 `ServiceConfig`
 
-### 13.2 `SelectionSpec`
+Fields: `session_id`, `mode` (`paper | live`), `price_lookback_days`, `max_candidates`, `auto_start`, `frequency`, `price_slippage`, `interval_seconds`, `cron_expression`, `timezone`, `restore_persisted_state`.
 
-字段�?
-- `name`
-- `params`
-- `alias`
+### 15.2 `SelectionSpec`
 
-### 13.3 `StrategySpec`
+Fields: `name`, `params`, `alias`.
 
-字段�?
-- `name`
-- `weight`
-- `params`
-- `alias`
+### 15.3 `StrategySpec`
 
-### 13.4 `PortfolioSpec`
+Fields: `name`, `weight`, `params`, `alias`.
 
-核心字段�?
-- `enabled`
-- `optimizer`
-- `objective`
-- `risk_measure`
-- `model`
-- `covariance_method`
-- `historical_lookback_days`
-- `max_assets`
-- `min_weight`
-- `max_weight`
-- `weight_epsilon`
-- `cash_reserve_ratio`
-- `lot_size`
-- `allow_partial_rebalance`
-- `rebalance_policy`
-- `analysis`
+### 15.4 `PortfolioSpec`
 
-### 13.5 `RebalancePolicySpec`
+Fields: `enabled`, `optimizer`, `objective`, `risk_measure`, `model`, `covariance_method`, `historical_lookback_days`, `max_assets`, `min_weight`, `max_weight`, `weight_epsilon`, `cash_reserve_ratio`, `lot_size`, `allow_partial_rebalance`, `rebalance_policy`, `analysis`.
 
-字段�?
-- `mode`
-- `drift_threshold`
-- `min_rebalance_interval_seconds`
-- `schedule_cron`
-- `on_selection_change`
-- `on_strategy_change`
+### 15.5 `RebalancePolicySpec`
 
-当前 `mode` 枚举�?
-- `disabled`
-- `initial_only`
-- `every_cycle`
-- `drift_threshold`
-- `schedule`
-- `manual_only`
+Fields: `mode` (`disabled`, `initial_only`, `every_cycle`, `drift_threshold`, `schedule`, `manual_only`), `drift_threshold`, `min_rebalance_interval_seconds`, `schedule_cron`, `on_selection_change`, `on_strategy_change`.
 
-### 13.6 `PortfolioAnalysisSpec`
+### 15.6 `PortfolioAnalysisSpec`
 
-字段�?
-- `enabled`
-- `benchmark_symbol`
-- `risk_free_rate`
-- `rolling_window`
+Fields: `enabled`, `benchmark_symbol`, `risk_free_rate`, `rolling_window`.
 
-## 14. 推荐的前端页面拆�?
-推荐将设置页分成五块�?
-1. `Connection`
-   只管�?`apiBase`、刷新间隔等前端本地设置�?2. `Service`
-   对接 `GET/POST /service/scheduler-config`�?3. `Selection`
-   对接 `GET/POST /service/selection-config`�?4. `Strategy`
-   对接 `GET/POST /service/strategy-config`�?5. `Portfolio`
-   对接 `GET/POST /service/portfolio/config`，以�?`optimize/rebalance/analysis/history`�?
-这样可以避免不同关注点混杂�?
-## 15. 推荐的前端状态结�?
+## 16. Recommended Frontend Page Structure
+
+Split settings into five sections:
+
+1. **Connection** — local frontend settings (`apiBase`, refresh interval).
+2. **Service** — `GET/POST /services/{session_id}/scheduler-config`.
+3. **Selection** — `GET/POST /services/{session_id}/selection-config`.
+4. **Strategy** — `GET/POST /services/{session_id}/strategy-config`.
+5. **Portfolio** — `GET/POST /services/{session_id}/portfolio/config` plus `optimize/rebalance/analysis/history`.
+
+## 17. Recommended Frontend State Structure
+
 ```ts
 type DashboardState = {
   health: any
@@ -810,208 +763,139 @@ type DashboardState = {
 }
 ```
 
-建议将：
+Keep read-only snapshots, user edit forms, and dynamic schema definitions in separate state slices.
 
-- 只读快照
-- 用户编辑表单
-- 动�?schema 定义
+## 18. Recommended Integration Workflows
 
-分开存储，不要混成一个对象�?
-## 16. 一个推荐的对接流程
+### 18.1 Initial Load
 
-### 16.1 首屏
+1. Check `GET /health`
+2. Fetch `GET /services/{session_id}/analytics`
+3. Fetch three config definition endpoints
+4. Initialize forms from returned data
 
-1. 检�?`GET /health`
-2. 拉取 `GET /service/analytics`
-3. 拉取三个配置定义接口
-4. 基于返回生成表单初始�?
-### 16.2 用户保存选股配置
+### 18.2 Save Selection Config
 
-1. �?`available_selections` 找到选中�?provider
-2. �?`params_schema` 渲染参数表单
-3. 组装 `selection_spec`
-4. 提交 `POST /service/selection-config`
-5. 成功后重新请求：
-   - `GET /service/config`
-   - `GET /service/selection-config`
+1. Find selected provider from `available_selections`
+2. Render parameter form from `params_schema`
+3. Assemble `selection_spec`
+4. Submit `POST /services/{session_id}/selection-config`
+5. On success, re-fetch `GET /services/{session_id}/config` and `GET /services/{session_id}/selection-config`
 
-### 16.3 用户保存策略配置
+### 18.3 Save Strategy Config
 
-1. 在前端维护完�?`strategy_specs[]`
-2. 提交 `POST /service/strategy-config`
-3. 重新请求 `GET /service/strategy-config`
+1. Maintain complete `strategy_specs[]` array in frontend state
+2. Submit `POST /services/{session_id}/strategy-config`
+3. Re-fetch `GET /services/{session_id}/strategy-config`
 
-### 16.4 用户保存组合配置
+### 18.4 Save Portfolio Config
 
-1. 根据 `available_optimizers[0].params_schema` 生成表单
-2. 提交 `POST /service/portfolio/config`
-3. 如需预览，调�?`POST /service/portfolio/optimize`
-4. 如需调仓预览，调�?`POST /service/portfolio/rebalance`
+1. Generate form from `available_optimizers[0].params_schema`
+2. Submit `POST /services/{session_id}/portfolio/config`
+3. For preview: `POST /services/{session_id}/portfolio/optimize`
+4. For rebalance preview: `POST /services/{session_id}/portfolio/rebalance`
 
-## 17. 当前实现上的几个注意�?
-### 17.1 `POST /service/strategy-config` 是替换，不是追加
+### 18.5 Multi-Service Initial Load
 
-前端不要误以为每次发一个策略就�?append�?
-### 17.2 `params_schema` 是权威来�?
-尤其是：
+1. `GET /health`
+2. `GET /services` — list all services
+3. `GET /services/compare` — real-time comparison snapshot
+4. `GET /services/performance/compare` — historical performance comparison
 
-- 选股参数
-- 策略参数
-- 组合参数
+### 18.6 Multi-Service State
 
-前端预设选项可以增强体验，但不应替代 schema 驱动�?
-### 17.3 `active_selection_config` �?`selection_spec.params` 不完全等�?
-- `selection_spec.params` 是用户输入配�?- `active_selection_config` 更像运行时解析后的配�?
-展示上可以都保留，但编辑时优先以 `selection_spec.params` 为准�?
-### 17.4 完整配置替换要谨�?
-`PUT /service/config` 会整体替换服务配置，更适合高级操作，不建议给普通用户做成高频按钮�?
-
-## 18. 多服务管理 API（v2 新增）
-
-### 18.1 概述
-
-v2 新增了 `MultiServiceManager`，支持在一个进程中同时运行多个不同配置的服务实例。每个服务有独立的 `session_id`、OMS、策略池和调度线程，共享同一个数据库和行情数据源。
-
-所有多服务端点均以 `/services` 为前缀。
-
-### 18.2 服务列表与管理
-
-#### `GET /services`
-
-列出所有已管理的服务实例。
-
-响应字段：
-- `services: ServiceInfoResponse[]` — 每个服务的元数据
-- `count: number` — 当前服务数
-- `max_services: number` — 最大允许服务数
-
-`ServiceInfoResponse` 字段：
-- `session_id`, `mode`, `running`, `strategy_count`
-- `selection_name`, `portfolio_enabled`
-- `initial_capital`, `current_value`
-- `last_error`, `last_result`
-
-#### `POST /services`
-
-创建一个新服务。
-
-请求体：
-```json
-{
-  "config_bundle": { "service": {...}, "selection_spec": {...}, "strategy_specs": [...], "portfolio_spec": {...} },
-  "initial_capital": 100000
+```ts
+type MultiServiceState = {
+  services: ServiceInfoResponse[]
+  comparison: ServiceComparisonResponse
+  performanceComparison: PerformanceComparisonResponse
 }
 ```
 
-响应字段：
-- `status: string` — "created"
-- `session_id: string` — 新服务的 session ID
+## 19. Implementation Notes
 
-#### `DELETE /services/{session_id}`
+### 19.1 `POST /services/{session_id}/strategy-config` is a replacement
 
-停止并移除一个服务。响应：`{ "status": "removed", "session_id": "..." }`
+It replaces the entire strategies list. Do not treat individual POSTs as appends. Maintain the full array in frontend state.
 
-### 18.3 按 Session 操作
+### 19.2 `params_schema` is authoritative
 
-以下端点与单服务模式下对应端点功能相同，但通过路径参数 `{session_id}` 路由到具体服务：
+For selection params, strategy params, and portfolio params, always defer to `params_schema`. Frontend presets enhance UX but should not override schema-driven rendering.
 
-| 方法 | 路径 | 单服务对应 |
-|------|------|-----------|
-| `GET` | `/services/{session_id}/status` | `GET /service/status` |
-| `POST` | `/services/{session_id}/scheduler/start` | `POST /service/scheduler/start` |
-| `POST` | `/services/{session_id}/scheduler/stop` | `POST /service/scheduler/stop` |
-| `POST` | `/services/{session_id}/run-once` | `POST /service/run-once` |
-| `GET` | `/services/{session_id}/performance` | `GET /service/performance` |
-| `GET` | `/services/{session_id}/runtime` | `GET /service/runtime` |
-| `GET` | `/services/{session_id}/config` | `GET /service/config` |
+### 19.3 `active_selection_config` vs `selection_spec.params`
 
-响应结构与对应单服务端点完全一致。
+- `selection_spec.params` — user input config.
+- `active_selection_config` — runtime-resolved config.
 
-### 18.4 服务对比
+Display both, but edit against `selection_spec.params`.
 
-#### `GET /services/compare`
+### 19.4 Full config replacement caution
 
-返回所有服务的实时状态对比快照。
+`PUT /services/{session_id}/config` replaces everything. It's an advanced operation — do not expose as a frequent button to regular users.
 
-响应字段：
-- `generated_at`, `count`
-- `services: ComparisonSummary[]`
+## 20. Document Maintenance
 
-每条 `ComparisonSummary` 包含：
-- `session_id`, `mode`, `running`
-- `initial_capital`, `current_value`, `total_return_pct`, `daily_pnl`
-- `position_count`, `strategy_names`, `selection_name`
+Document path: [API_DOCUMENTATION.md](API_DOCUMENTATION.md)
 
-#### `GET /services/performance/compare`
+Index: [index.md](index.md)
 
-返回多个服务的历史绩效对比，包含净值曲线时序数据，用于前端叠加折线图。
+Update this document when:
+- API routes are added or removed
+- Request/response model fields change
+- New configurable components are added to the registry
+- Config precedence or persistence logic changes
+- Multi-service management features change
 
-参数（Query String）：
-- `session_ids`（可选）— 逗号分隔的 session ID 列表，如 `?session_ids=ALPHA,BETA`
-- `limit`（可选，默认 8）— 不指定 session_ids 时，自动截断到最新的 N 个
+## 21. Running the Service
 
-响应字段：
-- `generated_at`, `count`
-- `note` — 当自动截断时有提示信息
-- `sessions: PerformanceComparisonItem[]`
+Set environment variables in `run_signalgateway.py`:
 
-每条 `PerformanceComparisonItem` 包含：
-
-**快照字段**：
-- `session_id`, `mode`, `initial_capital`
-- `strategy_names`, `selection_name`
-- `portfolio_value`, `total_return_pct`, `daily_pnl`, `position_count`
-
-**统计字段**：
-- `total_trades`, `win_rate`, `total_pnl`, `max_drawdown`
-
-**时序数据（用于图表 overlay）**：
-- `equity_curve: Array<{ trade_date, portfolio_value, cumulative_return, drawdown }>`
-
-前端用法示例：
-```ts
-const resp = await fetch('/services/performance/compare?limit=8')
-const data = await resp.json()
-// data.sessions[i].equity_curve -> ECharts 多条折线 overlay
-// data.sessions[i].total_return_pct -> 对比表格
-```
-
-当 session 总数超过 limit 且未指定 session_ids 时，自动返回最新创建的 N 个，并在 `note` 字段中给出提示。
-
-### 18.5 多服务入口
-
-在 `run_signalgateway.py` 中设置环境变量启用：
 ```bash
+# Launch HTTP server
+export SIGNALGATEWAY_RUN_SERVER=1
+
+# Enable multi-service mode
 export SIGNALGATEWAY_MULTI_SERVICE=1
-uv run python run_signalgateway.py
+
+# Auto-start scheduler on launch
+export SIGNALGATEWAY_AUTO_START=1
+
+# Custom host/port
+export SIGNALGATEWAY_HOST=127.0.0.1
+export SIGNALGATEWAY_PORT=8000
+
+python run_signalgateway.py
 ```
 
-代码示例：
+Python usage:
+
 ```python
+from jh_quant.signalgateway import (
+    JHMarketDataProvider,
+    MockOMS,
+    MultiServiceManager,
+    PersistenceCoordinator,
+    SignalGateway,
+    SignalGatewayService,
+    SQLiteOrderRecorder,
+    run_service_app,
+)
+
+# Single service
+recorder = SQLiteOrderRecorder(db_path="mocktrade.db")
+persistence = PersistenceCoordinator(recorder=recorder)
+gateway = SignalGateway(oms=MockOMS(session_id="S1", initial_capital=100000),
+                        market_data_provider=JHMarketDataProvider())
+service = SignalGatewayService(gateway=gateway, config=config, persistence=persistence)
+run_service_app(service=service, host="127.0.0.1", port=8000)
+
+# Multi service
 manager = MultiServiceManager(
     max_services=4,
-    persistence=PersistenceCoordinator(recorder=SQLiteOrderRecorder(db_path="mocktrade.db")),
+    persistence=persistence,
     market_data_provider=JHMarketDataProvider(),
 )
 manager.create_service(config=config_a, initial_capital=100000)
 manager.create_service(config=config_b, initial_capital=100000)
 run_service_app(manager=manager, host="127.0.0.1", port=8000)
 ```
-
-
-## 19. 文档维护位置
-
-本文档所在路径：
-
-- [API_DOCUMENTATION.md](/e:/个人/jiuhuang-asset/jh_quant/jh_quant/signalgateway/service/documents/API_DOCUMENTATION.md:1)
-
-文档索引�?
-- [index.md](/e:/个人/jiuhuang-asset/jh_quant/jh_quant/signalgateway/service/documents/index.md:1)
-
-当以下内容变更时，应同步更新本文档：
-
-- 新增/删除 API 路由
-- 请求/响应模型字段变更
-- Registry 中新增可配置组件
-- 配置优先级和持久化恢复逻辑变更
-- 多服务管理相关功能变更

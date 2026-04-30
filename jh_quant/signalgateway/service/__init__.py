@@ -1,4 +1,4 @@
-from .api import create_multi_service_app, create_service_app, run_service_app
+from .api import create_multi_service_app, create_service_app, create_unified_app, run_service_app
 from .core import MultiServiceManager, SignalGatewayService
 from .schemas import (
     AnalyticsSnapshotResponse,
@@ -98,5 +98,6 @@ __all__ = [
     "TradingCycleResultResponse",
     "create_multi_service_app",
     "create_service_app",
+    "create_unified_app",
     "run_service_app",
 ]

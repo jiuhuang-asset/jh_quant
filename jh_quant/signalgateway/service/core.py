@@ -1715,6 +1715,27 @@ class MultiServiceManager:
             self._services[session_id] = service
             return session_id
 
+    def wrap_service(self, service: SignalGatewayService) -> str:
+        """Register an already-constructed service instance.
+
+        Returns the service's session_id.
+        """
+        session_id = service.config.session_id
+        if not session_id:
+            raise ValueError("Service must have a non-empty session_id")
+        with self._lock:
+            if len(self._services) >= self._max_services:
+                raise ValueError(
+                    f"Maximum number of services reached ({self._max_services}). "
+                    f"Remove an existing service before creating a new one."
+                )
+            if session_id in self._services:
+                raise ValueError(
+                    f"Service with session_id '{session_id}' already exists."
+                )
+            self._services[session_id] = service
+        return session_id
+
     def remove_service(self, session_id: str) -> None:
         """Shutdown and remove a service by session_id."""
         with self._lock:
@@ -1752,6 +1773,23 @@ class MultiServiceManager:
     @property
     def max_services(self) -> int:
         return self._max_services
+
+    # ── data access ────────────────────────────────────────────
+
+    def _resolve_jhdata(self):
+        """Resolve JHData from shared market_data_provider or first service."""
+        from ..market_data import JHMarketDataProvider
+
+        if self._shared_md_provider is not None and isinstance(self._shared_md_provider, JHMarketDataProvider):
+            return self._shared_md_provider.jhd
+
+        with self._lock:
+            for svc in self._services.values():
+                try:
+                    return svc._get_jhdata()
+                except Exception:
+                    continue
+        raise RuntimeError("No JHMarketDataProvider available in any managed service")
 
     # ── query ──────────────────────────────────────────────────
 

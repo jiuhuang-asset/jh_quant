@@ -25,6 +25,12 @@ from .selection import (
     register_selection_provider,
     validate_selection_params,
 )
+from .io import (
+    export_config_to_file,
+    export_config_to_json_string,
+    import_config_from_dict,
+    import_config_from_file,
+)
 from .service import (
     ServiceConfig,
     SignalGatewayServiceConfig,
@@ -59,6 +65,10 @@ from .strategy import (
 __all__ = [
     "Frequency",
     "PORTFOLIO_OPTIMIZER_REGISTRY",
+    "export_config_to_file",
+    "export_config_to_json_string",
+    "import_config_from_dict",
+    "import_config_from_file",
     "PortfolioAnalysisSpec",
     "PortfolioOptimizerDefinition",
     "PortfolioSpec",
