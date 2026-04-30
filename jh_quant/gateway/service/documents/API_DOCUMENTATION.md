@@ -69,6 +69,13 @@ To reduce requests, use `GET /sessions/{session_id}/analytics` which bundles `st
 | `POST` | `/sessions` | Create a new session |
 | `GET` | `/sessions/trends` | Multi-session trend data for chart overlay |
 
+### Data Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/data/index/{symbol}` | Get OHLCV data for a single index |
+| `GET` | `/data/stock` | Get OHLCV data for one or more stocks |
+
 ### Session-Scoped
 
 | Method | Path | Description |
@@ -673,7 +680,74 @@ const series = sessions.map(s => ({
 }))
 ```
 
-## 14. Key Config Models
+## 14. Data Endpoints
+
+### 14.1 `GET /data/index/{symbol}`
+
+Get OHLCV time-series data for a single market index (e.g., `000001.SH` for Shanghai Composite).
+
+Path parameters:
+- `symbol` (string, required) — Index code, e.g. `000001.SH`, `399001.SZ`, `000300.SH`
+
+Query parameters:
+- `start_date` (string, optional) — Start date in `YYYY-MM-DD` format. Default: `2020-01-01`
+- `end_date` (string, optional) — End date in `YYYY-MM-DD` format. Default: today
+
+Response (`DataListResponse`):
+```json
+{
+  "data": [
+    {
+      "symbol": "000001.SH",
+      "date": "2026-04-29",
+      "open": 3312.55,
+      "high": 3341.78,
+      "low": 3308.12,
+      "close": 3336.94,
+      "volume": 385412000,
+      "amount": 412568000000,
+      "chg": 0.52
+    }
+  ],
+  "count": 1
+}
+```
+
+Each record includes `chg` (change rate %) computed from `close` price change when the upstream data source omits it.
+
+### 14.2 `GET /data/stock`
+
+Get OHLCV time-series data for one or more stocks.
+
+Query parameters:
+- `symbols` (string, required) — Comma-separated stock symbols, e.g. `000001,600519`
+- `start_date` (string, optional) — Start date in `YYYY-MM-DD` format. Default: `2020-01-01`
+- `end_date` (string, optional) — End date in `YYYY-MM-DD` format. Default: today
+- `frequency` (string, optional) — Data frequency: `daily` (default) or `spot`
+
+Response (`DataListResponse`):
+```json
+{
+  "data": [
+    {
+      "symbol": "000001",
+      "date": "2026-04-29",
+      "open": 12.35,
+      "high": 12.68,
+      "low": 12.28,
+      "close": 12.55,
+      "volume": 45230000,
+      "amount": 567891000,
+      "chg": null
+    }
+  ],
+  "count": 1
+}
+```
+
+Results are sorted by `symbol` then `date`. The `chg` field is always `null` for stock data.
+
+## 15. Key Config Models
 
 ### 15.1 `ServiceConfig`
 

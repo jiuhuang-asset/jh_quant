@@ -12,6 +12,13 @@ Quick endpoint reference. For full details see [API_DOCUMENTATION.md](API_DOCUME
 | `DELETE` | `/sessions/{session_id}` | Stop and remove a session |
 | `GET` | `/sessions/trends` | Multi-session trend data (equity curves, drawdown, PnL) |
 
+### Data Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/data/index/{symbol}` | Get OHLCV data for a single index |
+| `GET` | `/data/stock` | Get OHLCV data for one or more stocks |
+
 ## Session-Scoped Endpoints
 
 All under `/sessions/{session_id}/*`.
@@ -83,6 +90,8 @@ All under `/sessions/{session_id}/*`.
 | Model | Key Fields |
 |-------|------------|
 | `HealthResponse` | `status: str` |
+| `DataListResponse` | `data: List[Dict]`, `count: int` |
+| `OHLCVRecord` | `symbol`, `date`, `open`, `high`, `low`, `close`, `volume`, `amount`, `chg` |
 | `SessionStatusResponse` | `session_id`, `mode`, `running`, `scheduler`, `last_error`, `last_result` |
 | `RuntimeSnapshotResponse` | `positions`, `oms_state` |
 | `PerformanceSnapshotResponse` | `summary`, `holding_returns`, `turnover`, `equity_curve`, `trade_activity`, `position_exposure`, `latest_portfolio` |
@@ -110,3 +119,9 @@ All under `/sessions/{session_id}/*`.
 | `/sessions/trends` | `session_ids` | string | Comma-separated session IDs (optional) |
 | `/sessions/trends` | `limit` | int | Max sessions to return (default 8) |
 | `/sessions/trends` | `days` | int | Limit trend history to last N days (optional) |
+| `/data/index/{symbol}` | `start_date` | string | Start date YYYY-MM-DD (default 2020-01-01) |
+| `/data/index/{symbol}` | `end_date` | string | End date YYYY-MM-DD (default today) |
+| `/data/stock` | `symbols` | string | Comma-separated stock symbols (required) |
+| `/data/stock` | `start_date` | string | Start date YYYY-MM-DD (default 2020-01-01) |
+| `/data/stock` | `end_date` | string | End date YYYY-MM-DD (default today) |
+| `/data/stock` | `frequency` | string | Data frequency: `daily` (default) or `spot` |

@@ -37,6 +37,7 @@ from .schemas import (
     AnalyticsSnapshotResponse,
     CloseAllPositionsRequest,
     CloseAllPositionsResponse,
+    DataListResponse,
     HealthResponse,
     PerformanceSnapshotResponse,
     PortfolioAnalysisResponse,
@@ -91,6 +92,44 @@ def _mount_mcp_server(app) -> None:
 _MAX_DATA_QUERY_ROWS = 10_000
 
 
+def _resolve_md_provider(manager: MultiSessionService):
+    """Resolve a JHMarketDataProvider from the manager or its sessions."""
+    from ..market_data import JHMarketDataProvider
+
+    if manager._shared_md_provider is not None and isinstance(
+        manager._shared_md_provider, JHMarketDataProvider
+    ):
+        return manager._shared_md_provider
+
+    with manager._lock:
+        for svc in manager._sessions.values():
+            provider = getattr(svc.gateway, "market_data_provider", None)
+            if isinstance(provider, JHMarketDataProvider):
+                return provider
+
+    return JHMarketDataProvider()
+
+
+def _df_to_records(df, date_col: str = "date") -> list:
+    """Convert a DataFrame to a list of JSON-serializable dicts."""
+    if df is None or df.empty:
+        return []
+    import pandas as pd
+
+    normalized = df.copy()
+    for col in normalized.columns:
+        if pd.api.types.is_datetime64_any_dtype(normalized[col]):
+            normalized[col] = normalized[col].apply(
+                lambda v: v.strftime("%Y-%m-%d") if pd.notna(v) else None
+            )
+    records = normalized.to_dict(orient="records")
+    for r in records:
+        for k, v in r.items():
+            if isinstance(v, float) and (pd.isna(v) or v != v):
+                r[k] = None
+    return records
+
+
 def _validate_data_type(data_type_str: str):
     from jh_quant.data import DataTypes
 
@@ -143,6 +182,39 @@ def _register_session_routes(app, manager: MultiSessionService):
             else None
         )
         return manager.get_session_trends(session_ids=ids, limit=limit, days=days)
+
+    # ── data endpoints (app-level) ───────────────────────────
+
+    @app.get("/data/index/{symbol}", response_model=DataListResponse, operation_id="get_index_trends")
+    def get_index_trends(
+        symbol: str,
+        start_date: str = "2020-01-01",
+        end_date: Optional[str] = None,
+    ):
+        from datetime import datetime as _dt
+        md = _resolve_md_provider(manager)
+        _end = end_date or _dt.now().strftime("%Y-%m-%d")
+        df = md.get_index_trends(symbol=symbol, start_date=start_date, end_date=_end)
+        records = _df_to_records(df)
+        return DataListResponse(data=records, count=len(records))
+
+    @app.get("/data/stock", response_model=DataListResponse, operation_id="get_stock_price_data")
+    def get_stock_price_data(
+        symbols: str,
+        start_date: str = "2020-01-01",
+        end_date: Optional[str] = None,
+        frequency: Optional[str] = None,
+    ):
+        from datetime import datetime as _dt
+        from ..config import Frequency
+
+        md = _resolve_md_provider(manager)
+        _end = end_date or _dt.now().strftime("%Y-%m-%d")
+        sym_list = [s.strip() for s in symbols.split(",") if s.strip()]
+        freq = Frequency(frequency) if frequency else Frequency.DAILY
+        df = md.get_price_data(symbols=sym_list, start_date=start_date, end_date=_end, frequency=freq)
+        records = _df_to_records(df)
+        return DataListResponse(data=records, count=len(records))
 
     # ── session-scoped endpoints ────────────────────────────
 

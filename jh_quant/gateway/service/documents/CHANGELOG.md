@@ -1,5 +1,22 @@
 # SignalGateway Service API Changelog
 
+## v5 (2026-04-30)
+
+### New Features
+
+#### Data endpoints
+- `GET /data/index/{symbol}` — get OHLCV time-series for a single market index. Query params: `start_date`, `end_date`.
+- `GET /data/stock` — get OHLCV time-series for one or more stocks. Query params: `symbols` (comma-separated, required), `start_date`, `end_date`, `frequency` (daily/spot).
+
+#### New response models
+- `DataListResponse` — generic wrapper with `data: List[Dict]` and `count: int`.
+- `OHLCVRecord` — fields: `symbol`, `date`, `open`, `high`, `low`, `close`, `volume`, `amount`, `chg` (index only).
+
+#### Market data improvements
+- `JHMarketDataProvider.get_index_trends()` — automatically computes `chg` (change rate %) from `close` column via `pct_change` when the upstream data source omits this field.
+
+---
+
 ## v4 (2026-04-30)
 
 ### Breaking Changes

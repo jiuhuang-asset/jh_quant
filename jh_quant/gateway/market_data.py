@@ -60,7 +60,11 @@ class MarketDataProvider(ABC):
     ) -> pd.DataFrame:
         """Return historical OHLCV-style data for the requested symbols/date range."""
         raise NotImplementedError
-
+    
+    @abstractmethod
+    def get_index_trends(self, symbol: str, start_date: str, end_date: str) -> pd.DataFrame:
+        """Return historical index OHLCV-style data for the requested symbols/date range."""
+        raise NotImplementedError
 
 class JHMarketDataProvider(MarketDataProvider):
     def __init__(
@@ -166,7 +170,17 @@ class JHMarketDataProvider(MarketDataProvider):
         if price_df is None or price_df.empty:
             return pd.DataFrame()
         return price_df.sort_values(["symbol", "date"]).copy()
-
+    
+    def get_index_trends(self, symbol, start_date, end_date):
+        data = self.jhd.get_data(
+            DataTypes.AK_STOCK_ZH_INDEX_DAILY_EM,
+            symbol=symbol,
+            start=start_date,
+            end=end_date,
+        ).to_df()
+        if "chg" not in data.columns:
+            data["chg"] = data["close"].pct_change() * 100
+        return data.sort_values(["date"])
 
 
 class WebSocketMarketDataProvider(MarketDataProvider):

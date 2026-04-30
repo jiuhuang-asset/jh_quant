@@ -339,6 +339,28 @@ class SingleSymbolTradeResponse(BaseModel):
     message: str = Field(description="Result description.")
 
 
+# ── Data API models ───────────────────────────────────────────────
+
+
+class OHLCVRecord(BaseModel):
+    """Single OHLCV data point returned by data endpoints."""
+    symbol: str = Field(description="Ticker symbol or index code.")
+    date: str = Field(description="Trade date in YYYY-MM-DD format.")
+    open: float = Field(description="Opening price.")
+    high: float = Field(description="Highest price.")
+    low: float = Field(description="Lowest price.")
+    close: float = Field(description="Closing price.")
+    volume: float = Field(default=0.0, description="Trading volume.")
+    amount: float = Field(default=0.0, description="Trading amount.")
+    chg: Optional[float] = Field(default=None, description="Change rate (%). Present for index data.")
+
+
+class DataListResponse(BaseModel):
+    """Generic paginated data response."""
+    data: List[Dict[str, Any]] = Field(default_factory=list, description="OHLCV data records.")
+    count: int = Field(description="Number of records returned.")
+
+
 
 # ── Multi-Session API models ────────────────────────────────────────
 
