@@ -23,8 +23,8 @@ from ..models import (
 from .models import (
     DailyPerformanceRecord,
     PositionSnapshotRecord,
-    ServiceEventRecord,
-    ServiceStateRecord,
+    RuntimeEventRecord,
+    RuntimeStateRecord,
     SessionStateRecord,
     TradeRecord,
     UserConfigRecord,
@@ -43,7 +43,7 @@ def _module_path() -> str:
     return (
         f"{__package__}.models"
         if __package__
-        else "jh_quant.signalgateway.persistence.models"
+        else "jh_quant.gateway.persistence.models"
     )
 
 
@@ -139,15 +139,15 @@ class OrderRecorder(
         raise NotImplementedError
 
     @abstractmethod
-    def save_service_state(self, state: Dict[str, Any]):
+    def save_runtime_state(self, state: Dict[str, Any]):
         raise NotImplementedError
 
     @abstractmethod
-    def load_latest_service_state(self, session_id: str) -> Optional[Dict[str, Any]]:
+    def load_latest_runtime_state(self, session_id: str) -> Optional[Dict[str, Any]]:
         raise NotImplementedError
 
     @abstractmethod
-    def query_service_events(self, session_id: str) -> pd.DataFrame:
+    def query_runtime_events(self, session_id: str) -> pd.DataFrame:
         raise NotImplementedError
 
     @abstractmethod
@@ -304,10 +304,10 @@ class TortoiseOrderRecorder(OrderRecorder):
     ) -> Optional[Dict[str, Any]]:
         return await self._load_latest_state_record(SessionStateRecord, session_id)
 
-    def save_service_state(self, state: Dict[str, Any]):
-        self._run(self._save_service_state(state))
+    def save_runtime_state(self, state: Dict[str, Any]):
+        self._run(self._save_runtime_state(state))
 
-    async def _save_service_state(self, state: Dict[str, Any]):
+    async def _save_runtime_state(self, state: Dict[str, Any]):
         normalized = normalize_jsonable_value(state)
         event_type = (
             normalized.get("service", {})
@@ -317,27 +317,27 @@ class TortoiseOrderRecorder(OrderRecorder):
         export_time = _as_datetime(
             normalized.get("export_time", datetime.now())
         )
-        await ServiceStateRecord.update_or_create(
+        await RuntimeStateRecord.update_or_create(
             session_id=normalized.get("session_id"),
             defaults={
                 "state_data": normalized,
                 "export_time": export_time,
             },
         )
-        await ServiceEventRecord.create(
+        await RuntimeEventRecord.create(
             session_id=normalized.get("session_id"),
             event_type=event_type,
             state_data=normalized,
             event_time=export_time,
         )
 
-    def load_latest_service_state(self, session_id: str) -> Optional[Dict[str, Any]]:
-        return self._run(self._load_latest_service_state(session_id))
+    def load_latest_runtime_state(self, session_id: str) -> Optional[Dict[str, Any]]:
+        return self._run(self._load_latest_runtime_state(session_id))
 
-    async def _load_latest_service_state(
+    async def _load_latest_runtime_state(
         self, session_id: str
     ) -> Optional[Dict[str, Any]]:
-        return await self._load_latest_state_record(ServiceStateRecord, session_id)
+        return await self._load_latest_state_record(RuntimeStateRecord, session_id)
 
     def save_user_config(
         self,
@@ -384,12 +384,12 @@ class TortoiseOrderRecorder(OrderRecorder):
             "export_time": row.export_time.isoformat(),
         }
 
-    def query_service_events(self, session_id: str) -> pd.DataFrame:
-        return self._run(self._query_service_events(session_id))
+    def query_runtime_events(self, session_id: str) -> pd.DataFrame:
+        return self._run(self._query_runtime_events(session_id))
 
-    async def _query_service_events(self, session_id: str) -> pd.DataFrame:
+    async def _query_runtime_events(self, session_id: str) -> pd.DataFrame:
         return await self._query_session_records(
-            ServiceEventRecord,
+            RuntimeEventRecord,
             session_id,
             order_by="event_time",
         )

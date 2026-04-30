@@ -1,5 +1,5 @@
 """
-Request and response models for the signalgateway service API.
+Request and response models for the gateway session API.
 """
 
 from __future__ import annotations
@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
-from ..config import PortfolioSpec, SelectionSpec, SignalGatewayServiceConfig, StrategySpec
+from ..config import PortfolioSpec, SelectionSpec, SessionServiceConfig, StrategySpec
 from ..config.risk_management import RiskManagementParamsConfig
 
 
@@ -33,8 +33,8 @@ class SchedulerStatus(BaseModel):
 
 
 class TradingCycleResultResponse(BaseModel):
-    session_id: str = Field(description="Current service session ID.")
-    mode: str = Field(description="Service running mode.")
+    session_id: str = Field(description="Current session ID.")
+    mode: str = Field(description="Session running mode.")
     cycle_time: str = Field(description="Completed time for the latest trading cycle.")
     selection_count: int = Field(description="Number of selected securities in the latest cycle.")
     long_candidate_count: int = Field(
@@ -52,9 +52,9 @@ class TradingCycleResultResponse(BaseModel):
     error: Optional[str] = Field(default=None, description="Error text when execution fails.")
 
 
-class ServiceStatusResponse(BaseModel):
-    session_id: str = Field(description="Current service session ID.")
-    mode: str = Field(description="Service running mode.")
+class SessionStatusResponse(BaseModel):
+    session_id: str = Field(description="Current session ID.")
+    mode: str = Field(description="Session running mode.")
     running: bool = Field(description="Whether the scheduler is currently running.")
     scheduler: SchedulerStatus = Field(description="Scheduler configuration and status summary.")
     last_error: Optional[str] = Field(default=None, description="Most recent runtime error.")
@@ -83,10 +83,10 @@ class PerformanceSnapshotResponse(BaseModel):
     latest_portfolio: Dict[str, Any] = Field(default_factory=dict, description="Latest portfolio snapshot.")
 
 
-class ServiceConfigResponse(BaseModel):
-    session_id: str = Field(description="Session ID for the service configuration snapshot.")
-    config_bundle: SignalGatewayServiceConfig = Field(description="Unified service configuration bundle.")
-    service: Dict[str, Any] = Field(description="Service-level configuration.")
+class SessionConfigResponse(BaseModel):
+    session_id: str = Field(description="Session ID for the session configuration snapshot.")
+    config_bundle: SessionServiceConfig = Field(description="Unified session configuration bundle.")
+    session: Dict[str, Any] = Field(description="Session-level configuration.")
     selection_spec: Optional[Dict[str, Any]] = Field(default=None, description="Current selection spec.")
     selection_provider: Dict[str, Any] = Field(default_factory=dict, description="Selection provider configuration.")
     strategy_specs: List[Dict[str, Any]] = Field(default_factory=list, description="Configured strategy specs.")
@@ -102,14 +102,14 @@ class ServiceConfigResponse(BaseModel):
     )
 
 
-class ServiceConfigUpdateRequest(BaseModel):
-    config_bundle: SignalGatewayServiceConfig = Field(description="Unified service configuration bundle to apply.")
+class SessionConfigUpdateRequest(BaseModel):
+    config_bundle: SessionServiceConfig = Field(description="Unified session configuration bundle to apply.")
 
 
-class ServiceConfigUpdateResponse(BaseModel):
+class SessionConfigUpdateResponse(BaseModel):
     status: str = Field(description="Unified service config update result.")
     session_id: str = Field(description="Session ID for the updated service.")
-    config_bundle: SignalGatewayServiceConfig = Field(description="Current unified service configuration bundle.")
+    config_bundle: SessionServiceConfig = Field(description="Current unified service configuration bundle.")
 
 
 class ConfigurableComponentDefinition(BaseModel):
@@ -131,13 +131,13 @@ class PortfolioOptimizerDefinitionResponse(BaseModel):
 class AnalyticsSnapshotResponse(BaseModel):
     session_id: str = Field(description="Session ID for the analytics snapshot.")
     generated_at: str = Field(description="Snapshot generation time.")
-    status: ServiceStatusResponse = Field(description="Service status snapshot.")
+    status: SessionStatusResponse = Field(description="Service status snapshot.")
     runtime: RuntimeSnapshotResponse = Field(description="Runtime snapshot.")
     performance: PerformanceSnapshotResponse = Field(description="Performance snapshot.")
-    config: ServiceConfigResponse = Field(description="Config snapshot.")
+    config: SessionConfigResponse = Field(description="Config snapshot.")
 
 
-class ServiceActionResponse(BaseModel):
+class SessionActionResponse(BaseModel):
     status: str = Field(description="Result of the service action.")
     session_id: Optional[str] = Field(default=None, description="Related session ID.")
 
@@ -246,17 +246,17 @@ class PortfolioHistoryResponse(BaseModel):
     portfolio_value_history: List[Dict[str, Any]] = Field(default_factory=list)
 
 
-class ServiceEventRecordResponse(BaseModel):
+class SessionEventRecordResponse(BaseModel):
     event_type: str = Field(description="Persisted service event type.")
     event_time: Optional[str] = Field(default=None, description="Persisted event timestamp.")
     export_time: Optional[str] = Field(default=None, description="Snapshot export timestamp.")
     state_data: Dict[str, Any] = Field(default_factory=dict, description="Persisted service state payload.")
 
 
-class ServiceEventHistoryResponse(BaseModel):
+class SessionEventHistoryResponse(BaseModel):
     session_id: str = Field(description="Session ID for the service event history.")
     count: int = Field(description="Number of returned service events.")
-    events: List[ServiceEventRecordResponse] = Field(default_factory=list, description="Persisted service events.")
+    events: List[SessionEventRecordResponse] = Field(default_factory=list, description="Persisted service events.")
 
 
 class PortfolioRebalanceRequest(BaseModel):
@@ -480,11 +480,11 @@ class DataSchemaResponse(BaseModel):
     dt_field: Optional[str] = Field(default=None, description="Date/time column name (for time-series ordering).")
 
 
-# ── Multi-Service API models ────────────────────────────────────────
+# ── Multi-Session API models ────────────────────────────────────────
 
 
-class ServiceInfoResponse(BaseModel):
-    """Summary metadata for a single managed service instance."""
+class SessionInfoResponse(BaseModel):
+    """Summary metadata for a single managed session instance."""
 
     session_id: str = Field(description="Service session ID.")
     mode: str = Field(description="Running mode: paper or live.")
@@ -499,30 +499,30 @@ class ServiceInfoResponse(BaseModel):
     created_at: Optional[str] = Field(default=None, description="Service creation time.")
 
 
-class ServiceListResponse(BaseModel):
-    """Response listing all managed service instances."""
+class SessionListResponse(BaseModel):
+    """Response listing all managed session instances."""
 
-    services: List[ServiceInfoResponse] = Field(default_factory=list, description="Managed service instances.")
-    count: int = Field(description="Current number of services.")
-    max_services: int = Field(description="Maximum allowed services.")
+    sessions: List[SessionInfoResponse] = Field(default_factory=list, description="Managed session instances.")
+    count: int = Field(description="Current number of sessions.")
+    max_sessions: int = Field(description="Maximum allowed sessions.")
 
 
-class ServiceCreateRequest(BaseModel):
+class SessionCreateRequest(BaseModel):
     """Request to create a new service under multi-service management."""
 
-    config_bundle: SignalGatewayServiceConfig = Field(description="Full service configuration bundle.")
+    config_bundle: SessionServiceConfig = Field(description="Full service configuration bundle.")
     initial_capital: float = Field(default=100000.0, ge=0, description="Initial capital for paper trading.")
     auto_start: Optional[bool] = Field(default=None, description="Override auto_start from config.")
 
 
-class ServiceCreateResponse(BaseModel):
+class SessionCreateResponse(BaseModel):
     """Response after creating a new service."""
 
     status: str = Field(description="Creation result.")
     session_id: str = Field(description="Assigned session ID for the new service.")
 
 
-class ServiceRemoveResponse(BaseModel):
+class SessionRemoveResponse(BaseModel):
     """Response after removing a service."""
 
     status: str = Field(description="Removal result.")
@@ -544,12 +544,12 @@ class ComparisonSummary(BaseModel):
     selection_name: Optional[str] = Field(default=None, description="Selection provider name.")
 
 
-class ServiceComparisonResponse(BaseModel):
-    """Aggregated comparison across all managed services."""
+class SessionComparisonResponse(BaseModel):
+    """Aggregated comparison across all managed sessions."""
 
     generated_at: str = Field(description="Comparison generation time.")
-    count: int = Field(description="Number of services compared.")
-    services: List[ComparisonSummary] = Field(default_factory=list, description="Per-service comparison summaries.")
+    count: int = Field(description="Number of sessions compared.")
+    sessions: List[ComparisonSummary] = Field(default_factory=list, description="Per-session comparison summaries.")
 
 
 # ── Performance Comparison API models ───────────────────────────────

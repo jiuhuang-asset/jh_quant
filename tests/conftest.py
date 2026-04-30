@@ -1,5 +1,5 @@
 """
-conftest.py - pytest configuration for signalgateway tests.
+conftest.py - pytest configuration for gateway tests.
 
 Sets up polars mock before any project imports to avoid import chain
 requiring the optional polars dependency.

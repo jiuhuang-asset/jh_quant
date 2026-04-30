@@ -32,7 +32,7 @@ from ..config.io import (
     import_config_from_dict,
 )
 from ..utils import rprint
-from .core import MultiServiceManager, SignalGatewayService
+from .core import MultiSessionService, SessionService
 from .schemas import (
     AnalyticsSnapshotResponse,
     CloseAllPositionsRequest,
@@ -65,17 +65,17 @@ from .schemas import (
     SelectionConfigUpdateResponse,
     SelectionConfigUpdateRequest,
     SelectionConfigSnapshotResponse,
-    ServiceActionResponse,
-    ServiceComparisonResponse,
-    ServiceConfigResponse,
-    ServiceConfigUpdateRequest,
-    ServiceConfigUpdateResponse,
-    ServiceCreateRequest,
-    ServiceCreateResponse,
-    ServiceEventHistoryResponse,
-    ServiceListResponse,
-    ServiceRemoveResponse,
-    ServiceStatusResponse,
+    SessionActionResponse,
+    SessionComparisonResponse,
+    SessionConfigResponse,
+    SessionConfigUpdateRequest,
+    SessionConfigUpdateResponse,
+    SessionCreateRequest,
+    SessionCreateResponse,
+    SessionEventHistoryResponse,
+    SessionListResponse,
+    SessionRemoveResponse,
+    SessionStatusResponse,
     SingleSymbolTradeRequest,
     SingleSymbolTradeResponse,
     StrategyConfigSnapshotResponse,
@@ -118,10 +118,10 @@ def _validate_data_type(data_type_str: str):
 # ── unified route registration ─────────────────────────────────
 
 
-def _register_service_routes(app, manager: MultiServiceManager):
-    """Register all service endpoints on a FastAPI app.
+def _register_session_routes(app, manager: MultiSessionService):
+    """Register all session endpoints on a FastAPI app.
 
-    All session-scoped endpoints live under ``/services/{session_id}/*``.
+    All session-scoped endpoints live under ``/sessions/{session_id}/*``.
     Data endpoints are app-level (shared data provider).
     """
 
@@ -131,24 +131,24 @@ def _register_service_routes(app, manager: MultiServiceManager):
     def health():
         return HealthResponse(status="ok")
 
-    @app.get("/services", response_model=ServiceListResponse, operation_id="list_services")
+    @app.get("/sessions", response_model=SessionListResponse, operation_id="list_sessions")
     def list_services():
-        return manager.list_services()
+        return manager.list_sessions()
 
-    @app.post("/services", response_model=ServiceCreateResponse, operation_id="create_service")
-    def create_service(request: ServiceCreateRequest):
-        sid = manager.create_service(
+    @app.post("/sessions", response_model=SessionCreateResponse, operation_id="create_session")
+    def create_service(request: SessionCreateRequest):
+        sid = manager.create_session(
             config=request.config_bundle,
             initial_capital=request.initial_capital,
         )
-        return ServiceCreateResponse(status="created", session_id=sid)
+        return SessionCreateResponse(status="created", session_id=sid)
 
-    @app.get("/services/compare", response_model=ServiceComparisonResponse, operation_id="compare_services")
+    @app.get("/sessions/compare", response_model=SessionComparisonResponse, operation_id="compare_sessions")
     def compare_services():
         return manager.get_comparison()
 
     @app.get(
-        "/services/performance/compare",
+        "/sessions/performance/compare",
         response_model=PerformanceComparisonResponse,
         operation_id="compare_performance",
     )
@@ -260,45 +260,45 @@ def _register_service_routes(app, manager: MultiServiceManager):
 
     # ── session-scoped endpoints ────────────────────────────
 
-    @app.delete("/services/{session_id}", response_model=ServiceRemoveResponse, operation_id="remove_service")
+    @app.delete("/sessions/{session_id}", response_model=SessionRemoveResponse, operation_id="remove_service")
     def remove_service(session_id: str):
-        manager.remove_service(session_id)
-        return ServiceRemoveResponse(status="removed", session_id=session_id)
+        manager.remove_session(session_id)
+        return SessionRemoveResponse(status="removed", session_id=session_id)
 
-    @app.get("/services/{session_id}/status", response_model=ServiceStatusResponse, operation_id="get_service_status")
+    @app.get("/sessions/{session_id}/status", response_model=SessionStatusResponse, operation_id="get_session_status")
     def service_status(session_id: str):
-        return manager.get_service(session_id).get_status()
+        return manager.get_session(session_id).get_status()
 
-    @app.get("/services/{session_id}/runtime", response_model=RuntimeSnapshotResponse, operation_id="get_service_runtime")
+    @app.get("/sessions/{session_id}/runtime", response_model=RuntimeSnapshotResponse, operation_id="get_session_runtime")
     def service_runtime(session_id: str):
-        return manager.get_service(session_id).get_runtime_snapshot()
+        return manager.get_session(session_id).get_runtime_snapshot()
 
-    @app.get("/services/{session_id}/performance", response_model=PerformanceSnapshotResponse, operation_id="get_service_performance")
+    @app.get("/sessions/{session_id}/performance", response_model=PerformanceSnapshotResponse, operation_id="get_session_performance")
     def service_performance(session_id: str):
-        return manager.get_service(session_id).get_performance_snapshot()
+        return manager.get_session(session_id).get_performance_snapshot()
 
-    @app.get("/services/{session_id}/analytics", response_model=AnalyticsSnapshotResponse, operation_id="get_service_analytics")
+    @app.get("/sessions/{session_id}/analytics", response_model=AnalyticsSnapshotResponse, operation_id="get_session_analytics")
     def service_analytics(session_id: str):
-        return manager.get_service(session_id).get_analysis_snapshot()
+        return manager.get_session(session_id).get_analysis_snapshot()
 
-    @app.get("/services/{session_id}/config", response_model=ServiceConfigResponse, operation_id="get_service_config")
+    @app.get("/sessions/{session_id}/config", response_model=SessionConfigResponse, operation_id="get_session_config")
     def service_config(session_id: str):
-        return manager.get_service(session_id).get_config_snapshot()
+        return manager.get_session(session_id).get_config_snapshot()
 
-    @app.put("/services/{session_id}/config", response_model=ServiceConfigUpdateResponse, operation_id="replace_service_config")
-    def replace_service_config(session_id: str, request: ServiceConfigUpdateRequest):
-        return manager.get_service(session_id).replace_service_config(request.config_bundle)
+    @app.put("/sessions/{session_id}/config", response_model=SessionConfigUpdateResponse, operation_id="replace_session_config")
+    def replace_session_config(session_id: str, request: SessionConfigUpdateRequest):
+        return manager.get_session(session_id).replace_session_config(request.config_bundle)
 
-    @app.post("/services/{session_id}/config/import", response_model=ServiceConfigUpdateResponse, operation_id="import_service_config")
-    async def import_service_config(session_id: str, file: UploadFile = File(...)):
+    @app.post("/sessions/{session_id}/config/import", response_model=SessionConfigUpdateResponse, operation_id="import_session_config")
+    async def import_session_config(session_id: str, file: UploadFile = File(...)):
         payload = await file.read()
         config_dict = _json.loads(payload)
         config_bundle = import_config_from_dict(config_dict)
-        return manager.get_service(session_id).replace_service_config(config_bundle)
+        return manager.get_session(session_id).replace_session_config(config_bundle)
 
-    @app.get("/services/{session_id}/config/export", operation_id="export_service_config")
-    def export_service_config(session_id: str):
-        svc = manager.get_service(session_id)
+    @app.get("/sessions/{session_id}/config/export", operation_id="export_session_config")
+    def export_session_config(session_id: str):
+        svc = manager.get_session(session_id)
         json_str = export_config_to_json_string(svc.service_config)
         return Response(
             content=json_str,
@@ -308,34 +308,34 @@ def _register_service_routes(app, manager: MultiServiceManager):
             },
         )
 
-    @app.get("/services/{session_id}/events", response_model=ServiceEventHistoryResponse, operation_id="get_service_events")
-    def get_service_events(session_id: str):
-        return manager.get_service(session_id).get_service_event_history()
+    @app.get("/sessions/{session_id}/events", response_model=SessionEventHistoryResponse, operation_id="get_session_events")
+    def get_session_events(session_id: str):
+        return manager.get_session(session_id).get_session_event_history()
 
-    @app.post("/services/{session_id}/scheduler/start", response_model=ServiceActionResponse, operation_id="start_service_scheduler")
+    @app.post("/sessions/{session_id}/scheduler/start", response_model=SessionActionResponse, operation_id="start_session_scheduler")
     def service_start(session_id: str):
-        svc = manager.get_service(session_id)
+        svc = manager.get_session(session_id)
         svc.start_scheduler()
-        return ServiceActionResponse(status="started", session_id=session_id)
+        return SessionActionResponse(status="started", session_id=session_id)
 
-    @app.post("/services/{session_id}/scheduler/stop", response_model=ServiceActionResponse, operation_id="stop_service_scheduler")
+    @app.post("/sessions/{session_id}/scheduler/stop", response_model=SessionActionResponse, operation_id="stop_session_scheduler")
     def service_stop(session_id: str):
-        svc = manager.get_service(session_id)
+        svc = manager.get_session(session_id)
         svc.stop_scheduler()
-        return ServiceActionResponse(status="stopped", session_id=session_id)
+        return SessionActionResponse(status="stopped", session_id=session_id)
 
-    @app.post("/services/{session_id}/run-once", response_model=TradingCycleResultResponse, operation_id="run_service_once")
+    @app.post("/sessions/{session_id}/run-once", response_model=TradingCycleResultResponse, operation_id="run_session_once")
     def run_once(session_id: str):
-        result = manager.get_service(session_id).run_once()
+        result = manager.get_session(session_id).run_once()
         return TradingCycleResultResponse(**asdict(result))
 
-    @app.get("/services/{session_id}/strategy-config", response_model=StrategyConfigSnapshotResponse, operation_id="get_strategy_config")
+    @app.get("/sessions/{session_id}/strategy-config", response_model=StrategyConfigSnapshotResponse, operation_id="get_strategy_config")
     def get_strategy_config(session_id: str):
-        return manager.get_service(session_id).get_strategy_config_snapshot()
+        return manager.get_session(session_id).get_strategy_config_snapshot()
 
-    @app.post("/services/{session_id}/strategy-config", response_model=StrategyConfigUpdateResponse, operation_id="update_strategy_config")
+    @app.post("/sessions/{session_id}/strategy-config", response_model=StrategyConfigUpdateResponse, operation_id="update_strategy_config")
     def update_strategy_config(session_id: str, request: StrategyConfigUpdateRequest):
-        svc = manager.get_service(session_id)
+        svc = manager.get_session(session_id)
         svc.configure_strategies(request.strategy_specs)
         return StrategyConfigUpdateResponse(
             status="updated",
@@ -343,13 +343,13 @@ def _register_service_routes(app, manager: MultiServiceManager):
             strategy_specs=svc.strategy_specs,
         )
 
-    @app.get("/services/{session_id}/selection-config", response_model=SelectionConfigSnapshotResponse, operation_id="get_selection_config")
+    @app.get("/sessions/{session_id}/selection-config", response_model=SelectionConfigSnapshotResponse, operation_id="get_selection_config")
     def get_selection_config(session_id: str):
-        return manager.get_service(session_id).get_selection_config_snapshot()
+        return manager.get_session(session_id).get_selection_config_snapshot()
 
-    @app.post("/services/{session_id}/selection-config", response_model=SelectionConfigUpdateResponse, operation_id="update_selection_config")
+    @app.post("/sessions/{session_id}/selection-config", response_model=SelectionConfigUpdateResponse, operation_id="update_selection_config")
     def update_selection_config(session_id: str, request: SelectionConfigUpdateRequest):
-        svc = manager.get_service(session_id)
+        svc = manager.get_session(session_id)
         selection_spec = request.selection_spec
         svc.configure_selection(selection_spec)
         return SelectionConfigUpdateResponse(
@@ -359,80 +359,80 @@ def _register_service_routes(app, manager: MultiServiceManager):
             selection_spec=svc.selection_specs,
         )
 
-    @app.get("/services/{session_id}/portfolio/config", response_model=PortfolioConfigSnapshotResponse, operation_id="get_portfolio_config")
+    @app.get("/sessions/{session_id}/portfolio/config", response_model=PortfolioConfigSnapshotResponse, operation_id="get_portfolio_config")
     def get_portfolio_config(session_id: str):
-        return manager.get_service(session_id).get_portfolio_config_snapshot()
+        return manager.get_session(session_id).get_portfolio_config_snapshot()
 
-    @app.post("/services/{session_id}/portfolio/config", response_model=PortfolioConfigUpdateResponse, operation_id="update_portfolio_config")
+    @app.post("/sessions/{session_id}/portfolio/config", response_model=PortfolioConfigUpdateResponse, operation_id="update_portfolio_config")
     def update_portfolio_config(session_id: str, request: PortfolioConfigUpdateRequest):
-        svc = manager.get_service(session_id)
+        svc = manager.get_session(session_id)
         svc.configure_portfolio(request.portfolio_spec)
         return PortfolioConfigUpdateResponse(
             status="updated",
             portfolio_spec=svc.portfolio_spec,
         )
 
-    @app.post("/services/{session_id}/portfolio/optimize", response_model=PortfolioOptimizeResponse, operation_id="optimize_portfolio")
+    @app.post("/sessions/{session_id}/portfolio/optimize", response_model=PortfolioOptimizeResponse, operation_id="optimize_portfolio")
     def optimize_portfolio(session_id: str, request: PortfolioOptimizeRequest):
-        return manager.get_service(session_id).optimize_portfolio(
+        return manager.get_session(session_id).optimize_portfolio(
             as_of_date=request.as_of_date,
             preview_only=request.preview_only,
             symbols=request.symbols,
         )
 
-    @app.get("/services/{session_id}/portfolio/analysis", response_model=PortfolioAnalysisResponse, operation_id="get_portfolio_analysis")
+    @app.get("/sessions/{session_id}/portfolio/analysis", response_model=PortfolioAnalysisResponse, operation_id="get_portfolio_analysis")
     def get_portfolio_analysis(session_id: str):
-        return manager.get_service(session_id).get_portfolio_analysis_snapshot()
+        return manager.get_session(session_id).get_portfolio_analysis_snapshot()
 
-    @app.get("/services/{session_id}/portfolio/history", response_model=PortfolioHistoryResponse, operation_id="get_portfolio_history")
+    @app.get("/sessions/{session_id}/portfolio/history", response_model=PortfolioHistoryResponse, operation_id="get_portfolio_history")
     def get_portfolio_history(session_id: str):
-        return manager.get_service(session_id).get_portfolio_history()
+        return manager.get_session(session_id).get_portfolio_history()
 
-    @app.post("/services/{session_id}/portfolio/rebalance", response_model=PortfolioRebalanceResponse, operation_id="rebalance_portfolio")
+    @app.post("/sessions/{session_id}/portfolio/rebalance", response_model=PortfolioRebalanceResponse, operation_id="rebalance_portfolio")
     def rebalance_portfolio(session_id: str, request: PortfolioRebalanceRequest):
-        return manager.get_service(session_id).rebalance_portfolio(
+        return manager.get_session(session_id).rebalance_portfolio(
             as_of_date=request.as_of_date,
             preview_only=request.preview_only,
             symbols=request.symbols,
             force=request.force,
         )
 
-    @app.get("/services/{session_id}/scheduler-config", response_model=SchedulerConfigSnapshotResponse, operation_id="get_scheduler_config")
+    @app.get("/sessions/{session_id}/scheduler-config", response_model=SchedulerConfigSnapshotResponse, operation_id="get_scheduler_config")
     def get_scheduler_config(session_id: str):
-        return manager.get_service(session_id).get_scheduler_config_snapshot()
+        return manager.get_session(session_id).get_scheduler_config_snapshot()
 
-    @app.post("/services/{session_id}/scheduler-config", response_model=SchedulerConfigUpdateResponse, operation_id="update_scheduler_config")
+    @app.post("/sessions/{session_id}/scheduler-config", response_model=SchedulerConfigUpdateResponse, operation_id="update_scheduler_config")
     def update_scheduler_config(session_id: str, request: SchedulerConfigUpdateRequest):
-        return manager.get_service(session_id).update_scheduler_config(
+        return manager.get_session(session_id).update_scheduler_config(
             interval_seconds=request.interval_seconds,
             cron_expression=request.cron_expression,
             timezone=request.timezone,
             auto_start=request.auto_start,
         )
 
-    @app.post("/services/{session_id}/close-all-positions", response_model=CloseAllPositionsResponse, operation_id="close_all_positions")
+    @app.post("/sessions/{session_id}/close-all-positions", response_model=CloseAllPositionsResponse, operation_id="close_all_positions")
     def close_all_positions(session_id: str, request: CloseAllPositionsRequest):
-        return manager.get_service(session_id).close_all_positions(slippage=request.slippage)
+        return manager.get_session(session_id).close_all_positions(slippage=request.slippage)
 
-    @app.post("/services/{session_id}/signal-buy", response_model=SingleSymbolTradeResponse, operation_id="signal_buy_symbol")
+    @app.post("/sessions/{session_id}/signal-buy", response_model=SingleSymbolTradeResponse, operation_id="signal_buy_symbol")
     def signal_buy_symbol(session_id: str, request: SingleSymbolTradeRequest):
-        return manager.get_service(session_id).signal_buy_symbol(
+        return manager.get_session(session_id).signal_buy_symbol(
             symbol=request.symbol,
             target_qty=request.target_qty,
             slippage=request.slippage,
         )
 
-    @app.post("/services/{session_id}/signal-sell", response_model=SingleSymbolTradeResponse, operation_id="signal_sell_symbol")
+    @app.post("/sessions/{session_id}/signal-sell", response_model=SingleSymbolTradeResponse, operation_id="signal_sell_symbol")
     def signal_sell_symbol(session_id: str, request: SingleSymbolTradeRequest):
-        return manager.get_service(session_id).signal_sell_symbol(
+        return manager.get_session(session_id).signal_sell_symbol(
             symbol=request.symbol,
             target_qty=request.target_qty,
             slippage=request.slippage,
         )
 
-    @app.post("/services/{session_id}/strategy-evaluate", response_model=StrategyEvaluateResponse, operation_id="evaluate_strategies")
+    @app.post("/sessions/{session_id}/strategy-evaluate", response_model=StrategyEvaluateResponse, operation_id="evaluate_strategies")
     def evaluate_strategies(session_id: str, request: StrategyEvaluateRequest):
-        return manager.get_service(session_id).evaluate_strategies(
+        return manager.get_session(session_id).evaluate_strategies(
             symbol_source=request.symbol_source,
             as_of_date=request.as_of_date,
             lookback_days=request.lookback_days,
@@ -440,13 +440,13 @@ def _register_service_routes(app, manager: MultiServiceManager):
             stamp_tax_rate=request.stamp_tax_rate,
         )
 
-    @app.get("/services/{session_id}/risk-management", response_model=RiskManagementConfigResponse, operation_id="get_risk_management_config")
+    @app.get("/sessions/{session_id}/risk-management", response_model=RiskManagementConfigResponse, operation_id="get_risk_management_config")
     def get_risk_management_config(session_id: str):
-        return manager.get_service(session_id).get_risk_management_config()
+        return manager.get_session(session_id).get_risk_management_config()
 
-    @app.put("/services/{session_id}/risk-management", response_model=RiskManagementConfigUpdateResponse, operation_id="update_risk_management_config")
+    @app.put("/sessions/{session_id}/risk-management", response_model=RiskManagementConfigUpdateResponse, operation_id="update_risk_management_config")
     def update_risk_management_config(session_id: str, request: RiskManagementConfigUpdateRequest):
-        return manager.get_service(session_id).update_risk_management_config(request.risk_management_specs)
+        return manager.get_session(session_id).update_risk_management_config(request.risk_management_specs)
 
 
 # ── app factory ──────────────────────────────────────────────
@@ -469,55 +469,55 @@ def _create_base_app(title: str):
     return app
 
 
-def create_service_app(service: SignalGatewayService):
-    """Create a FastAPI app for a single service.
+def create_session_app(session: SessionService):
+    """Create a FastAPI app for a single session.
 
-    Internally wraps the service in a :class:`MultiServiceManager` so all
-    routes follow the ``/services/{session_id}/*`` pattern.
+    Internally wraps the session in a :class:`MultiSessionService` so all
+    routes follow the ``/sessions/{session_id}/*`` pattern.
     """
-    manager = MultiServiceManager(max_services=1)
-    manager.wrap_service(service)
+    manager = MultiSessionService(max_sessions=1)
+    manager.wrap_session(session)
     return create_unified_app(manager)
 
 
-def create_unified_app(manager: MultiServiceManager):
+def create_unified_app(manager: MultiSessionService):
     """Create a FastAPI app with all unified routes registered."""
-    app = _create_base_app(title="jh-quant SignalGateway Service")
-    _register_service_routes(app, manager)
+    app = _create_base_app(title="jh-quant Gateway")
+    _register_session_routes(app, manager)
     _mount_mcp_server(app)
     return app
 
 
 # Backward-compatible alias (used by tests / external callers)
-create_multi_service_app = create_unified_app
+create_multi_session_app = create_unified_app
 
 
-def run_service_app(
-    service: Optional[SignalGatewayService] = None,
+def run_gateway_app(
+    session: Optional[SessionService] = None,
     host: str = "127.0.0.1",
     port: int = 8000,
-    manager: Optional[MultiServiceManager] = None,
+    manager: Optional[MultiSessionService] = None,
 ):
-    """Launch the service API via uvicorn.
+    """Launch the gateway API via uvicorn.
 
-    Prefer passing *manager* directly. When *service* is provided instead,
-    it is automatically wrapped in a single-service manager.
+    Prefer passing *manager* directly. When *session* is provided instead,
+    it is automatically wrapped in a single-session manager.
     """
     if uvicorn is None:
-        raise ImportError("uvicorn is required to run the service API")
+        raise ImportError("uvicorn is required to run the gateway API")
 
     if manager is None:
-        if service is None:
-            raise ValueError("Either 'service' or 'manager' must be provided")
-        manager = MultiServiceManager(max_services=1)
-        manager.wrap_service(service)
+        if session is None:
+            raise ValueError("Either 'session' or 'manager' must be provided")
+        manager = MultiSessionService(max_sessions=1)
+        manager.wrap_session(session)
 
-    services = manager.list_services()
+    sessions = manager.list_sessions()
     rprint(
-        label="Service",
-        content=f"Managing {services.count} service(s), max={services.max_services}",
+        label="Session",
+        content=f"Managing {sessions.count} session(s), max={sessions.max_sessions}",
     )
-    for svc_info in services.services:
+    for svc_info in sessions.sessions:
         rprint(
             label=f"  [{svc_info.session_id}]",
             content=f"mode={svc_info.mode}, running={svc_info.running}",

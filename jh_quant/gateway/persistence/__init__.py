@@ -12,7 +12,7 @@ from .models import TORTOISE_ORM_AVAILABLE, require_tortoise_orm
 from .protocols import (
     PerformancePersistence,
     PositionPersistence,
-    ServiceStatePersistence,
+    RuntimeStatePersistence,
     SessionStatePersistence,
     TradePersistence,
     UserConfigPersistence,
@@ -30,7 +30,7 @@ __all__ = [
     "TORTOISE_ORM_AVAILABLE",
     "PerformancePersistence",
     "PositionPersistence",
-    "ServiceStatePersistence",
+    "RuntimeStatePersistence",
     "SessionStatePersistence",
     "TradePersistence",
     "UserConfigPersistence",

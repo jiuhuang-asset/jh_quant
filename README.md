@@ -11,7 +11,7 @@
 | [data](docs/data.md) | 数据获取，同时兼容akshare和tushare数据接口 | [README](docs/data.md) |
 | [backtest](docs/backtest.md) | 回测引擎，11种内置策略 | [README](docs/backtest.md) |
 | [factors](docs/factors.md) | 因子计算，FF3/FF5/Carhart等学术模型 | [README](docs/factors.md) |
-| [signalgateway](docs/signalgateway.md) | 信号网关，订单管理，FastAPI服务 | [README](docs/signalgateway.md) |
+| [gateway](docs/gateway.md) | 交易网关，订单管理，FastAPI服务 | [README](docs/gateway.md) |
 | [dashboard](docs/dashboard.md) | PyWebView可视化仪表盘 | [README](docs/dashboard.md) |
 
 ## 快速开始

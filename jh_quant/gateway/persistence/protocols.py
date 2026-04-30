@@ -66,19 +66,19 @@ class SessionStatePersistence(Protocol):
 
 
 @runtime_checkable
-class ServiceStatePersistence(Protocol):
-    """Protocol for service runtime state persistence."""
+class RuntimeStatePersistence(Protocol):
+    """Protocol for session runtime state persistence."""
 
-    def save_service_state(self, state: dict) -> None:
-        """Save service runtime state."""
+    def save_runtime_state(self, state: dict) -> None:
+        """Save session runtime state."""
         ...
 
-    def load_latest_service_state(self, session_id: str) -> dict | None:
-        """Load the most recent service state for a given session_id."""
+    def load_latest_runtime_state(self, session_id: str) -> dict | None:
+        """Load the most recent runtime state for a given session_id."""
         ...
 
-    def query_service_events(self, session_id: str) -> "pd.DataFrame":
-        """Query service runtime event history for a session."""
+    def query_runtime_events(self, session_id: str) -> "pd.DataFrame":
+        """Query session runtime event history for a session."""
         ...
 
 

@@ -31,12 +31,12 @@ from .io import (
     import_config_from_dict,
     import_config_from_file,
 )
-from .service import (
-    ServiceConfig,
-    SignalGatewayServiceConfig,
-    SignalGatewayServiceConfigBuilder,
-    build_service_config,
-    default_service_config,
+from .session import (
+    SessionConfig,
+    SessionServiceConfig,
+    SessionServiceConfigBuilder,
+    build_session_config,
+    default_session_config,
 )
 from .risk_management import RiskManagementParamsConfig
 from .strategy import (
@@ -92,17 +92,17 @@ __all__ = [
     "RSIStrategyConfig",
     "SelectionProvider",
     "SelectionSpec",
-    "ServiceConfig",
-    "SignalGatewayServiceConfig",
-    "SignalGatewayServiceConfigBuilder",
+    "SessionConfig",
+    "SessionServiceConfig",
+    "SessionServiceConfigBuilder",
     "StrategySpec",
     "TurtleStrategyConfig",
     "VolumeDivergenceStrategyConfig",
     "VolumeTrendStrategyConfig",
-    "build_service_config",
+    "build_session_config",
     "build_selection_provider",
     "create_selection_provider",
-    "default_service_config",
+    "default_session_config",
     "get_selection_config_model",
     "get_strategy_config_model",
     "get_selection_params_schema",

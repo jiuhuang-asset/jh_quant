@@ -1,6 +1,6 @@
 """Config file import/export utilities.
 
-Read and write :class:`SignalGatewayServiceConfig` as JSON files for
+Read and write :class:`SessionServiceConfig` as JSON files for
 offline editing, backup, and sharing across environments.
 """
 
@@ -10,11 +10,11 @@ import json
 from pathlib import Path
 from typing import Union
 
-from .service import SignalGatewayServiceConfig
+from .session import SessionServiceConfig
 
 
 def export_config_to_file(
-    config: SignalGatewayServiceConfig,
+    config: SessionServiceConfig,
     filepath: Union[str, Path],
     *,
     indent: int = 2,
@@ -23,7 +23,7 @@ def export_config_to_file(
     """Serialize the current config bundle to a JSON file.
 
     Args:
-        config: The service config to export.
+        config: The session config to export.
         filepath: Destination path (``.json`` extension is appended if missing).
         indent: JSON indentation level.
         ensure_ascii: Whether to escape non-ASCII characters.
@@ -44,7 +44,7 @@ def export_config_to_file(
 
 
 def export_config_to_json_string(
-    config: SignalGatewayServiceConfig,
+    config: SessionServiceConfig,
     *,
     indent: int = 2,
     ensure_ascii: bool = False,
@@ -54,14 +54,14 @@ def export_config_to_json_string(
     return json.dumps(payload, indent=indent, ensure_ascii=ensure_ascii)
 
 
-def import_config_from_file(filepath: Union[str, Path]) -> SignalGatewayServiceConfig:
+def import_config_from_file(filepath: Union[str, Path]) -> SessionServiceConfig:
     """Load and validate a config bundle from a JSON file.
 
     Args:
         filepath: Path to a JSON config file.
 
     Returns:
-        Validated :class:`SignalGatewayServiceConfig` instance.
+        Validated :class:`SessionServiceConfig` instance.
 
     Raises:
         FileNotFoundError: If *filepath* does not exist.
@@ -79,16 +79,16 @@ def import_config_from_file(filepath: Union[str, Path]) -> SignalGatewayServiceC
     return import_config_from_dict(payload)
 
 
-def import_config_from_dict(payload: dict) -> SignalGatewayServiceConfig:
+def import_config_from_dict(payload: dict) -> SessionServiceConfig:
     """Validate and build a config bundle from a raw dictionary.
 
     Args:
         payload: Dictionary representation of a config bundle.
 
     Returns:
-        Validated :class:`SignalGatewayServiceConfig` instance.
+        Validated :class:`SessionServiceConfig` instance.
 
     Raises:
         ValueError: If validation fails.
     """
-    return SignalGatewayServiceConfig.model_validate(payload)
+    return SessionServiceConfig.model_validate(payload)

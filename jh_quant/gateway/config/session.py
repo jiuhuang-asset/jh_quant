@@ -18,24 +18,24 @@ class _UnsetType:
 _UNSET = _UnsetType()
 
 
-class ServiceConfig(BaseModel):
-    """SignalGateway 服务运行参数。
+class SessionConfig(BaseModel):
+    """Session 运行参数。
 
-    这部分配置控制服务如何调度、以什么模式运行，以及是否恢复历史状态。
-    一般通过 `SignalGatewayServiceConfigBuilder.with_service(...)` 设置。
+    这部分配置控制 session 如何调度、以什么模式运行，以及是否恢复历史状态。
+    一般通过 `SessionServiceConfigBuilder.with_session(...)` 设置。
     """
 
-    session_id: Optional[str] = Field(default=None, description="服务会话 ID，用于关联持久化状态、订单和运行记录。")
+    session_id: Optional[str] = Field(default=None, description="会话 ID，用于关联持久化状态、订单和运行记录。")
     mode: Literal["paper", "live"] = Field(default="paper", description="运行模式：`paper` 为模拟盘，`live` 为实盘。")
     price_lookback_days: int = Field(default=180, description="执行策略和选股时向前回看的行情天数。")
     max_candidates: int = Field(default=10, description="每轮最多处理的候选标的数量。")
-    auto_start: bool = Field(default=False, description="服务初始化完成后是否自动启动调度线程。")
+    auto_start: bool = Field(default=False, description="Session 初始化完成后是否自动启动调度线程。")
     frequency: Frequency = Field(default=Frequency.DAILY, description="交易频率枚举，用于描述策略运行节奏。")
     price_slippage: float = Field(default=0.0, description="成交滑点比例，例如 `0.001` 表示千分之一。")
     interval_seconds: int = Field(default=300, description="固定间隔调度模式下，两次执行之间的秒数。")
     cron_expression: Optional[str] = Field(default=None, description="cron 调度表达式；设置后通常优先于固定秒级间隔。")
     timezone: str = Field(default="Asia/Shanghai", description="cron 调度使用的时区名称。")
-    restore_persisted_state: bool = Field(default=True, description="启动时是否从持久化存储恢复最近一次保存的服务状态。")
+    restore_persisted_state: bool = Field(default=True, description="启动时是否从持久化存储恢复最近一次保存的 session 状态。")
 
     @field_validator("frequency", mode="before")
     @classmethod
@@ -47,16 +47,16 @@ class ServiceConfig(BaseModel):
         return value.value
 
 
-class SignalGatewayServiceConfig(BaseModel):
-    """SignalGateway 的完整配置包。
+class SessionServiceConfig(BaseModel):
+    """Gateway 的完整配置包。
 
     包含三部分：
-    - `service`：服务本身的运行参数
+    - `session`：session 的运行参数
     - `selection_spec`：选股器配置
     - `strategy_specs` / `portfolio_spec`：策略和组合配置
     """
 
-    service: ServiceConfig = Field(default_factory=ServiceConfig, description="服务运行参数。")
+    session: SessionConfig = Field(default_factory=SessionConfig, description="Session 运行参数。")
     selection_spec: Optional[SelectionSpec] = Field(default=None, description="当前使用的选股器配置。")
     strategy_specs: List[StrategySpec] = Field(default_factory=list, description="当前启用的策略配置列表。")
     portfolio_spec: PortfolioSpec = Field(default_factory=PortfolioSpec, description="组合优化与调仓配置。")
@@ -66,22 +66,22 @@ class SignalGatewayServiceConfig(BaseModel):
     )
 
     @classmethod
-    def defaults(cls) -> "SignalGatewayServiceConfig":
+    def defaults(cls) -> "SessionServiceConfig":
         return cls()
 
 
-class SignalGatewayServiceConfigBuilder:
-    """链式构建 SignalGateway 配置的辅助类。
+class SessionServiceConfigBuilder:
+    """链式构建 Gateway 配置的辅助类。
 
     设计目标是让调用端可以用连续的 `.with_xxx(...).add_xxx(...).build()`
     写法组织配置，同时保留较好的 IDE 自动补全体验。
     """
 
-    def __init__(self, base_config: Optional[SignalGatewayServiceConfig] = None):
-        self._config = (base_config or SignalGatewayServiceConfig.defaults()).model_copy(deep=True)
+    def __init__(self, base_config: Optional[SessionServiceConfig] = None):
+        self._config = (base_config or SessionServiceConfig.defaults()).model_copy(deep=True)
 
     @classmethod
-    def defaults(cls) -> "SignalGatewayServiceConfigBuilder":
+    def defaults(cls) -> "SessionServiceConfigBuilder":
         """从默认配置创建一个新的 builder。"""
         return cls()
 
@@ -91,7 +91,7 @@ class SignalGatewayServiceConfigBuilder:
         }
         return target_model.model_copy(update=updates)
 
-    def with_service(
+    def with_session(
         self,
         *,
         session_id: str | None | _UnsetType = _UNSET,
@@ -105,26 +105,26 @@ class SignalGatewayServiceConfigBuilder:
         cron_expression: str | None | _UnsetType = _UNSET,
         timezone: str | _UnsetType = _UNSET,
         restore_persisted_state: bool | _UnsetType = _UNSET,
-    ) -> "SignalGatewayServiceConfigBuilder":
-        """更新服务运行参数。
+    ) -> "SessionServiceConfigBuilder":
+        """更新 session 运行参数。
 
         常用参数说明：
         - `session_id`：本次运行的会话标识，用于关联持久化状态和交易记录。
         - `mode`：运行模式，`paper` 为模拟盘，`live` 为实盘。
         - `price_lookback_days`：拉取行情和指标时向前回看的天数。
         - `max_candidates`：每轮交易最多处理的候选标的数量。
-        - `auto_start`：服务初始化后是否自动启动调度线程。
+        - `auto_start`：Session 初始化后是否自动启动调度线程。
         - `frequency`：交易频率枚举，可传 `Frequency` 或其字符串值。
         - `price_slippage`：成交滑点比例，例如 `0.001` 表示千分之一。
         - `interval_seconds`：按固定间隔调度时，两次执行之间的秒数。
         - `cron_expression`：按 cron 表达式调度时的规则；设置后通常优先于固定间隔。
         - `timezone`：cron 调度所使用的时区。
-        - `restore_persisted_state`：启动时是否从持久化存储恢复上一次保存的服务状态。
+        - `restore_persisted_state`：启动时是否从持久化存储恢复上一次保存的 session 状态。
 
         未传入的参数会保持原值不变；显式传入 `None` 的字段会被更新为 `None`。
         """
-        self._config.service = self._apply_model_updates(
-            self._config.service,
+        self._config.session = self._apply_model_updates(
+            self._config.session,
             session_id=session_id,
             mode=mode,
             price_lookback_days=price_lookback_days,
@@ -145,7 +145,7 @@ class SignalGatewayServiceConfigBuilder:
         name: str,
         params: Optional[Any] = None,
         alias: Optional[str] = None,
-    ) -> "SignalGatewayServiceConfigBuilder":
+    ) -> "SessionServiceConfigBuilder":
         """设置选股器配置。
 
         参数说明：
@@ -163,7 +163,7 @@ class SignalGatewayServiceConfigBuilder:
     def with_selection_spec(
         self,
         selection_spec: Optional[SelectionSpec],
-    ) -> "SignalGatewayServiceConfigBuilder":
+    ) -> "SessionServiceConfigBuilder":
         """直接替换完整的选股器配置对象。"""
         self._config.selection_spec = selection_spec
         return self
@@ -171,7 +171,7 @@ class SignalGatewayServiceConfigBuilder:
     def with_strategies(
         self,
         strategy_specs: List[StrategySpec],
-    ) -> "SignalGatewayServiceConfigBuilder":
+    ) -> "SessionServiceConfigBuilder":
         """一次性替换全部策略配置列表。"""
         self._config.strategy_specs = list(strategy_specs)
         return self
@@ -183,7 +183,7 @@ class SignalGatewayServiceConfigBuilder:
         weight: float = 1.0,
         params: Optional[Any] = None,
         alias: Optional[str] = None,
-    ) -> "SignalGatewayServiceConfigBuilder":
+    ) -> "SessionServiceConfigBuilder":
         """追加一条策略配置。
 
         参数说明：
@@ -221,7 +221,7 @@ class SignalGatewayServiceConfigBuilder:
         allow_partial_rebalance: bool | _UnsetType = _UNSET,
         rebalance_policy: RebalancePolicySpec | _UnsetType = _UNSET,
         analysis: PortfolioAnalysisSpec | _UnsetType = _UNSET,
-    ) -> "SignalGatewayServiceConfigBuilder":
+    ) -> "SessionServiceConfigBuilder":
         """更新组合优化与调仓参数（对接 riskfolio-lib）。
 
         常用参数说明：
@@ -303,7 +303,7 @@ class SignalGatewayServiceConfigBuilder:
     def with_portfolio_spec(
         self,
         portfolio_spec: PortfolioSpec,
-    ) -> "SignalGatewayServiceConfigBuilder":
+    ) -> "SessionServiceConfigBuilder":
         """直接替换完整的组合配置对象。"""
         self._config.portfolio_spec = portfolio_spec
         return self
@@ -311,7 +311,7 @@ class SignalGatewayServiceConfigBuilder:
     def with_risk_management(
         self,
         risk_management_specs: Dict[str, RiskManagementParamsConfig],
-    ) -> "SignalGatewayServiceConfigBuilder":
+    ) -> "SessionServiceConfigBuilder":
         """Replace the entire per-strategy risk management config map."""
         self._config.risk_management_specs = dict(risk_management_specs)
         return self
@@ -320,21 +320,21 @@ class SignalGatewayServiceConfigBuilder:
         self,
         strategy_name: str,
         rmp: RiskManagementParamsConfig,
-    ) -> "SignalGatewayServiceConfigBuilder":
+    ) -> "SessionServiceConfigBuilder":
         """Set risk management params for a single strategy."""
         self._config.risk_management_specs[strategy_name] = rmp
         return self
 
-    def build(self) -> SignalGatewayServiceConfig:
+    def build(self) -> SessionServiceConfig:
         """生成最终配置对象。"""
         return self._config.model_copy(deep=True)
 
 
-def default_service_config() -> SignalGatewayServiceConfig:
-    return SignalGatewayServiceConfig.defaults()
+def default_session_config() -> SessionServiceConfig:
+    return SessionServiceConfig.defaults()
 
 
-def build_service_config(
-    base_config: Optional[SignalGatewayServiceConfig] = None,
-) -> SignalGatewayServiceConfigBuilder:
-    return SignalGatewayServiceConfigBuilder(base_config=base_config)
+def build_session_config(
+    base_config: Optional[SessionServiceConfig] = None,
+) -> SessionServiceConfigBuilder:
+    return SessionServiceConfigBuilder(base_config=base_config)

@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from .protocols import (
         PerformancePersistence,
         PositionPersistence,
-        ServiceStatePersistence,
+        RuntimeStatePersistence,
         SessionStatePersistence,
         TradePersistence,
     )
@@ -93,17 +93,17 @@ class PersistenceCoordinator:
             return None
         return self.recorder.load_latest_session_state(session_id)
 
-    # --- ServiceStatePersistence ---
+    # --- RuntimeStatePersistence ---
 
-    def save_service_state(self, state: dict) -> None:
+    def save_runtime_state(self, state: dict) -> None:
         if self.recorder is None:
             return
-        self.recorder.save_service_state(state)
+        self.recorder.save_runtime_state(state)
 
-    def load_latest_service_state(self, session_id: str) -> Optional[dict]:
+    def load_latest_runtime_state(self, session_id: str) -> Optional[dict]:
         if self.recorder is None:
             return None
-        return self.recorder.load_latest_service_state(session_id)
+        return self.recorder.load_latest_runtime_state(session_id)
 
     def save_user_config(
         self,
@@ -121,12 +121,12 @@ class PersistenceCoordinator:
             return None
         return self.recorder.load_latest_user_config(session_id)
 
-    def query_service_events(self, session_id: str) -> "pd.DataFrame":
+    def query_runtime_events(self, session_id: str) -> "pd.DataFrame":
         import pandas as pd
 
         if self.recorder is None:
             return pd.DataFrame()
-        return self.recorder.query_service_events(session_id)
+        return self.recorder.query_runtime_events(session_id)
 
     # --- Convenience ---
 

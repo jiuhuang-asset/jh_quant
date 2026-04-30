@@ -19,7 +19,7 @@ from ..config import (
     RiskManagementParamsConfig,
     SelectionProvider,
     SelectionSpec,
-    SignalGatewayServiceConfig,
+    SessionServiceConfig,
     StrategySpec,
     build_selection_provider,
     list_selection_definitions,
@@ -55,13 +55,13 @@ from .schemas import (
     SchedulerConfigSnapshotResponse,
     SchedulerConfigUpdateResponse,
     SchedulerStatus,
-    ServiceComparisonResponse,
-    ServiceConfigResponse,
-    ServiceConfigUpdateResponse,
-    ServiceEventHistoryResponse,
-    ServiceInfoResponse,
-    ServiceListResponse,
-    ServiceStatusResponse,
+    SessionComparisonResponse,
+    SessionConfigResponse,
+    SessionConfigUpdateResponse,
+    SessionEventHistoryResponse,
+    SessionInfoResponse,
+    SessionListResponse,
+    SessionStatusResponse,
     SingleSymbolTradeResponse,
     TradingCycleResult,
     TradingCycleResultResponse,
@@ -94,17 +94,17 @@ class CronScheduler:
         return not stop_event.wait(timeout=timeout)
 
 
-class SignalGatewayService:
+class SessionService:
     def __init__(
         self,
         gateway: SignalGateway,
-        config: SignalGatewayServiceConfig,
+        config: SessionServiceConfig,
         selection_provider: Optional[SelectionProvider] = None,
         persistence: Optional[PersistenceCoordinator] = None,
     ):
         self.gateway = gateway
-        self.service_config = config
-        self.config = config.service
+        self.session_config = config
+        self.config = config.session
         self.selection_specs = config.selection_spec
         self.strategy_specs = list(config.strategy_specs)
         self.portfolio_spec = config.portfolio_spec
@@ -132,7 +132,7 @@ class SignalGatewayService:
         self._last_error: Optional[str] = None
 
         self._restore_user_config()
-        self._restore_service_state()
+        self._restore_session_state()
         self._initialize_selection_provider(selection_provider)
         self._restore_oms_state()
         if self.strategy_specs:
@@ -153,25 +153,25 @@ class SignalGatewayService:
 
     def _apply_config_bundle(
         self,
-        config_bundle: SignalGatewayServiceConfig | Dict[str, Any],
+        config_bundle: SessionServiceConfig | Dict[str, Any],
         *,
         source: str,
     ) -> None:
         restored_bundle = (
             config_bundle
-            if isinstance(config_bundle, SignalGatewayServiceConfig)
-            else SignalGatewayServiceConfig.model_validate(config_bundle)
+            if isinstance(config_bundle, SessionServiceConfig)
+            else SessionServiceConfig.model_validate(config_bundle)
         )
         restored_session_id = self.config.session_id
         restored_restore_flag = self.config.restore_persisted_state
-        self.service_config = restored_bundle
-        self.config = self.service_config.service
+        self.session_config = restored_bundle
+        self.config = self.session_config.session
         self.config.session_id = restored_session_id or self.config.session_id
         self.config.restore_persisted_state = restored_restore_flag
-        self.service_config.service = self.config
-        self.selection_specs = self.service_config.selection_spec
-        self.strategy_specs = list(self.service_config.strategy_specs)
-        self.portfolio_spec = self.service_config.portfolio_spec
+        self.session_config.session = self.config
+        self.selection_specs = self.session_config.selection_spec
+        self.strategy_specs = list(self.session_config.strategy_specs)
+        self.portfolio_spec = self.session_config.portfolio_spec
         self._config_source = source
 
     def _restore_user_config(self) -> None:
@@ -191,18 +191,18 @@ class SignalGatewayService:
         except Exception:
             pass
 
-    def _restore_service_state(self) -> None:
+    def _restore_session_state(self) -> None:
         try:
-            saved = self.persistence.load_latest_service_state(self.config.session_id)
+            saved = self.persistence.load_latest_runtime_state(self.config.session_id)
             if not saved:
                 return
-            self._apply_service_state(saved)
+            self._apply_session_state(saved)
         except Exception:
             pass
 
-    def _apply_service_state(self, state: Dict[str, Any]) -> None:
-        service_state = state.get("service") or {}
-        config_bundle = service_state.get("config_bundle")
+    def _apply_session_state(self, state: Dict[str, Any]) -> None:
+        session_state = state.get("session") or {}
+        config_bundle = session_state.get("config_bundle")
         if (
             config_bundle
             and self.config.restore_persisted_state
@@ -212,14 +212,14 @@ class SignalGatewayService:
             self._persisted_user_config_available = True
             self._persisted_user_config_updated_at = state.get("export_time")
 
-        last_result = service_state.get("last_result")
+        last_result = session_state.get("last_result")
         if last_result:
             self._last_result = TradingCycleResult(**last_result)
         self._last_error = None
-        self._latest_portfolio_optimization = service_state.get("latest_portfolio_optimization")
-        self._latest_portfolio_rebalance = service_state.get("latest_portfolio_rebalance")
+        self._latest_portfolio_optimization = session_state.get("latest_portfolio_optimization")
+        self._latest_portfolio_rebalance = session_state.get("latest_portfolio_rebalance")
 
-        last_rebalance_at = service_state.get("last_portfolio_rebalance_at")
+        last_rebalance_at = session_state.get("last_portfolio_rebalance_at")
         if last_rebalance_at:
             self._last_portfolio_rebalance_at = datetime.fromisoformat(last_rebalance_at)
 
@@ -232,7 +232,7 @@ class SignalGatewayService:
                 self.selection_specs,
                 getattr(self.gateway, "market_data_provider", None),
             )
-            self.service_config.selection_spec = self.selection_specs
+            self.session_config.selection_spec = self.selection_specs
             return
         if selection_provider is not None:
             self.selection_provider = selection_provider
@@ -256,7 +256,7 @@ class SignalGatewayService:
             built = [self._build_strategy_instance(spec) for spec in normalized_specs]
             self.gateway.replace_strategies(built)
             self.strategy_specs = normalized_specs
-            self.service_config.strategy_specs = list(normalized_specs)
+            self.session_config.strategy_specs = list(normalized_specs)
             self._persist_user_config(source="runtime_update")
             self._persist_runtime_state(extra={"event": "strategy_config_updated"})
 
@@ -272,14 +272,14 @@ class SignalGatewayService:
         with self._lock:
             provider = self._build_selection_instance(selection_spec)
             self.selection_provider = provider
-            self.service_config.selection_spec = self.selection_specs
+            self.session_config.selection_spec = self.selection_specs
             self._persist_user_config(source="runtime_update")
             self._persist_runtime_state(extra={"event": "selection_config_updated"})
 
     def configure_portfolio(self, portfolio_spec):
         with self._lock:
             self.portfolio_spec = portfolio_spec
-            self.service_config.portfolio_spec = portfolio_spec
+            self.session_config.portfolio_spec = portfolio_spec
             self._persist_user_config(source="runtime_update")
             self._persist_runtime_state(extra={"event": "portfolio_config_updated"})
 
@@ -410,7 +410,7 @@ class SignalGatewayService:
             auto_start=self.config.auto_start,
         ).model_dump()
 
-    def replace_service_config(self, config_bundle: SignalGatewayServiceConfig) -> Dict[str, Any]:
+    def replace_session_config(self, config_bundle: SessionServiceConfig) -> Dict[str, Any]:
         was_scheduler_running = self._scheduler_running
         if was_scheduler_running:
             self.stop_scheduler()
@@ -423,7 +423,7 @@ class SignalGatewayService:
                 built = [self._build_strategy_instance(spec) for spec in normalized_specs]
                 self.gateway.replace_strategies(built)
                 self.strategy_specs = normalized_specs
-                self.service_config.strategy_specs = list(normalized_specs)
+                self.session_config.strategy_specs = list(normalized_specs)
             else:
                 self.gateway.replace_strategies([])
 
@@ -433,10 +433,10 @@ class SignalGatewayService:
         if was_scheduler_running or self.config.auto_start:
             self.start_scheduler()
 
-        return ServiceConfigUpdateResponse(
+        return SessionConfigUpdateResponse(
             status="updated",
             session_id=self.config.session_id,
-            config_bundle=self.service_config,
+            config_bundle=self.session_config,
         ).model_dump()
 
     def get_scheduler_config_snapshot(self) -> Dict[str, Any]:
@@ -484,7 +484,7 @@ class SignalGatewayService:
         return price * (1 - self.config.price_slippage)
 
     def _log_execution_branch(self, branch: str, message: str) -> None:
-        rprint(label=f"Service:{branch}", content=message)
+        rprint(label=f"Session:{branch}", content=message)
 
     def _filter_sell_orders_by_executable_holdings(
         self,
@@ -704,8 +704,8 @@ class SignalGatewayService:
         payload = {
             "session_id": self.config.session_id,
             "export_time": datetime.now().isoformat(),
-            "service": {
-                "config_bundle": self.service_config.model_dump(mode="json"),
+            "session": {
+                "config_bundle": self.session_config.model_dump(mode="json"),
                 "config": self.config.model_dump(),
                 "strategy_specs": [spec.model_dump() for spec in self.strategy_specs],
                 "portfolio_spec": self.portfolio_spec.model_dump(mode="json"),
@@ -725,8 +725,8 @@ class SignalGatewayService:
             },
         }
         if extra:
-            payload["service"]["extra"] = extra
-        self.persistence.save_service_state(payload)
+            payload["session"]["extra"] = extra
+        self.persistence.save_runtime_state(payload)
         if hasattr(self.gateway.oms, "export_state"):
             self.persistence.save_session_state(self.gateway.oms.export_state())
 
@@ -734,7 +734,7 @@ class SignalGatewayService:
         if self._suspend_user_config_persistence:
             return
         export_time = datetime.now().isoformat()
-        config_bundle = self.service_config.model_dump(mode="json")
+        config_bundle = self.session_config.model_dump(mode="json")
         config_bundle["export_time"] = export_time
         self.persistence.save_user_config(
             self.config.session_id,
@@ -757,10 +757,10 @@ class SignalGatewayService:
         return TradingCycleResultResponse(**asdict(result))
 
     def get_config_snapshot(self) -> Dict[str, Any]:
-        return ServiceConfigResponse(
+        return SessionConfigResponse(
             session_id=self.config.session_id,
-            config_bundle=self.service_config.model_dump(mode="json"),
-            service=self.config.model_dump(),
+            config_bundle=self.session_config.model_dump(mode="json"),
+            session=self.config.model_dump(),
             selection_spec=(
                 self.selection_specs.model_dump() if self.selection_specs is not None else None
             ),
@@ -1045,10 +1045,10 @@ class SignalGatewayService:
         snapshots = self.persistence.query_position_snapshots(self.config.session_id)
         return build_portfolio_history(snapshots)
 
-    def get_service_event_history(self) -> Dict[str, Any]:
-        records = self.persistence.query_service_events(self.config.session_id)
+    def get_session_event_history(self) -> Dict[str, Any]:
+        records = self.persistence.query_runtime_events(self.config.session_id)
         events = self._records_from_frame(records)
-        return ServiceEventHistoryResponse(
+        return SessionEventHistoryResponse(
             session_id=self.config.session_id,
             count=len(events),
             events=events,
@@ -1075,7 +1075,7 @@ class SignalGatewayService:
         return payload
 
     def get_status(self) -> Dict[str, Any]:
-        return ServiceStatusResponse(
+        return SessionStatusResponse(
             session_id=self.config.session_id,
             mode=self.config.mode,
             running=self._scheduler_running,
@@ -1115,10 +1115,10 @@ class SignalGatewayService:
         return AnalyticsSnapshotResponse(
             session_id=self.config.session_id,
             generated_at=datetime.now().isoformat(),
-            status=ServiceStatusResponse.model_validate(self.get_status()),
+            status=SessionStatusResponse.model_validate(self.get_status()),
             runtime=RuntimeSnapshotResponse.model_validate(self.get_runtime_state()),
             performance=PerformanceSnapshotResponse.model_validate(self.get_performance_snapshot()),
-            config=ServiceConfigResponse.model_validate(self.get_config_snapshot()),
+            config=SessionConfigResponse.model_validate(self.get_config_snapshot()),
         ).model_dump()
 
     def get_runtime_snapshot(self) -> Dict[str, Any]:
@@ -1291,7 +1291,7 @@ class SignalGatewayService:
         self._scheduler_running = False
         self._persist_runtime_state(extra={"event": "scheduler_stopped"})
 
-    def shutdown_service(self) -> None:
+    def shutdown_session(self) -> None:
         if self._scheduler_running:
             self.stop_scheduler()
         self._persist_runtime_state(extra={"event": "service_shutdown"})
@@ -1488,7 +1488,7 @@ class SignalGatewayService:
         from jh_quant.backtest.risk_management import RiskManagementParams
 
         rmps: Dict[str, RiskManagementParams] = {}
-        for name, config in self.service_config.risk_management_specs.items():
+        for name, config in self.session_config.risk_management_specs.items():
             rmps[name] = config.to_backtest_rmp()
 
         combined_performance, trading_history_data = backtest_evaluate_strategies(
@@ -1514,7 +1514,7 @@ class SignalGatewayService:
     def get_risk_management_config(self) -> Dict[str, Any]:
         """Return the current per-strategy risk management configuration."""
         return {
-            "risk_management_specs": self.service_config.risk_management_specs,
+            "risk_management_specs": self.session_config.risk_management_specs,
         }
 
     def update_risk_management_config(
@@ -1523,12 +1523,12 @@ class SignalGatewayService:
     ) -> Dict[str, Any]:
         """Replace the entire per-strategy risk management configuration."""
         with self._lock:
-            self.service_config.risk_management_specs = dict(risk_management_specs)
+            self.session_config.risk_management_specs = dict(risk_management_specs)
             self._persist_user_config(source="runtime_update")
             self._persist_runtime_state(extra={"event": "risk_management_config_updated"})
         return {
             "status": "updated",
-            "risk_management_specs": self.service_config.risk_management_specs,
+            "risk_management_specs": self.session_config.risk_management_specs,
         }
 
     def signal_buy_symbol(
@@ -1657,8 +1657,8 @@ class SignalGatewayService:
                 )
 
 
-class MultiServiceManager:
-    """Manages multiple SignalGatewayService instances in a single process.
+class MultiSessionService:
+    """Manages multiple SessionService instances in a single process.
 
     Each service gets its own MockOMS (isolated by session_id) and scheduler
     thread, while sharing a common PersistenceCoordinator and
@@ -1667,21 +1667,21 @@ class MultiServiceManager:
 
     def __init__(
         self,
-        max_services: int = 4,
+        max_sessions: int = 4,
         persistence: Optional[PersistenceCoordinator] = None,
         market_data_provider=None,
     ):
-        self._max_services = max(max_services, 1)
+        self._max_sessions = max(max_sessions, 1)
         self._shared_persistence = persistence or PersistenceCoordinator()
         self._shared_md_provider = market_data_provider
-        self._services: Dict[str, SignalGatewayService] = {}
+        self._sessions: Dict[str, SessionService] = {}
         self._lock = RLock()
 
     # ── service lifecycle ──────────────────────────────────────
 
-    def create_service(
+    def create_session(
         self,
-        config: SignalGatewayServiceConfig,
+        config: SessionServiceConfig,
         initial_capital: float = 100000,
     ) -> str:
         """Create and register a new service from config.
@@ -1689,78 +1689,78 @@ class MultiServiceManager:
         Returns the session_id of the created service.
         """
         with self._lock:
-            if len(self._services) >= self._max_services:
+            if len(self._sessions) >= self._max_sessions:
                 raise ValueError(
-                    f"Maximum number of services reached ({self._max_services}). "
-                    f"Remove an existing service before creating a new one."
+                    f"Maximum number of sessions reached ({self._max_sessions}). "
+                    f"Remove an existing session before creating a new one."
                 )
 
-            session_id = config.service.session_id or str(uuid.uuid4())
-            if session_id in self._services:
+            session_id = config.session.session_id or str(uuid.uuid4())
+            if session_id in self._sessions:
                 raise ValueError(
-                    f"Service with session_id '{session_id}' already exists."
+                    f"Session with session_id '{session_id}' already exists."
                 )
 
-            config.service.session_id = session_id
+            config.session.session_id = session_id
             oms = MockOMS(session_id=session_id, initial_capital=initial_capital)
             gateway = SignalGateway(
                 oms=oms,
                 market_data_provider=self._shared_md_provider,
             )
-            service = SignalGatewayService(
+            service = SessionService(
                 gateway=gateway,
                 config=config,
                 persistence=self._shared_persistence,
             )
-            self._services[session_id] = service
+            self._sessions[session_id] = service
             return session_id
 
-    def wrap_service(self, service: SignalGatewayService) -> str:
+    def wrap_session(self, service: SessionService) -> str:
         """Register an already-constructed service instance.
 
         Returns the service's session_id.
         """
         session_id = service.config.session_id
         if not session_id:
-            raise ValueError("Service must have a non-empty session_id")
+            raise ValueError("Session must have a non-empty session_id")
         with self._lock:
-            if len(self._services) >= self._max_services:
+            if len(self._sessions) >= self._max_sessions:
                 raise ValueError(
-                    f"Maximum number of services reached ({self._max_services}). "
-                    f"Remove an existing service before creating a new one."
+                    f"Maximum number of sessions reached ({self._max_sessions}). "
+                    f"Remove an existing session before creating a new one."
                 )
-            if session_id in self._services:
+            if session_id in self._sessions:
                 raise ValueError(
-                    f"Service with session_id '{session_id}' already exists."
+                    f"Session with session_id '{session_id}' already exists."
                 )
-            self._services[session_id] = service
+            self._sessions[session_id] = service
         return session_id
 
-    def remove_service(self, session_id: str) -> None:
+    def remove_session(self, session_id: str) -> None:
         """Shutdown and remove a service by session_id."""
         with self._lock:
-            service = self._services.pop(session_id, None)
+            service = self._sessions.pop(session_id, None)
         if service is not None:
-            service.shutdown_service()
+            service.shutdown_session()
 
-    def get_service(self, session_id: str) -> SignalGatewayService:
+    def get_session(self, session_id: str) -> SessionService:
         """Get a service by session_id.
 
         Raises KeyError if not found.
         """
         with self._lock:
-            if session_id not in self._services:
-                raise KeyError(f"Service with session_id '{session_id}' not found")
-            return self._services[session_id]
+            if session_id not in self._sessions:
+                raise KeyError(f"Session with session_id '{session_id}' not found")
+            return self._sessions[session_id]
 
     def stop_all(self) -> None:
         """Shutdown all managed services, then close shared persistence."""
         with self._lock:
-            services = list(self._services.values())
-            self._services.clear()
+            services = list(self._sessions.values())
+            self._sessions.clear()
         for service in services:
             try:
-                service.shutdown_service()
+                service.shutdown_session()
             except Exception:
                 pass
         close = getattr(self._shared_persistence, "close", None)
@@ -1771,8 +1771,8 @@ class MultiServiceManager:
                 pass
 
     @property
-    def max_services(self) -> int:
-        return self._max_services
+    def max_sessions(self) -> int:
+        return self._max_sessions
 
     # ── data access ────────────────────────────────────────────
 
@@ -1784,7 +1784,7 @@ class MultiServiceManager:
             return self._shared_md_provider.jhd
 
         with self._lock:
-            for svc in self._services.values():
+            for svc in self._sessions.values():
                 try:
                     return svc._get_jhdata()
                 except Exception:
@@ -1793,28 +1793,28 @@ class MultiServiceManager:
 
     # ── query ──────────────────────────────────────────────────
 
-    def list_services(self) -> ServiceListResponse:
+    def list_sessions(self) -> SessionListResponse:
         """Return metadata for all managed services."""
-        items: list[ServiceInfoResponse] = []
+        items: list[SessionInfoResponse] = []
         with self._lock:
-            for session_id, svc in self._services.items():
-                items.append(self._build_service_info(session_id, svc))
-        return ServiceListResponse(
-            services=items,
+            for session_id, svc in self._sessions.items():
+                items.append(self._build_session_info(session_id, svc))
+        return SessionListResponse(
+            sessions=items,
             count=len(items),
-            max_services=self._max_services,
+            max_sessions=self._max_sessions,
         )
 
-    def get_comparison(self) -> ServiceComparisonResponse:
+    def get_comparison(self) -> SessionComparisonResponse:
         """Aggregate performance/status across all services for comparison."""
         summaries: list[ComparisonSummary] = []
         with self._lock:
-            for session_id, svc in self._services.items():
+            for session_id, svc in self._sessions.items():
                 summaries.append(self._build_comparison_summary(session_id, svc))
-        return ServiceComparisonResponse(
+        return SessionComparisonResponse(
             generated_at=datetime.now().isoformat(),
             count=len(summaries),
-            services=summaries,
+            sessions=summaries,
         )
 
     def get_performance_comparison(
@@ -1830,9 +1830,9 @@ class MultiServiceManager:
             limit: Max sessions when session_ids is not specified.
         """
         with self._lock:
-            all_ids = list(self._services.keys())
+            all_ids = list(self._sessions.keys())
             if session_ids is not None:
-                target_ids = [sid for sid in session_ids if sid in self._services]
+                target_ids = [sid for sid in session_ids if sid in self._sessions]
             elif len(all_ids) > limit:
                 target_ids = all_ids[-limit:]
             else:
@@ -1848,7 +1848,7 @@ class MultiServiceManager:
 
         for sid in target_ids:
             with self._lock:
-                svc = self._services.get(sid)
+                svc = self._sessions.get(sid)
             if svc is None:
                 continue
             items.append(self._build_performance_comparison_item(sid, svc))
@@ -1862,13 +1862,13 @@ class MultiServiceManager:
 
     # ── helpers ────────────────────────────────────────────────
 
-    def _build_service_info(self, session_id: str, svc: SignalGatewayService) -> ServiceInfoResponse:
+    def _build_session_info(self, session_id: str, svc: SessionService) -> SessionInfoResponse:
         positions = svc.gateway.oms.get_positions()
         current_value = float(positions.total) if positions else None
         selection_name = getattr(svc.selection_specs, "alias", None) or getattr(svc.selection_specs, "name", None)
         portfolio_enabled = bool(getattr(svc.portfolio_spec, "enabled", False))
 
-        return ServiceInfoResponse(
+        return SessionInfoResponse(
             session_id=session_id,
             mode=svc.config.mode,
             running=svc._scheduler_running,
@@ -1881,7 +1881,7 @@ class MultiServiceManager:
             last_result=svc._serialize_result(svc._last_result),
         )
 
-    def _build_comparison_summary(self, session_id: str, svc: SignalGatewayService) -> ComparisonSummary:
+    def _build_comparison_summary(self, session_id: str, svc: SessionService) -> ComparisonSummary:
         positions = svc.gateway.oms.get_positions()
         current_value = float(positions.total) if positions else None
         initial_capital = float(getattr(svc.gateway.oms, "initial_capital", 0.0))
@@ -1904,7 +1904,7 @@ class MultiServiceManager:
             selection_name=str(selection_name) if selection_name else None,
         )
 
-    def _build_performance_comparison_item(self, session_id: str, svc: SignalGatewayService) -> PerformanceComparisonItem:
+    def _build_performance_comparison_item(self, session_id: str, svc: SessionService) -> PerformanceComparisonItem:
         report = self._shared_persistence.get_performance_report(session_id)
         summary = report.get("summary", {})
         equity_curve = report.get("equity_curve")

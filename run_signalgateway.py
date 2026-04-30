@@ -1,41 +1,41 @@
 """
-Manual smoke runner for the SignalGateway service.
+Manual smoke runner for the Gateway service.
 
-Set ``SIGNALGATEWAY_RUN_SERVER=1`` to launch the HTTP service.
-Set ``SIGNALGATEWAY_MULTI_SERVICE=1`` to launch in multi-service mode.
+Set ``GATEWAY_RUN_SERVER=1`` to launch the HTTP service.
+Set ``GATEWAY_MULTI_SESSION=1`` to launch in multi-session mode.
 """
 
 from __future__ import annotations
 
 import os
 
-from jh_quant.signalgateway import (
+from jh_quant.gateway import (
     JHMarketDataProvider,
     MockOMS,
-    MultiServiceManager,
+    MultiSessionService,
     PersistenceCoordinator,
+    SessionService,
     SignalGateway,
-    SignalGatewayService,
     SQLiteOrderRecorder,
-    run_service_app,
+    run_gateway_app,
 )
-from jh_quant.signalgateway.config import (
+from jh_quant.gateway.config import (
     FactorSelectionConfig,
     MomentumStrategyConfig,
     MovingAverageCrossoverStrategyConfig,
     RebalanceMode,
     RebalancePolicySpec,
-    SignalGatewayServiceConfig,
-    SignalGatewayServiceConfigBuilder,
+    SessionServiceConfig,
+    SessionServiceConfigBuilder,
     TurtleStrategyConfig,
     VolumeDivergenceStrategyConfig,
 )
 
 
-def build_default_config(session_id: str, auto_start: bool = False) -> SignalGatewayServiceConfig:
+def build_default_config(session_id: str, auto_start: bool = False) -> SessionServiceConfig:
     return (
-        SignalGatewayServiceConfigBuilder.defaults()
-        .with_service(
+        SessionServiceConfigBuilder.defaults()
+        .with_session(
             session_id=session_id,
             mode="paper",
             interval_seconds=300,
@@ -86,63 +86,63 @@ def build_default_config(session_id: str, auto_start: bool = False) -> SignalGat
 
 
 def main_single() -> None:
-    """Single-service mode."""
+    """Single-session mode."""
     session_id = "TEST_SESSION_001"
     initial_capital = 100000.0
-    host = os.getenv("SIGNALGATEWAY_HOST", "127.0.0.1")
-    port = int(os.getenv("SIGNALGATEWAY_PORT", "8000"))
-    auto_start_scheduler = os.getenv("SIGNALGATEWAY_AUTO_START", "0") == "1"
+    host = os.getenv("GATEWAY_HOST", "127.0.0.1")
+    port = int(os.getenv("GATEWAY_PORT", "8000"))
+    auto_start_scheduler = os.getenv("GATEWAY_AUTO_START", "0") == "1"
 
     recorder = SQLiteOrderRecorder(db_path="mocktrade.db")
     persistence = PersistenceCoordinator(recorder=recorder)
     oms = MockOMS(session_id=session_id, initial_capital=initial_capital)
     gateway = SignalGateway(oms=oms, market_data_provider=JHMarketDataProvider())
-    service_config = build_default_config(session_id, auto_start=auto_start_scheduler)
-    service = SignalGatewayService(
+    session_config = build_default_config(session_id, auto_start=auto_start_scheduler)
+    session = SessionService(
         gateway=gateway,
-        config=service_config,
+        config=session_config,
         persistence=persistence,
     )
 
     # Run one demo cycle
-    result = service.run_once()
+    result = session.run_once()
     print(result)
 
     try:
-        if os.getenv("SIGNALGATEWAY_RUN_SERVER", "0") == "1":
-            run_service_app(service=service, host=host, port=port)
+        if os.getenv("GATEWAY_RUN_SERVER", "0") == "1":
+            run_gateway_app(session=session, host=host, port=port)
         else:
-            print("service_status", service.get_status())
-            print("Set SIGNALGATEWAY_RUN_SERVER=1 to launch the HTTP server.")
+            print("session_status", session.get_status())
+            print("Set GATEWAY_RUN_SERVER=1 to launch the HTTP server.")
     finally:
-        service.shutdown_service()
+        session.shutdown_session()
 
 
 def main_multi() -> None:
-    """Multi-service mode — run multiple configs side by side."""
-    host = os.getenv("SIGNALGATEWAY_HOST", "127.0.0.1")
-    port = int(os.getenv("SIGNALGATEWAY_PORT", "8000"))
-    auto_start = os.getenv("SIGNALGATEWAY_AUTO_START", "0") == "1"
+    """Multi-session mode — run multiple configs side by side."""
+    host = os.getenv("GATEWAY_HOST", "127.0.0.1")
+    port = int(os.getenv("GATEWAY_PORT", "8000"))
+    auto_start = os.getenv("GATEWAY_AUTO_START", "0") == "1"
 
     recorder = SQLiteOrderRecorder(db_path="mocktrade.db")
     persistence = PersistenceCoordinator(recorder=recorder)
     md_provider = JHMarketDataProvider()
 
-    manager = MultiServiceManager(
-        max_services=4,
+    manager = MultiSessionService(
+        max_sessions=4,
         persistence=persistence,
         market_data_provider=md_provider,
     )
 
-    # Service A
+    # Session A
     config_a = build_default_config("SESSION_A", auto_start=auto_start)
-    sid_a = manager.create_service(config=config_a, initial_capital=100000)
-    print(f"Created service A: {sid_a}")
+    sid_a = manager.create_session(config=config_a, initial_capital=100000)
+    print(f"Created session A: {sid_a}")
 
-    # Service B
+    # Session B
     config_b = (
-        SignalGatewayServiceConfigBuilder.defaults()
-        .with_service(
+        SessionServiceConfigBuilder.defaults()
+        .with_session(
             session_id="SESSION_B",
             mode="paper",
             interval_seconds=300,
@@ -167,37 +167,37 @@ def main_multi() -> None:
         )
         .build()
     )
-    sid_b = manager.create_service(config=config_b, initial_capital=100000)
-    print(f"Created service B: {sid_b}")
+    sid_b = manager.create_session(config=config_b, initial_capital=100000)
+    print(f"Created session B: {sid_b}")
 
     # Run one demo cycle for each
-    # svc_a = manager.get_service(sid_a)
-    # svc_b = manager.get_service(sid_b)
-    # print("--- Service A run_once ---")
+    # svc_a = manager.get_session(sid_a)
+    # svc_b = manager.get_session(sid_b)
+    # print("--- Session A run_once ---")
     # print(svc_a.run_once())
-    # print("--- Service B run_once ---")
+    # print("--- Session B run_once ---")
     # print(svc_b.run_once())
 
     # # Show comparison
     # print("--- Comparison ---")
     # comparison = manager.get_comparison()
-    # for s in comparison.services:
+    # for s in comparison.sessions:
     #     print(
     #         f"  {s.session_id}: value={s.current_value}, "
     #         f"return={s.total_return_pct}%, "
     #         f"positions={s.position_count}, "
     #         f"strategies={s.strategy_names}"
     #     )
-    os.environ["SIGNALGATEWAY_RUN_SERVER"] = "1"
-    if os.getenv("SIGNALGATEWAY_RUN_SERVER", "0") == "1":
-        run_service_app(manager=manager, host=host, port=port)
+    os.environ["GATEWAY_RUN_SERVER"] = "1"
+    if os.getenv("GATEWAY_RUN_SERVER", "0") == "1":
+        run_gateway_app(manager=manager, host=host, port=port)
     else:
-        print("Set SIGNALGATEWAY_RUN_SERVER=1 to launch the HTTP server.")
+        print("Set GATEWAY_RUN_SERVER=1 to launch the HTTP server.")
 
 
 def main() -> None:
-    os.environ["SIGNALGATEWAY_MULTI_SERVICE"] = "1"
-    if os.getenv("SIGNALGATEWAY_MULTI_SERVICE", "0") == "1":
+    os.environ["GATEWAY_MULTI_SESSION"] = "1"
+    if os.getenv("GATEWAY_MULTI_SESSION", "0") == "1":
         main_multi()
     else:
         main_single()

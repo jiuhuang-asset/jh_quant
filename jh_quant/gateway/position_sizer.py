@@ -23,7 +23,7 @@ class PositionSizer(Protocol):
     用户实现的 PositionSizer 可通过 service.configure_position_sizer() 注入。
 
     Example:
-        from jh_quant.signalgateway.position_sizer import PositionSizer
+        from jh_quant.gateway.position_sizer import PositionSizer
 
         class MyPositionSizer:
             def calculate(
