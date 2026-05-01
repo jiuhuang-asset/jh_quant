@@ -16,8 +16,26 @@ from rich.progress import (
 from jh_quant.data import JhDataType, get_code_date_col
 
 from .metrics import cal_metrics_from_returns, calculate_strategy_returns
-from .rules import RiskRule, risk_manage_single
+from .rules import RiskRule, apply_rules
 from .strategy import Strategy
+
+
+def _resolve_rules(
+    rules: list[RiskRule] | dict[str, list[RiskRule]] | None,
+    strat_name: str,
+) -> list[RiskRule] | None:
+    """将 rules 参数解析为单策略的规则列表。
+
+    - ``None`` → 不启用风控
+    - ``list[RiskRule]`` → 全局规则，所有策略共享
+    - ``dict[str, list[RiskRule]]`` → 按策略名称绑定
+    """
+    if rules is None:
+        return None
+    if isinstance(rules, list):
+        return rules
+    return rules.get(strat_name)
+
 
 def build_position(
     df: pd.DataFrame,
@@ -55,7 +73,7 @@ def build_position(
         stock_data = result_df.loc[stock_mask].copy()
         stock_buy_signal = buy_signal.loc[stock_mask]
         stock_sell_signal = sell_signal.loc[stock_mask]
-        positions = risk_manage_single(
+        positions = apply_rules(
             stock_data, stock_buy_signal, stock_sell_signal, rules
         )
         result_df.loc[stock_mask, "position"] = positions
@@ -68,7 +86,7 @@ def evaluate_strategies(
     strategies: dict[str, Strategy],
     use_next_day_return: bool = True,
     metric_func: Callable = cal_metrics_from_returns,
-    rules: dict[str, list[RiskRule]] | None = None,
+    rules: list[RiskRule] | dict[str, list[RiskRule]] | None = None,
     commission_rate: float = 0.0002,
     stamp_tax_rate: float = 0.0005,
 ) -> Tuple[pd.DataFrame, JhDataType]:
@@ -79,16 +97,16 @@ def evaluate_strategies(
         strategies: 策略字典。
         use_next_day_return: 是否使用次日收益率。
         metric_func: 指标计算函数。
-        rules: 每个策略对应的风险规则列表，键为策略名称。
+        rules: 风险规则。可为：
+               - ``None``（不启用风控）
+               - ``list[RiskRule]``（全局规则，所有策略共享）
+               - ``dict[str, list[RiskRule]]``（按策略名称绑定）
         commission_rate: 佣金费率。
         stamp_tax_rate: 印花税率。
 
     Returns:
         (combined_performance, trading_history)。
     """
-    if rules is None:
-        rules = {}
-
     code_col, _ = get_code_date_col(price)
     perf_results: dict[str, pd.Series] = {}
     _trading_history_datas: list[pd.DataFrame] = []
@@ -117,7 +135,7 @@ def evaluate_strategies(
         )
         for strat_name, strat in strategies.items():
             df_sig = strat(price)
-            strat_rules = rules.get(strat_name)
+            strat_rules = _resolve_rules(rules, strat_name)
             df_with_pos = build_position(
                 df_sig,
                 buy_signal_name="buy_signal",
@@ -151,7 +169,7 @@ def backtest(
     strategies: dict[str, Strategy],
     price_data: JhDataType,
     stock_info: Optional[pd.DataFrame] = None,
-    rules: dict[str, list[RiskRule]] | None = None,
+    rules: list[RiskRule] | dict[str, list[RiskRule]] | None = None,
     commission_rate: float = 0.0002,
     stamp_tax_rate: float = 0.0005,
     metric_decimal: int = 2,
@@ -163,7 +181,10 @@ def backtest(
         strategies: 策略字典，键为策略名称，值为策略函数。
         price_data: 价格数据（JhDataType）。
         stock_info: 股票信息，可选。需包含 name、industry 列。
-        rules: 每个策略对应的风险规则列表，键为策略名称。
+        rules: 风险规则。可为：
+               - ``None``（不启用风控）
+               - ``list[RiskRule]``（全局规则，所有策略共享）
+               - ``dict[str, list[RiskRule]]``（按策略名称绑定）
         commission_rate: 佣金费率（默认 0.0002）。
         stamp_tax_rate: 印花税率（默认 0.0005）。
         metric_decimal: 指标小数位数（默认 2）。
@@ -185,7 +206,7 @@ def backtest(
     eval_results, trading_history = evaluate_strategies(
         price_data,
         strategies,
-        rules=rules or {},
+        rules=rules,
         use_next_day_return=use_next_day_return,
         commission_rate=commission_rate,
         stamp_tax_rate=stamp_tax_rate,

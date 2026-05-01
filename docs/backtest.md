@@ -58,31 +58,26 @@ display_backtesting(trading_history, backtest_perf)
 
 ```python
 from jh_quant.backtest import (
-    StopLossRule,
-    TrailingStopRule,
-    MaxHoldingBarsRule,
-    MaxConsecutiveRisingBarsRule,
-    MaxConsecutiveFallingBarsRule,
-    TakeProfitRule,
-    ATRTrailingStopRule,
+    StopLossRule, TrailingStopRule, MaxHoldingBarsRule, TakeProfitRule,
 )
 
 rules = [
-    MaxHoldingBarsRule(10),              # 最大持仓 bar 数
-    StopLossRule(0.05),                  # 止损 (5%)
-    TrailingStopRule(0.03),             # 跟踪止损 (3%)
-    TakeProfitRule(0.10),               # 止盈 (10%)
-    MaxConsecutiveRisingBarsRule(5),     # 最大连续上涨 bar 数
-    MaxConsecutiveFallingBarsRule(5),    # 最大连续下跌 bar 数
-    ATRTrailingStopRule(multiplier=3),   # ATR 移动止损
+    StopLossRule(0.05),
+    TrailingStopRule(0.03),
+    MaxHoldingBarsRule(10),
+    TakeProfitRule(0.10),
 ]
 
-# 按策略传入规则
+# 全局规则 — 所有策略共享同一组规则
 trading_history, backtest_perf = backtest(
-    strategies,
-    stock_price,
-    stock_info,
-    rules={"策略名": rules},
+    strategies, stock_price, stock_info,
+    rules=rules,
+)
+
+# 按策略绑定 — 不同策略用不同规则
+trading_history, backtest_perf = backtest(
+    strategies, stock_price, stock_info,
+    rules={"趋势策略": trend_rules, "反转策略": reversion_rules},
 )
 ```
 

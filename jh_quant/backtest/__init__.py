@@ -12,7 +12,7 @@ from .rules import (
     StopLossRule,
     TakeProfitRule,
     TrailingStopRule,
-    risk_manage_single,
+    apply_rules,
 )
 from .strategy import Strategy
 
@@ -43,5 +43,5 @@ __all__ = [
     "Strategy",
     "TakeProfitRule",
     "TrailingStopRule",
-    "risk_manage_single",
+    "apply_rules",
 ]

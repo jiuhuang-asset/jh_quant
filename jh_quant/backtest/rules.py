@@ -8,7 +8,7 @@
     from jh_quant.backtest import StopLossRule, MaxHoldingBarsRule
 
     rules = [StopLossRule(0.05), MaxHoldingBarsRule(10)]
-    positions = risk_manage_single(df, buy, sell, rules=rules)
+    positions = apply_rules(df, buy, sell, rules=rules)
 
 自定义规则::
 
@@ -230,7 +230,7 @@ class MaxConsecutiveFallingBarsRule(RiskRule):
 # ── 核心引擎 ─────────────────────────────────────────────────────────────────
 
 
-def risk_manage_single(
+def apply_rules(
     stock_price: pd.DataFrame,
     buy_signal: pd.Series,
     sell_signal: pd.Series,
