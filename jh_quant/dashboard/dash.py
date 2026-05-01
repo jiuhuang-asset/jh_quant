@@ -156,7 +156,7 @@ def _resolve_signalgateway_dashboard_index(frontend_root: str | None = None) -> 
     return str(html_path)
 
 
-def display_signalgateway(
+def display_gateway(
     host: str = "127.0.0.1",
     port: int = 8000,
     protocol: str = "http",

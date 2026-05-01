@@ -85,37 +85,6 @@ def build_default_config(session_id: str, auto_start: bool = False) -> SessionSe
     )
 
 
-def main_single() -> None:
-    """Single-session mode."""
-    session_id = "TEST_SESSION_001"
-    initial_capital = 100000.0
-    host = os.getenv("GATEWAY_HOST", "127.0.0.1")
-    port = int(os.getenv("GATEWAY_PORT", "8000"))
-    auto_start_scheduler = os.getenv("GATEWAY_AUTO_START", "0") == "1"
-
-    recorder = SQLiteOrderRecorder(db_path="mocktrade.db")
-    persistence = PersistenceCoordinator(recorder=recorder)
-    oms = MockOMS(session_id=session_id, initial_capital=initial_capital)
-    gateway = SignalGateway(oms=oms, market_data_provider=JHMarketDataProvider())
-    session_config = build_default_config(session_id, auto_start=auto_start_scheduler)
-    session = SessionService(
-        gateway=gateway,
-        config=session_config,
-        persistence=persistence,
-    )
-
-    # Run one demo cycle
-    result = session.run_once()
-    print(result)
-
-    try:
-        if os.getenv("GATEWAY_RUN_SERVER", "0") == "1":
-            run_gateway_app(session=session, host=host, port=port)
-        else:
-            print("session_status", session.get_status())
-            print("Set GATEWAY_RUN_SERVER=1 to launch the HTTP server.")
-    finally:
-        session.shutdown_session()
 
 
 def main_multi() -> None:

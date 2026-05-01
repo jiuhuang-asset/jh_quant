@@ -2,7 +2,18 @@
 
 from .backtest import backtest, build_position, evaluate_strategies
 from .metrics import cal_metrics_from_returns, calculate_returns, calculate_strategy_returns
-from .risk_management import RiskManagementParams, risk_manage_single
+from .rules import (
+    ATRTrailingStopRule,
+    MaxConsecutiveFallingBarsRule,
+    MaxConsecutiveRisingBarsRule,
+    MaxHoldingBarsRule,
+    PositionState,
+    RiskRule,
+    StopLossRule,
+    TakeProfitRule,
+    TrailingStopRule,
+    risk_manage_single,
+)
 from .strategy import Strategy
 
 try:
@@ -13,16 +24,24 @@ except ImportError:  # pragma: no cover - optional factor stack
     Selector = None
 
 __all__ = [
-    "build_position",
+    "ATRTrailingStopRule",
     "backtest",
-    "evaluate_strategies",
-    "Strategy",
-    "RiskManagementParams",
-    "risk_manage_single",
+    "build_position",
+    "cal_metrics_from_returns",
     "calculate_returns",
     "calculate_strategy_returns",
-    "cal_metrics_from_returns",
+    "evaluate_strategies",
     "FactorSelector",
+    "MaxConsecutiveFallingBarsRule",
+    "MaxConsecutiveRisingBarsRule",
+    "MaxHoldingBarsRule",
+    "PositionState",
+    "RiskRule",
     "SelectionResult",
     "Selector",
+    "StopLossRule",
+    "Strategy",
+    "TakeProfitRule",
+    "TrailingStopRule",
+    "risk_manage_single",
 ]

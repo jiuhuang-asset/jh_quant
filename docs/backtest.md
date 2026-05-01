@@ -5,7 +5,7 @@
 - **多进程并行回测**：内置多进程并行计算，回测速度极快
 - **内置11种策略**：海龟交易、均线交叉、RSI、布林带、动量等经典策略
 - **易于扩展**：支持自定义策略（继承 `Strategy` 基类）
-- **完整的风险管理**：支持止损、跟踪止损、最大持仓天数等多种风险管理规则
+- **可组合的风险规则**：支持止损、止盈、移动止损、ATR止损、最大持仓等多种风控规则
 
 ## 快速开始
 
@@ -57,22 +57,32 @@ display_backtesting(trading_history, backtest_perf)
 ### 风险管理
 
 ```python
-from jh_quant.backtest import RiskManagementParams
-
-rmp = RiskManagementParams(
-    max_holding_days=10,           # 最大持仓天数
-    stop_loss_pct=0.05,            # 止损比例 (5%)
-    trailing_stop_pct=0.03,        # 跟踪止损 (3%)
-    max_consecutive_rising_days=5,  # 最大连续上涨天数
-    max_consecutive_falling_days=5, # 最大连续下跌天数
+from jh_quant.backtest import (
+    StopLossRule,
+    TrailingStopRule,
+    MaxHoldingBarsRule,
+    MaxConsecutiveRisingBarsRule,
+    MaxConsecutiveFallingBarsRule,
+    TakeProfitRule,
+    ATRTrailingStopRule,
 )
 
-# 传入风险管理参数
+rules = [
+    MaxHoldingBarsRule(10),              # 最大持仓 bar 数
+    StopLossRule(0.05),                  # 止损 (5%)
+    TrailingStopRule(0.03),             # 跟踪止损 (3%)
+    TakeProfitRule(0.10),               # 止盈 (10%)
+    MaxConsecutiveRisingBarsRule(5),     # 最大连续上涨 bar 数
+    MaxConsecutiveFallingBarsRule(5),    # 最大连续下跌 bar 数
+    ATRTrailingStopRule(multiplier=3),   # ATR 移动止损
+]
+
+# 按策略传入规则
 trading_history, backtest_perf = backtest(
     strategies,
     stock_price,
     stock_info,
-    risk_params=rmp,
+    rules={"策略名": rules},
 )
 ```
 
@@ -141,18 +151,21 @@ class MyStrategy(Strategy):
         return data
 ```
 
-## 风险管理参数
+## 风险管理规则
 
-```python
-from jh_quant.backtest import RiskManagementParams
+内置 8 种风险规则，也可自定义 ``RiskRule`` 子类：
 
-rmp = RiskManagementParams(
-    max_holding_days=10,           # 最大持仓天数
-    stop_loss_pct=0.05,            # 止损比例 (5%)
-    trailing_stop_pct=0.03,        # 跟踪止损 (3%)
-    max_consecutive_rising_days=5,  # 最大连续上涨天数
-    max_consecutive_falling_days=5, # 最大连续下跌天数
-)
+| 规则类 | 说明 | 参数 |
+| --- | --- | --- |
+| ``StopLossRule`` | 固定止损 | ``pct`` — 最大亏损比例 |
+| ``TakeProfitRule`` | 固定止盈 | ``pct`` — 目标盈利比例 |
+| ``TrailingStopRule`` | 百分比移动止损 | ``pct`` — 回撤比例 |
+| ``ATRTrailingStopRule`` | ATR 移动止损 | ``multiplier``, ``window`` |
+| ``MaxHoldingBarsRule`` | 最大持仓 K 线数 | ``bars`` |
+| ``MaxConsecutiveRisingBarsRule`` | 最大连续上涨 K 线数 | ``bars`` |
+| ``MaxConsecutiveFallingBarsRule`` | 最大连续下跌 K 线数 | ``bars`` |
+
+所有规则适用于任意时间频率（日线、周线、小时线等）。
 ```
 
 ## 核心功能
@@ -168,8 +181,7 @@ trading_history, backtest_perf = backtest(
     strategies,        # 策略字典 {"策略名": Strategy实例}
     stock_price,       # 股票价格数据
     stock_info,        # 股票基本信息
-    initialCash=1000000,  # 初始资金（默认100万）
-    risk_params=None,     # RiskManagementParams实例
+    rules=None,        # {"策略名": [RiskRule实例, ...]}
 )
 ```
 
