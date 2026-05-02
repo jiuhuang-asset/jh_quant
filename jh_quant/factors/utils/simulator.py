@@ -11,6 +11,7 @@ Notes on missing data:
 This module provides simulation functions with clear documentation
 that the data is simulated and should be used with caution.
 """
+
 from typing import Optional, List, Dict
 import pandas as pd
 import numpy as np
@@ -25,9 +26,7 @@ Use with caution in production environments.
 
 
 def simulate_missing_data(
-    data_type: str,
-    reference_data: pd.DataFrame,
-    **kwargs
+    data_type: str, reference_data: pd.DataFrame, **kwargs
 ) -> pd.DataFrame:
     """
     Simulate missing data based on available reference data.
@@ -43,13 +42,13 @@ def simulate_missing_data(
     Raises:
         ValueError: If data_type is not supported
     """
-    if data_type == 'historical_mkt_cap':
+    if data_type == "historical_mkt_cap":
         return simulate_historical_market_cap(reference_data, **kwargs)
-    elif data_type == 'bm':
+    elif data_type == "bm":
         return simulate_book_to_market(reference_data, **kwargs)
-    elif data_type == 'roe':
+    elif data_type == "roe":
         return simulate_roe(reference_data, **kwargs)
-    elif data_type == 'idio_vol':
+    elif data_type == "idio_vol":
         return simulate_idiosyncratic_volatility(reference_data, **kwargs)
     else:
         raise ValueError(f"Unknown data type: {data_type}")
@@ -58,7 +57,7 @@ def simulate_missing_data(
 def simulate_historical_market_cap(
     current_mkt_cap: pd.DataFrame,
     dates: Optional[List[str]] = None,
-    volatility: float = 0.3
+    volatility: float = 0.3,
 ) -> pd.DataFrame:
     """
     Simulate historical market cap based on current values.
@@ -84,10 +83,14 @@ def simulate_historical_market_cap(
     if dates is None:
         end_date = datetime.now()
         start_date = end_date - timedelta(days=365 * 5)
-        dates = pd.date_range(start=start_date, end=end_date, freq='M').strftime('%Y-%m-%d').tolist()
+        dates = (
+            pd.date_range(start=start_date, end=end_date, freq="M")
+            .strftime("%Y-%m-%d")
+            .tolist()
+        )
 
     if current_mkt_cap.empty:
-        return pd.DataFrame(columns=['symbol', 'date', 'mkt_cap'])
+        return pd.DataFrame(columns=["symbol", "date", "mkt_cap"])
 
     results = []
 
@@ -95,8 +98,8 @@ def simulate_historical_market_cap(
     monthly_vol = volatility / np.sqrt(12)
 
     for _, row in current_mkt_cap.iterrows():
-        symbol = row['symbol']
-        current_cap = row.get('mkt_cap', row.get('market_cap', 1e9))
+        symbol = row["symbol"]
+        current_cap = row.get("mkt_cap", row.get("market_cap", 1e9))
 
         if pd.isna(current_cap) or current_cap <= 0:
             current_cap = 1e9  # Default to 1B if missing
@@ -109,12 +112,14 @@ def simulate_historical_market_cap(
             change = np.random.normal(0, monthly_vol)
             cap = current_cap * (1 + change)
 
-            results.append({
-                'symbol': symbol,
-                'date': date,
-                'mkt_cap': cap,
-                'is_simulated': True  # Flag to indicate simulated data
-            })
+            results.append(
+                {
+                    "symbol": symbol,
+                    "date": date,
+                    "mkt_cap": cap,
+                    "is_simulated": True,  # Flag to indicate simulated data
+                }
+            )
 
             current_cap = cap
 
@@ -123,9 +128,7 @@ def simulate_historical_market_cap(
 
 
 def simulate_book_to_market(
-    stock_info: pd.DataFrame,
-    dates: Optional[List[str]] = None,
-    bm_ratio: float = 0.5
+    stock_info: pd.DataFrame, dates: Optional[List[str]] = None, bm_ratio: float = 0.5
 ) -> pd.DataFrame:
     """
     Simulate book-to-market ratio.
@@ -146,15 +149,19 @@ def simulate_book_to_market(
     if dates is None:
         end_date = datetime.now()
         start_date = end_date - timedelta(days=365 * 5)
-        dates = pd.date_range(start=start_date, end=end_date, freq='M').strftime('%Y-%m-%d').tolist()
+        dates = (
+            pd.date_range(start=start_date, end=end_date, freq="M")
+            .strftime("%Y-%m-%d")
+            .tolist()
+        )
 
     if stock_info.empty:
-        return pd.DataFrame(columns=['symbol', 'date', 'bm'])
+        return pd.DataFrame(columns=["symbol", "date", "bm"])
 
     results = []
 
     for _, row in stock_info.iterrows():
-        symbol = row['symbol']
+        symbol = row["symbol"]
 
         # Generate BM with some variation around target
         np.random.seed(hash(symbol) % (2**32))
@@ -165,21 +172,16 @@ def simulate_book_to_market(
             monthly_var = np.random.normal(0, 0.05)
             bm = max(0.1, base_bm + monthly_var)  # Ensure positive
 
-            results.append({
-                'symbol': symbol,
-                'date': date,
-                'bm': bm,
-                'is_simulated': True
-            })
+            results.append(
+                {"symbol": symbol, "date": date, "bm": bm, "is_simulated": True}
+            )
 
     df = pd.DataFrame(results)
     return df
 
 
 def simulate_roe(
-    stock_info: pd.DataFrame,
-    dates: Optional[List[str]] = None,
-    avg_roe: float = 0.10
+    stock_info: pd.DataFrame, dates: Optional[List[str]] = None, avg_roe: float = 0.10
 ) -> pd.DataFrame:
     """
     Simulate Return on Equity (ROE).
@@ -200,15 +202,19 @@ def simulate_roe(
     if dates is None:
         end_date = datetime.now()
         start_date = end_date - timedelta(days=365 * 5)
-        dates = pd.date_range(start=start_date, end=end_date, freq='M').strftime('%Y-%m-%d').tolist()
+        dates = (
+            pd.date_range(start=start_date, end=end_date, freq="M")
+            .strftime("%Y-%m-%d")
+            .tolist()
+        )
 
     if stock_info.empty:
-        return pd.DataFrame(columns=['symbol', 'date', 'roe'])
+        return pd.DataFrame(columns=["symbol", "date", "roe"])
 
     results = []
 
     for _, row in stock_info.iterrows():
-        symbol = row['symbol']
+        symbol = row["symbol"]
 
         # Generate ROE with mean reversion to industry average
         np.random.seed(hash(symbol) % (2**32))
@@ -219,12 +225,9 @@ def simulate_roe(
             roe = base_roe + np.random.normal(0, 0.02)
             roe = max(-0.5, min(0.5, roe))  # Clip extreme values
 
-            results.append({
-                'symbol': symbol,
-                'date': date,
-                'roe': roe,
-                'is_simulated': True
-            })
+            results.append(
+                {"symbol": symbol, "date": date, "roe": roe, "is_simulated": True}
+            )
 
             # Mean reversion
             base_roe = 0.7 * base_roe + 0.3 * avg_roe
@@ -234,8 +237,7 @@ def simulate_roe(
 
 
 def simulate_idiosyncratic_volatility(
-    stock_returns: pd.DataFrame,
-    window: int = 252
+    stock_returns: pd.DataFrame, window: int = 252
 ) -> pd.DataFrame:
     """
     Simulate idiosyncratic volatility.
@@ -251,26 +253,26 @@ def simulate_idiosyncratic_volatility(
         DataFrame with [symbol, date, idio_vol]
     """
     if stock_returns.empty:
-        return pd.DataFrame(columns=['symbol', 'date', 'idio_vol'])
+        return pd.DataFrame(columns=["symbol", "date", "idio_vol"])
 
     results = []
 
-    for symbol in stock_returns['symbol'].unique():
-        stock_data = stock_returns[stock_returns['symbol'] == symbol].copy()
-        stock_data = stock_data.sort_values('date')
+    for symbol in stock_returns["symbol"].unique():
+        stock_data = stock_returns[stock_returns["symbol"] == symbol].copy()
+        stock_data = stock_data.sort_values("date")
 
         # Calculate rolling standard deviation
-        stock_data['idio_vol'] = stock_data['return'].rolling(window=window).std()
+        stock_data["idio_vol"] = stock_data["return"].rolling(window=window).std()
 
         # Add some noise for stocks with insufficient history
         np.random.seed(hash(symbol) % (2**32))
-        stock_data['idio_vol'] = stock_data['idio_vol'].fillna(
+        stock_data["idio_vol"] = stock_data["idio_vol"].fillna(
             np.random.uniform(0.02, 0.05)
         )
 
-        stock_data['is_simulated'] = stock_data['idio_vol'].isna()
+        stock_data["is_simulated"] = stock_data["idio_vol"].isna()
 
-        results.append(stock_data[['symbol', 'date', 'idio_vol', 'is_simulated']])
+        results.append(stock_data[["symbol", "date", "idio_vol", "is_simulated"]])
 
     df = pd.concat(results, ignore_index=True)
     return df

@@ -164,7 +164,9 @@ def display_gateway(
     refresh_interval_ms: int = 15000,
     frontend_root: str | None = None,
 ):
-    rprint(f"[cyan]  Starting SignalGateway dashboard on {protocol}://{host}:{port} ...")
+    rprint(
+        f"[cyan]  Starting SignalGateway dashboard on {protocol}://{host}:{port} ..."
+    )
     api = SignalGatewayView(
         host=host,
         port=port,

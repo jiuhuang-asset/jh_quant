@@ -74,7 +74,9 @@ def _load_daily_position_values(
     daily_perf: Optional[pd.DataFrame] = None,
     snaps: Optional[pd.DataFrame] = None,
 ) -> pd.DataFrame:
-    daily_perf = source.query_daily_performance(session_id) if daily_perf is None else daily_perf
+    daily_perf = (
+        source.query_daily_performance(session_id) if daily_perf is None else daily_perf
+    )
     if not daily_perf.empty:
         daily_perf = daily_perf.copy()
         daily_perf["trade_date"] = _normalize_trade_dates(daily_perf, "trade_date")
@@ -173,7 +175,9 @@ def calculate_equity_curve(
     daily_perf: Optional[pd.DataFrame] = None,
     snaps: Optional[pd.DataFrame] = None,
 ) -> pd.DataFrame:
-    daily_perf = source.query_daily_performance(session_id) if daily_perf is None else daily_perf
+    daily_perf = (
+        source.query_daily_performance(session_id) if daily_perf is None else daily_perf
+    )
     if not daily_perf.empty:
         result = daily_perf.copy()
         result["trade_date"] = _normalize_trade_dates(result, "trade_date")
@@ -266,10 +270,14 @@ def summarize_position_exposure(
 
     if equity_curve is not None and not equity_curve.empty:
         last_row = equity_curve.sort_values("trade_date").iloc[-1]
-        latest_portfolio_value = float(last_row.get("portfolio_value", gross_market_value) or 0.0)
+        latest_portfolio_value = float(
+            last_row.get("portfolio_value", gross_market_value) or 0.0
+        )
         latest_cash_balance = float(last_row.get("cash_balance", 0.0) or 0.0)
 
-    denominator = latest_portfolio_value if latest_portfolio_value > 0 else gross_market_value
+    denominator = (
+        latest_portfolio_value if latest_portfolio_value > 0 else gross_market_value
+    )
     weights = (
         latest["market_value"].astype(float) / denominator
         if denominator > 0
@@ -281,15 +289,27 @@ def summarize_position_exposure(
         ["symbol", "market_value", "pnl", "pnl_pct", "weight"]
     ].to_dict(orient="records")
 
-    invested_ratio = gross_market_value / latest_portfolio_value if latest_portfolio_value > 0 else 0.0
-    cash_ratio = latest_cash_balance / latest_portfolio_value if latest_portfolio_value > 0 else 1.0
+    invested_ratio = (
+        gross_market_value / latest_portfolio_value
+        if latest_portfolio_value > 0
+        else 0.0
+    )
+    cash_ratio = (
+        latest_cash_balance / latest_portfolio_value
+        if latest_portfolio_value > 0
+        else 1.0
+    )
     return {
         "position_count": int(len(latest)),
         "gross_market_value": gross_market_value,
         "cash_ratio": float(cash_ratio),
         "invested_ratio": float(invested_ratio),
-        "max_position_weight": float(latest["weight"].max()) if not latest.empty else 0.0,
-        "top3_concentration": float(latest["weight"].head(3).sum()) if not latest.empty else 0.0,
+        "max_position_weight": (
+            float(latest["weight"].max()) if not latest.empty else 0.0
+        ),
+        "top3_concentration": (
+            float(latest["weight"].head(3).sum()) if not latest.empty else 0.0
+        ),
         "top_positions": top_positions,
     }
 
@@ -308,7 +328,9 @@ def summarize_latest_portfolio(equity_curve: pd.DataFrame) -> Dict[str, Any]:
         "cash_balance": cash_balance,
         "position_value": position_value,
         "cash_ratio": (cash_balance / portfolio_value) if portfolio_value > 0 else 1.0,
-        "invested_ratio": (position_value / portfolio_value) if portfolio_value > 0 else 0.0,
+        "invested_ratio": (
+            (position_value / portfolio_value) if portfolio_value > 0 else 0.0
+        ),
     }
 
 
@@ -333,7 +355,9 @@ def _realized_pnl_from_trades(trades: pd.DataFrame) -> list[float]:
                 costs[symbol] = 0.0
                 quantities[symbol] = 0
                 continue
-            weighted_cost = ((costs[symbol] * quantities[symbol]) + (price * qty)) / total_qty
+            weighted_cost = (
+                (costs[symbol] * quantities[symbol]) + (price * qty)
+            ) / total_qty
             quantities[symbol] = total_qty
             costs[symbol] = weighted_cost
             continue
@@ -415,9 +439,13 @@ def get_performance_summary(
     result["total_pnl"] = result["realized_pnl"] + result["unrealized_pnl"]
 
     if not daily_values.empty:
-        equity_curve = daily_values.sort_values("trade_date")["portfolio_value"].astype(float)
+        equity_curve = daily_values.sort_values("trade_date")["portfolio_value"].astype(
+            float
+        )
         running_peak = equity_curve.cummax()
-        drawdown = ((equity_curve - running_peak) / running_peak.replace(0, pd.NA)).fillna(0.0)
+        drawdown = (
+            (equity_curve - running_peak) / running_peak.replace(0, pd.NA)
+        ).fillna(0.0)
         result["max_drawdown"] = float(drawdown.min())
 
     return result

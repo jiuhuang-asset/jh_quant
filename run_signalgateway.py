@@ -32,7 +32,9 @@ from jh_quant.gateway.config import (
 )
 
 
-def build_default_config(session_id: str, auto_start: bool = False) -> SessionServiceConfig:
+def build_default_config(
+    session_id: str, auto_start: bool = False
+) -> SessionServiceConfig:
     return (
         SessionServiceConfigBuilder.defaults()
         .with_session(
@@ -63,7 +65,9 @@ def build_default_config(session_id: str, auto_start: bool = False) -> SessionSe
             name="moving_average_crossover",
             alias="sma",
             weight=1.0,
-            params=MovingAverageCrossoverStrategyConfig(short_window=12, long_window=24),
+            params=MovingAverageCrossoverStrategyConfig(
+                short_window=12, long_window=24
+            ),
         )
         .add_strategy(
             name="volume_divergence",
@@ -85,6 +89,38 @@ def build_default_config(session_id: str, auto_start: bool = False) -> SessionSe
     )
 
 
+def main_single() -> None:
+    """单 session 模式。"""
+    host = os.getenv("GATEWAY_HOST", "127.0.0.1")
+    port = int(os.getenv("GATEWAY_PORT", "8000"))
+    auto_start = os.getenv("GATEWAY_AUTO_START", "0") == "1"
+
+    config = build_default_config("DEFAULT_SESSION", auto_start=auto_start)
+    md_provider = JHMarketDataProvider()
+    oms = MockOMS(initial_capital=100000, session_id=config.session.session_id)
+    recorder = SQLiteOrderRecorder(db_path="mocktrade.db")
+    persistence = PersistenceCoordinator(recorder=recorder)
+
+    gateway = SignalGateway(oms=oms, market_data_provider=md_provider)
+    gs = SessionService(
+        gateway=gateway,
+        config=config,
+        persistence=persistence,
+    )
+
+    print(f"\n{'='*60}")
+    print(f"  Gateway Session: {config.session.session_id}")
+    print(f"{'='*60}\n")
+
+    print(">>> run_once 开始 ...")
+    result = gs.run_once()
+    print(f"\n>>> 执行结果: {result}")
+
+    if os.getenv("GATEWAY_RUN_SERVER", "0") == "1":
+        print(f"\n启动 HTTP 服务: {host}:{port}")
+        run_gateway_app(service=gs, host=host, port=port)
+    else:
+        print("\n设置 GATEWAY_RUN_SERVER=1 以启动 HTTP 服务。")
 
 
 def main_multi() -> None:
@@ -155,7 +191,7 @@ def main_multi() -> None:
 
 
 def main() -> None:
-    os.environ["GATEWAY_MULTI_SESSION"] = "1"
+    os.environ.setdefault("GATEWAY_MULTI_SESSION", "0")
     if os.getenv("GATEWAY_MULTI_SESSION", "0") == "1":
         main_multi()
     else:
@@ -163,4 +199,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\nGracefully shutting down...")

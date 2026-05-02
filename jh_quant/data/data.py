@@ -26,7 +26,6 @@ from .data_types import (
 )
 
 
-
 load_dotenv()
 
 __all__ = ["JHData", "DataTypes", "get_code_col", "get_code_date_col"]
@@ -169,7 +168,7 @@ class _JHDataWrapper:
     @property
     def code_col(self) -> str:
         return get_code_col(self._df)
-    
+
     @property
     def date_col(self) -> str:
         return get_date_col(self._df)
@@ -206,19 +205,23 @@ class _JHDataWrapper:
         """获取DataFrame的code列名和date列名"""
         return get_code_date_col(self._df)
 
+
 JhDataType = _JHDataWrapper
+
 
 def get_code_col(df: pd.DataFrame) -> str:
     """获取DataFrame的code列名"""
     code_col, _ = get_code_date_col(df)
     return code_col
 
+
 def get_date_col(df: pd.DataFrame) -> str:
     """获取DataFrame的date列名"""
     _, date_col = get_code_date_col(df)
-    return date_col 
+    return date_col
 
-def get_code_date_col(df:pd.DataFrame) -> Tuple[str, str]:
+
+def get_code_date_col(df: pd.DataFrame) -> Tuple[str, str]:
     datatype = getattr(df, "_jh_dt", None)
 
     if datatype is None:
@@ -249,9 +252,7 @@ def get_code_date_col(df:pd.DataFrame) -> Tuple[str, str]:
     }:
         return "symbol", "date"
 
-    if datatype in {
-        DataTypes.AK_STOCK_ZH_A_SPOT
-    }:
+    if datatype in {DataTypes.AK_STOCK_ZH_A_SPOT}:
         return "symbol", "dt"
 
     if datatype.value.startswith("ak"):
@@ -260,7 +261,8 @@ def get_code_date_col(df:pd.DataFrame) -> Tuple[str, str]:
         return "ts_code", "trade_date"
 
     return "symbol", "date"  # Default
-    
+
+
 class JHData:
     SMALL_DOWNLOAD_THRESHOLD = 500_000
     INCREMENTAL_BATCH_SIZE = 50_000
@@ -366,7 +368,9 @@ class JHData:
         yield (start, mid.strftime("%Y-%m-%d"))
         yield (mid.strftime("%Y-%m-%d"), end)
 
-    def _bisect_list_param(self, value: str, param_name: str) -> Generator[dict, None, None]:
+    def _bisect_list_param(
+        self, value: str, param_name: str
+    ) -> Generator[dict, None, None]:
         """将逗号分隔的列表参数二分"""
         items = [s.strip() for s in value.split(",") if s.strip()]
         n = len(items)
@@ -393,9 +397,7 @@ class JHData:
             if len(sub_ranges) < 2:
                 return None
             base = {k: v for k, v in payload.items() if k not in ("start", "end")}
-            return [
-                {**base, "start": r[0], "end": r[1]} for r in sub_ranges
-            ]
+            return [{**base, "start": r[0], "end": r[1]} for r in sub_ranges]
         elif splittable in self._LIST_PARAMS:
             val = payload[splittable]
             sub_params = list(self._bisect_list_param(val, splittable))
@@ -547,7 +549,9 @@ class JHData:
         """
         remote_data_count = self.get_data_total(data_type=data_type, **kwargs)
         if remote_data_count == 0:
-            rprint(f"[bold yellow]Remote没有数据({data_type}), 请检查参数[/bold yellow]")
+            rprint(
+                f"[bold yellow]Remote没有数据({data_type}), 请检查参数[/bold yellow]"
+            )
             return
 
         # 缓存命中检查
@@ -557,7 +561,7 @@ class JHData:
             if len(cached) == remote_data_count:
                 return cached
             if len(cached) > remote_data_count:
-                self.clear_cache(data_type) # remote shold always be the root source
+                self.clear_cache(data_type)  # remote shold always be the root source
 
         rprint(f"[cyan]Pulling data from JiuHuang API...[/cyan]")
 
@@ -575,7 +579,7 @@ class JHData:
 
         kw = {k: v for k, v in kwargs.items() if k != "remote"}
         return self._cache.get_data(data_type, **kw)
-    
+
     def clear_cache(self, data_type: DataTypes):
         """清除指定数据类型的本地缓存（truncate表）"""
         self._cache._clear_table(data_type)
@@ -684,7 +688,6 @@ class _DataCache:
         conn.close()
         data.drop(columns=["id", "created_at"], errors="ignore", inplace=True)
         return data
-
 
     def get_data_total(self, data_type: DataTypes, **kwargs):
         self._init_table(data_type)

@@ -4,7 +4,14 @@ from dataclasses import asdict, dataclass, is_dataclass
 import inspect
 from typing import Any, Dict, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, create_model, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    create_model,
+    field_validator,
+)
 
 from jh_quant.backtest.strategy import (
     Strategy,
@@ -181,7 +188,9 @@ STRATEGY_CONFIG_MODELS: Dict[str, type] = {
 }
 
 
-def register_strategy(name: str, strategy_cls: type, config_model: Optional[type] = None) -> None:
+def register_strategy(
+    name: str, strategy_cls: type, config_model: Optional[type] = None
+) -> None:
     """注册策略实现及其可选参数模型。"""
 
     if not issubclass(strategy_cls, Strategy):
@@ -203,10 +212,19 @@ class StrategySpec(BaseModel):
     用于声明启用哪一个策略、它的权重，以及对应的初始化参数。
     """
 
-    name: str = Field(description="策略注册名，例如 `turtle` 或 `moving_average_crossover`。")
-    weight: float = Field(default=1.0, description="策略权重，用于多策略组合时分配影响力。")
-    params: Dict[str, Any] = Field(default_factory=dict, description="策略初始化参数字典，也支持传入 dataclass 或 Pydantic 配置对象。")
-    alias: Optional[str] = Field(default=None, description="可选别名，便于区分多个同类策略实例。")
+    name: str = Field(
+        description="策略注册名，例如 `turtle` 或 `moving_average_crossover`。"
+    )
+    weight: float = Field(
+        default=1.0, description="策略权重，用于多策略组合时分配影响力。"
+    )
+    params: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="策略初始化参数字典，也支持传入 dataclass 或 Pydantic 配置对象。",
+    )
+    alias: Optional[str] = Field(
+        default=None, description="可选别名，便于区分多个同类策略实例。"
+    )
 
     @field_validator("params", mode="before")
     @classmethod
@@ -214,14 +232,21 @@ class StrategySpec(BaseModel):
         return _params_to_plain_dict(value)
 
 
-def _callable_param_model(target: Any, model_name: str, *, exclude: Optional[set[str]] = None):
+def _callable_param_model(
+    target: Any, model_name: str, *, exclude: Optional[set[str]] = None
+):
     exclude = exclude or set()
     signature = inspect.signature(target)
     fields: Dict[str, tuple[Any, Any]] = {}
     for name, param in signature.parameters.items():
-        if name in exclude or param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
+        if name in exclude or param.kind in (
+            inspect.Parameter.VAR_POSITIONAL,
+            inspect.Parameter.VAR_KEYWORD,
+        ):
             continue
-        annotation = Any if param.annotation is inspect.Signature.empty else param.annotation
+        annotation = (
+            Any if param.annotation is inspect.Signature.empty else param.annotation
+        )
         default = ... if param.default is inspect.Signature.empty else param.default
         fields[name] = (annotation, default)
     return create_model(model_name, __config__=ConfigDict(extra="forbid"), **fields)
@@ -263,7 +288,9 @@ def validate_strategy_params(name: str, params: Dict[str, Any]) -> Dict[str, Any
 
 
 def normalize_strategy_spec(spec: StrategySpec) -> StrategySpec:
-    return spec.model_copy(update={"params": validate_strategy_params(spec.name, spec.params)})
+    return spec.model_copy(
+        update={"params": validate_strategy_params(spec.name, spec.params)}
+    )
 
 
 def get_strategy_params_schema(name: str) -> Dict[str, Any]:

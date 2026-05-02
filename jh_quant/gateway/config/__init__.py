@@ -1,4 +1,13 @@
 from .enums import Frequency
+from .risk_rules import (
+    RISK_RULE_REGISTRY,
+    RiskRuleSpec,
+    build_risk_rules,
+    list_risk_rule_definitions,
+    normalize_risk_rule_spec,
+    register_risk_rule,
+    validate_risk_rule_params,
+)
 from .portfolio import (
     PORTFOLIO_OPTIMIZER_REGISTRY,
     PortfolioAnalysisSpec,
@@ -64,6 +73,9 @@ from .strategy import (
 __all__ = [
     "Frequency",
     "PORTFOLIO_OPTIMIZER_REGISTRY",
+    "RISK_RULE_REGISTRY",
+    "RiskRuleSpec",
+    "build_risk_rules",
     "export_config_to_file",
     "export_config_to_json_string",
     "import_config_from_dict",
@@ -106,12 +118,16 @@ __all__ = [
     "get_selection_params_schema",
     "get_strategy_params_schema",
     "list_portfolio_optimizer_definitions",
+    "list_risk_rule_definitions",
     "list_selection_definitions",
     "list_strategy_definitions",
+    "normalize_risk_rule_spec",
     "normalize_selection_spec",
     "normalize_strategy_spec",
+    "register_risk_rule",
     "register_selection_provider",
     "register_strategy",
+    "validate_risk_rule_params",
     "validate_selection_params",
     "validate_strategy_params",
 ]

@@ -126,9 +126,7 @@ class TrailingStopRule(RiskRule):
     def should_sell(
         self, state: PositionState, current_price: float, prev_price: Optional[float]
     ) -> bool:
-        return (
-            current_price - state.highest_price
-        ) / state.highest_price <= -self.pct
+        return (current_price - state.highest_price) / state.highest_price <= -self.pct
 
 
 class ATRTrailingStopRule(RiskRule):
@@ -253,7 +251,7 @@ def apply_rules(
     positions: List[int] = []
     prev_price: Optional[float] = None
 
-    atr_series = _maybe_compute_atr(stock_price, rules)
+    atr_series = maybe_compute_atr(stock_price, rules)
 
     for idx in stock_price.index.tolist():
         current_price = float(stock_price.loc[idx, "close"])
@@ -299,7 +297,7 @@ def apply_rules(
     return positions
 
 
-def _maybe_compute_atr(
+def maybe_compute_atr(
     stock_price: pd.DataFrame, rules: List[RiskRule]
 ) -> Optional[pd.Series]:
     """如果规则列表中包含 ATRTrailingStopRule，预计算 ATR 序列。"""

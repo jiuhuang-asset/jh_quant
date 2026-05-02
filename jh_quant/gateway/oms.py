@@ -1,7 +1,7 @@
 import pandas as pd
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, List, Any
-from datetime import timedelta, datetime
+from datetime import datetime
 import uuid
 from typing import Tuple
 
@@ -29,12 +29,10 @@ class OMS(ABC):
         ...
 
     @abstractmethod
-    def get_positions(self) -> Positions:
-        ...
+    def get_positions(self) -> Positions: ...
 
     @abstractmethod
-    def get_available_balance(self) -> float:
-        ...
+    def get_available_balance(self) -> float: ...
 
     @abstractmethod
     def signal_buy(self, order: Order) -> Trade:
@@ -53,8 +51,7 @@ class OMS(ABC):
 
     @property
     @abstractmethod
-    def executable_holds(self) -> List[StockHoldRecord]:
-        ...
+    def executable_holds(self) -> List[StockHoldRecord]: ...
 
 
 class MockOMS(OMS):
@@ -117,6 +114,7 @@ class MockOMS(OMS):
         Returns:
             包含所有关键状态的字典
         """
+
         # 将持仓和交易数据转换为可JSON序列化的格式
         def convert_to_serializable(obj):
             """递归转换所有不可JSON序列化的对象"""
@@ -419,8 +417,7 @@ class MockOMS(OMS):
         )
 
         snapshots = [
-            self.compute_position_snapshot(hold, trade_date)
-            for hold in self.holds
+            self.compute_position_snapshot(hold, trade_date) for hold in self.holds
         ]
 
         # Reset daily profit after computing
@@ -430,12 +427,12 @@ class MockOMS(OMS):
 
     @property
     def executable_holds(self) -> List[StockHoldRecord]:
+        """Positions eligible for sale (T+1 gate: bought on a prior calendar day)."""
+        today = datetime.now().date()
         holds = [
             hold
             for hold in self.holds
-            if hold.volume > 0
-            and hold.buy_date
-            <= (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+            if hold.volume > 0 and hold.entry_time.date() < today
         ]
 
         return holds

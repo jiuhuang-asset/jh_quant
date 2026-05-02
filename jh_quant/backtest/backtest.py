@@ -73,9 +73,7 @@ def build_position(
         stock_data = result_df.loc[stock_mask].copy()
         stock_buy_signal = buy_signal.loc[stock_mask]
         stock_sell_signal = sell_signal.loc[stock_mask]
-        positions = apply_rules(
-            stock_data, stock_buy_signal, stock_sell_signal, rules
-        )
+        positions = apply_rules(stock_data, stock_buy_signal, stock_sell_signal, rules)
         result_df.loc[stock_mask, "position"] = positions
 
     return result_df
@@ -157,12 +155,10 @@ def evaluate_strategies(
     combined_performance = combined.rename(
         columns={"level_0": code_col, "level_1": "metric"}
     )
-    concated_trading_hist =  pd.concat(_trading_history_datas).reset_index()[_trading_history_cols]
-    return (
-        combined_performance,
-        JhDataType(concated_trading_hist, price.jh_dt)
-
-    )
+    concated_trading_hist = pd.concat(_trading_history_datas).reset_index()[
+        _trading_history_cols
+    ]
+    return (combined_performance, JhDataType(concated_trading_hist, price.jh_dt))
 
 
 def backtest(

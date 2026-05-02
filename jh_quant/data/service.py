@@ -111,9 +111,7 @@ def _bulk_import(data_type_str: str, data: pd.DataFrame) -> int:
         if unique_keys:
             update_columns = [col for col in insert_columns if col not in unique_keys]
             if update_columns:
-                update_set = ", ".join(
-                    [f'EXCLUDED."{col}"' for col in update_columns]
-                )
+                update_set = ", ".join([f'EXCLUDED."{col}"' for col in update_columns])
                 update_names = ", ".join([f'"{col}"' for col in update_columns])
                 merge_sql = f"""
                     INSERT INTO {table_name} ({column_list})
@@ -140,6 +138,7 @@ def _bulk_import(data_type_str: str, data: pd.DataFrame) -> int:
 
 
 # ---- FastAPI app ----
+
 
 def create_app() -> FastAPI:
     app = FastAPI(title="JHData DuckDB Service")

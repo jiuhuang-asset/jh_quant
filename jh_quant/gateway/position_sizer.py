@@ -1,6 +1,7 @@
 """
 Position sizing strategies with a Protocol interface for plugin compatibility.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
@@ -115,7 +116,11 @@ class ATRPositionSizer:
 
         candidate_symbols = candidates["symbol"].unique()
         price_df_filtered = price_df[price_df["symbol"].isin(candidate_symbols)]
-        atr_series = price_df_filtered.groupby("symbol").apply(compute_atr, include_groups=False).dropna()
+        atr_series = (
+            price_df_filtered.groupby("symbol")
+            .apply(compute_atr, include_groups=False)
+            .dropna()
+        )
 
         result = candidates.copy()
         result = result.merge(
@@ -172,7 +177,9 @@ class ATRPositionSizer:
                 remaining = available_balance - current_spent
                 possible_qty = (remaining // price // 100) * 100
                 if possible_qty >= 100:
-                    selected_rows.append({"symbol": row["symbol"], "target_qty": possible_qty})
+                    selected_rows.append(
+                        {"symbol": row["symbol"], "target_qty": possible_qty}
+                    )
                     current_spent += possible_qty * price
                 else:
                     continue
@@ -200,7 +207,9 @@ class FixedWeightPositionSizer:
         if candidates.empty:
             return pd.DataFrame()
 
-        top_candidates = candidates.sort_values("score", ascending=False).head(self.max_stocks)
+        top_candidates = candidates.sort_values("score", ascending=False).head(
+            self.max_stocks
+        )
 
         if top_candidates.empty:
             return pd.DataFrame()
@@ -216,7 +225,9 @@ class FixedWeightPositionSizer:
         )
         result = result.dropna(subset=["current_price"])
 
-        result["target_qty"] = (weight_per_stock // result["current_price"] // 100) * 100
+        result["target_qty"] = (
+            weight_per_stock // result["current_price"] // 100
+        ) * 100
         result = result[result["target_qty"] > 0]
 
         return result[["symbol", "target_qty"]].reset_index(drop=True)

@@ -45,7 +45,6 @@ if TORTOISE_ORM_AVAILABLE:
             ordering = ["trade_date"]
             indexes = [("session_id", "trade_date")]
 
-
     class DailyPerformanceRecord(TortoiseModel):
         performance_id = fields.CharField(max_length=128, primary_key=True)
         session_id = fields.CharField(max_length=128, db_index=True)
@@ -65,7 +64,6 @@ if TORTOISE_ORM_AVAILABLE:
             unique_together = (("session_id", "trade_date"),)
             indexes = [("session_id", "trade_date")]
 
-
     class PositionSnapshotRecord(TortoiseModel):
         snapshot_id = fields.CharField(max_length=128, primary_key=True)
         session_id = fields.CharField(max_length=128, db_index=True)
@@ -84,7 +82,6 @@ if TORTOISE_ORM_AVAILABLE:
             ordering = ["trade_date"]
             indexes = [("session_id", "trade_date")]
 
-
     class SessionStateRecord(TortoiseModel):
         id = fields.IntField(primary_key=True)
         session_id = fields.CharField(max_length=128, db_index=True)
@@ -98,7 +95,6 @@ if TORTOISE_ORM_AVAILABLE:
             unique_together = (("session_id", "export_time"),)
             indexes = [("session_id", "export_time")]
 
-
     class RuntimeStateRecord(TortoiseModel):
         session_id = fields.CharField(max_length=128, primary_key=True)
         state_data = fields.JSONField()
@@ -108,7 +104,6 @@ if TORTOISE_ORM_AVAILABLE:
         class Meta:
             table = "session_runtime_states"
             indexes = [("session_id", "export_time")]
-
 
     class UserConfigRecord(TortoiseModel):
         session_id = fields.CharField(max_length=128, primary_key=True)
@@ -120,7 +115,6 @@ if TORTOISE_ORM_AVAILABLE:
         class Meta:
             table = "session_user_configs"
             indexes = [("session_id", "export_time"), ("session_id", "source")]
-
 
     class RuntimeEventRecord(TortoiseModel):
         id = fields.IntField(primary_key=True)
@@ -140,26 +134,20 @@ else:
     class TradeRecord:  # pragma: no cover - import fallback
         pass
 
-
     class DailyPerformanceRecord:  # pragma: no cover - import fallback
         pass
-
 
     class PositionSnapshotRecord:  # pragma: no cover - import fallback
         pass
 
-
     class SessionStateRecord:  # pragma: no cover - import fallback
         pass
-
 
     class RuntimeStateRecord:  # pragma: no cover - import fallback
         pass
 
-
     class UserConfigRecord:  # pragma: no cover - import fallback
         pass
-
 
     class RuntimeEventRecord:  # pragma: no cover - import fallback
         pass

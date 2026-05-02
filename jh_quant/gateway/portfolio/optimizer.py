@@ -56,7 +56,9 @@ class RiskfolioPortfolioOptimizer:
     ) -> pd.DataFrame:
         universe = pd.DataFrame({"symbol": list(signal_scores.index)})
         normalized = universe.merge(weights.copy(), on="symbol", how="left")
-        normalized["target_weight"] = normalized["target_weight"].astype(float).clip(lower=0.0)
+        normalized["target_weight"] = (
+            normalized["target_weight"].astype(float).clip(lower=0.0)
+        )
         epsilon = float(portfolio_spec.weight_epsilon)
         normalized.loc[normalized["target_weight"] < epsilon, "target_weight"] = 0.0
 
@@ -76,7 +78,9 @@ class RiskfolioPortfolioOptimizer:
             if eligible.empty:
                 break
 
-            eligible_scores = signal_scores.reindex(eligible).fillna(0.0).clip(lower=0.0)
+            eligible_scores = (
+                signal_scores.reindex(eligible).fillna(0.0).clip(lower=0.0)
+            )
             if float(eligible_scores.sum()) <= 0:
                 eligible_scores = pd.Series(1.0, index=eligible, dtype=float)
 
@@ -90,7 +94,9 @@ class RiskfolioPortfolioOptimizer:
                 delta = min(room, residual * float(fraction))
                 if delta <= 1e-9:
                     continue
-                normalized.at[idx, "target_weight"] = float(normalized.at[idx, "target_weight"]) + delta
+                normalized.at[idx, "target_weight"] = (
+                    float(normalized.at[idx, "target_weight"]) + delta
+                )
                 residual -= delta
                 allocated_any = True
 
@@ -102,8 +108,12 @@ class RiskfolioPortfolioOptimizer:
         total_weight = float(normalized["target_weight"].sum())
         if total_weight > 0:
             normalized["target_weight"] = normalized["target_weight"] / total_weight
-            normalized["target_weight"] = normalized["target_weight"].clip(upper=max_weight)
-        return normalized.sort_values("target_weight", ascending=False).reset_index(drop=True)
+            normalized["target_weight"] = normalized["target_weight"].clip(
+                upper=max_weight
+            )
+        return normalized.sort_values("target_weight", ascending=False).reset_index(
+            drop=True
+        )
 
     def optimize(
         self,
@@ -124,16 +134,27 @@ class RiskfolioPortfolioOptimizer:
 
         clean_returns = returns.dropna(axis=1, how="any")
         if clean_returns.empty:
-            raise ValueError("Return matrix is empty after dropping columns with missing values")
+            raise ValueError(
+                "Return matrix is empty after dropping columns with missing values"
+            )
 
         variance = clean_returns.var()
         non_constant_symbols = variance[variance > 1e-12].index.tolist()
         clean_returns = clean_returns[non_constant_symbols]
         if clean_returns.empty:
-            raise ValueError("Return matrix is empty after dropping constant-return assets")
+            raise ValueError(
+                "Return matrix is empty after dropping constant-return assets"
+            )
 
-        if portfolio_spec.max_assets is not None and clean_returns.shape[1] > portfolio_spec.max_assets:
-            if signals is not None and not signals.empty and "symbol" in signals.columns:
+        if (
+            portfolio_spec.max_assets is not None
+            and clean_returns.shape[1] > portfolio_spec.max_assets
+        ):
+            if (
+                signals is not None
+                and not signals.empty
+                and "symbol" in signals.columns
+            ):
                 score_map = (
                     signals.drop_duplicates("symbol")
                     .set_index("symbol")
@@ -144,15 +165,21 @@ class RiskfolioPortfolioOptimizer:
                     key=lambda symbol: float(score_map.get(symbol, 0.0)),
                     reverse=True,
                 )
-                clean_returns = clean_returns[ordered_symbols[: portfolio_spec.max_assets]]
+                clean_returns = clean_returns[
+                    ordered_symbols[: portfolio_spec.max_assets]
+                ]
             else:
                 clean_returns = clean_returns.iloc[:, : portfolio_spec.max_assets]
 
-        signal_scores = self._build_signal_score_map(signals, list(clean_returns.columns))
+        signal_scores = self._build_signal_score_map(
+            signals, list(clean_returns.columns)
+        )
         portfolio = rp.Portfolio(returns=clean_returns)
         capture = io.StringIO()
         with redirect_stdout(capture), redirect_stderr(capture):
-            portfolio.assets_stats(method_mu="hist", method_cov=portfolio_spec.covariance_method)
+            portfolio.assets_stats(
+                method_mu="hist", method_cov=portfolio_spec.covariance_method
+            )
             weight_frame = portfolio.optimization(
                 model=portfolio_spec.model,
                 rm=portfolio_spec.risk_measure,
@@ -164,7 +191,11 @@ class RiskfolioPortfolioOptimizer:
         if weight_frame is None or weight_frame.empty:
             raise ValueError("Riskfolio-Lib returned no portfolio weights")
 
-        weight_series = weight_frame.iloc[:, 0] if isinstance(weight_frame, pd.DataFrame) else weight_frame
+        weight_series = (
+            weight_frame.iloc[:, 0]
+            if isinstance(weight_frame, pd.DataFrame)
+            else weight_frame
+        )
         weights = (
             weight_series.rename("target_weight")
             .reset_index()
@@ -176,7 +207,9 @@ class RiskfolioPortfolioOptimizer:
             portfolio_spec,
             signal_scores=signal_scores,
         )
-        optimizer_messages = [line.strip() for line in capture.getvalue().splitlines() if line.strip()]
+        optimizer_messages = [
+            line.strip() for line in capture.getvalue().splitlines() if line.strip()
+        ]
 
         return PortfolioOptimizationResult(
             optimizer="riskfolio",
@@ -204,4 +237,6 @@ def optimize_portfolio_preview(
 ) -> PortfolioOptimizationResult:
     if portfolio_spec.optimizer != "riskfolio":
         raise ValueError(f"Unsupported portfolio optimizer: {portfolio_spec.optimizer}")
-    return RiskfolioPortfolioOptimizer().optimize(returns, portfolio_spec, signals=signals)
+    return RiskfolioPortfolioOptimizer().optimize(
+        returns, portfolio_spec, signals=signals
+    )

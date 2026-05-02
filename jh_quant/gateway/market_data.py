@@ -60,11 +60,14 @@ class MarketDataProvider(ABC):
     ) -> pd.DataFrame:
         """Return historical OHLCV-style data for the requested symbols/date range."""
         raise NotImplementedError
-    
+
     @abstractmethod
-    def get_index_trends(self, symbol: str, start_date: str, end_date: str) -> pd.DataFrame:
+    def get_index_trends(
+        self, symbol: str, start_date: str, end_date: str
+    ) -> pd.DataFrame:
         """Return historical index OHLCV-style data for the requested symbols/date range."""
         raise NotImplementedError
+
 
 class JHMarketDataProvider(MarketDataProvider):
     def __init__(
@@ -90,7 +93,7 @@ class JHMarketDataProvider(MarketDataProvider):
         symbols: Optional[List[str]],
         start_date: str,
         end_date: str,
-        to_df: bool = True
+        to_df: bool = True,
     ) -> pd.DataFrame:
         """
         to_df: 是否转为DataFrame(JHData原生返回的是JHDataType而不是DataFrame)
@@ -138,10 +141,7 @@ class JHMarketDataProvider(MarketDataProvider):
 
     def get_latest_prices(self, symbols: List[str], to_df=True) -> Dict[str, float]:
         price_df = self._get_price_df(
-            symbols=symbols,
-            start_date="1900-01-01",
-            end_date="2099-12-31",
-            to_df=to_df
+            symbols=symbols, start_date="1900-01-01", end_date="2099-12-31", to_df=to_df
         )
         if price_df is None or price_df.empty:
             return {}
@@ -159,18 +159,15 @@ class JHMarketDataProvider(MarketDataProvider):
         start_date: str,
         end_date: str,
         frequency: Frequency = Frequency.DAILY,
-        to_df=True
+        to_df=True,
     ) -> pd.DataFrame:
         price_df = self._get_price_df(
-            symbols=symbols,
-            start_date=start_date,
-            end_date=end_date,
-            to_df=to_df
+            symbols=symbols, start_date=start_date, end_date=end_date, to_df=to_df
         )
         if price_df is None or price_df.empty:
             return pd.DataFrame()
         return price_df.sort_values(["symbol", "date"]).copy()
-    
+
     def get_index_trends(self, symbol, start_date, end_date):
         data = self.jhd.get_data(
             DataTypes.AK_STOCK_ZH_INDEX_DAILY_EM,
@@ -181,43 +178,3 @@ class JHMarketDataProvider(MarketDataProvider):
         if "chg" not in data.columns:
             data["chg"] = data["close"].pct_change() * 100
         return data.sort_values(["date"])
-
-
-class WebSocketMarketDataProvider(MarketDataProvider):
-    """Compatibility stub for quote-driven providers."""
-
-    def __init__(self, ws_url: str, token: str):
-        self.ws_url = ws_url
-        self.token = token
-        self._subscribed_symbols: List[str] = []
-        self._latest_quotes: Dict[str, RealtimeQuote] = {}
-
-    def get_latest_prices(self, symbols: List[str]) -> Dict[str, float]:
-        return {
-            symbol: quote.price
-            for symbol, quote in self._latest_quotes.items()
-            if symbol in symbols
-        }
-
-    def get_price_data(
-        self,
-        symbols: List[str],
-        start_date: str,
-        end_date: str,
-        frequency: Frequency = Frequency.DAILY,
-    ) -> pd.DataFrame:
-        raise NotImplementedError(
-            "WebSocket provider doesn't support historical price data. "
-            "Use a historical data provider for backtesting."
-        )
-
-    def subscribe(self, symbols: List[str]) -> None:
-        self._subscribed_symbols.extend(symbols)
-
-    def unsubscribe(self, symbols: List[str]) -> None:
-        self._subscribed_symbols = [
-            symbol for symbol in self._subscribed_symbols if symbol not in symbols
-        ]
-
-    def on_quote_received(self, quote: RealtimeQuote) -> None:
-        self._latest_quotes[quote.symbol] = quote

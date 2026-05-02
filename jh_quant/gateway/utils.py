@@ -18,10 +18,16 @@ def rprint(label: str, content: str, add_datetime: bool = True):
         label_color, content_color = "bold blue", "bold green"
 
     if add_datetime:
-        template = (
-            "[dim]{}[/dim] [{}]{}[/{}]: [{}]{}[/{}]"
-        )
-        args = [datetime.now().strftime("%Y-%m-%d %H:%M:%S"), label_color, label, label_color, content_color, content, content_color]
+        template = "[dim]{}[/dim] [{}]{}[/{}]: [{}]{}[/{}]"
+        args = [
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            label_color,
+            label,
+            label_color,
+            content_color,
+            content,
+            content_color,
+        ]
     else:
         template = "[{}]{}[/{}]: [{}]{}[/{}]"
         args = [label_color, label, label_color, content_color, content, content_color]
@@ -105,8 +111,3 @@ def normalize_score(score_series: pd.Series) -> pd.Series:
     normalized_scores = score_series / mean_score
 
     return normalized_scores
-
-
-
-
-

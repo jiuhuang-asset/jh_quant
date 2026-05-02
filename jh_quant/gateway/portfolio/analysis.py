@@ -27,7 +27,9 @@ def build_portfolio_drift_snapshot(
             "rows": [],
         }
 
-    merged = current.merge(target_weights[["symbol", "target_weight"]], on="symbol", how="outer").fillna(0.0)
+    merged = current.merge(
+        target_weights[["symbol", "target_weight"]], on="symbol", how="outer"
+    ).fillna(0.0)
     merged["abs_drift"] = (merged["current_weight"] - merged["target_weight"]).abs()
     merged = merged.sort_values("abs_drift", ascending=False)
     return {
@@ -78,10 +80,16 @@ def build_portfolio_history(position_snapshots: pd.DataFrame) -> Dict[str, Any]:
     frame = position_snapshots.copy()
     frame["trade_date"] = _normalize_timestamp(frame["trade_date"])
     frame = frame.dropna(subset=["trade_date"])
-    frame["portfolio_value"] = frame.groupby("trade_date")["market_value"].transform("sum")
+    frame["portfolio_value"] = frame.groupby("trade_date")["market_value"].transform(
+        "sum"
+    )
     frame["weight"] = frame["market_value"] / frame["portfolio_value"].replace(0, pd.NA)
-    weight_history = frame[["trade_date", "symbol", "quantity", "market_value", "weight"]].copy()
-    weight_history["trade_date"] = weight_history["trade_date"].apply(lambda value: value.isoformat())
+    weight_history = frame[
+        ["trade_date", "symbol", "quantity", "market_value", "weight"]
+    ].copy()
+    weight_history["trade_date"] = weight_history["trade_date"].apply(
+        lambda value: value.isoformat()
+    )
 
     portfolio_value_history = (
         frame.groupby("trade_date", as_index=False)["portfolio_value"]

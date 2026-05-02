@@ -5,6 +5,7 @@ These protocols define the contract for persistence operations.
 Components that need persistence should declare dependencies on these
 Protocols rather than concretely depending on OrderRecorder.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol, runtime_checkable

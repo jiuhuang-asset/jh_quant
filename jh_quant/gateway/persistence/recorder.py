@@ -312,9 +312,7 @@ class TortoiseOrderRecorder(OrderRecorder):
             .get("extra", {})
             .get("event", "session_state_snapshot")
         )
-        export_time = _as_datetime(
-            normalized.get("export_time", datetime.now())
-        )
+        export_time = _as_datetime(normalized.get("export_time", datetime.now()))
         await RuntimeStateRecord.update_or_create(
             session_id=normalized.get("session_id"),
             defaults={
@@ -354,9 +352,7 @@ class TortoiseOrderRecorder(OrderRecorder):
         source: str = "runtime_update",
     ):
         normalized_bundle = normalize_jsonable_value(config_bundle)
-        export_time = _as_datetime(
-            normalized_bundle.get("export_time", datetime.now())
-        )
+        export_time = _as_datetime(normalized_bundle.get("export_time", datetime.now()))
         await UserConfigRecord.update_or_create(
             session_id=session_id,
             defaults={
@@ -372,7 +368,11 @@ class TortoiseOrderRecorder(OrderRecorder):
     async def _load_latest_user_config(
         self, session_id: str
     ) -> Optional[Dict[str, Any]]:
-        row = await UserConfigRecord.filter(session_id=session_id).order_by("-export_time").first()
+        row = (
+            await UserConfigRecord.filter(session_id=session_id)
+            .order_by("-export_time")
+            .first()
+        )
         if row is None:
             return None
         return {

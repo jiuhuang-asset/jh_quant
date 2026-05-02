@@ -17,6 +17,7 @@ class SelectionResult:
         top_selections: 评分最高的标的代码列表
         bottom_selections: 评分最低的标的代码列表
     """
+
     top_selections: List[str]
     bottom_selections: Optional[List[str]] = field(default_factory=list)
 
@@ -31,6 +32,7 @@ class FactorSelectionResult(SelectionResult):
     - top_scores: top_selections对应的评分
     - bottom_scores: bottom_selections对应的评分
     """
+
     weights: dict = field(default_factory=dict)
     fm_result: Optional[object] = None
     top_scores: List[float] = field(default_factory=list)
@@ -62,7 +64,9 @@ class Selector(Protocol):
         ...
 
 
-def get_data_type_by_factor(ft: FactorType, period: str = "M", type: str = "returns") -> DataTypes:
+def get_data_type_by_factor(
+    ft: FactorType, period: str = "M", type: str = "returns"
+) -> DataTypes:
     """根据FactorType获取对应的DataType"""
     if period == "M":
         period = "monthly"
@@ -128,17 +132,22 @@ class FactorSelector(Selector):
         exposure_dtype = get_data_type_by_factor(factor, period, "exposure")
         returns_dtype = get_data_type_by_factor(factor, period, "returns")
 
-        factor_returns = self.jh_data.get_data(returns_dtype, start=start, end=end).set_index('date')
+        factor_returns = self.jh_data.get_data(
+            returns_dtype, start=start, end=end
+        ).set_index("date")
         factor_exposures = self.jh_data.get_data(exposure_dtype, start=start, end=end)
 
-        stock_price_dtype = DataTypes.AK_STOCK_ZH_A_HIST_QFQ_MON if period == "M" else DataTypes.AK_STOCK_ZH_A_HIST_QFQ
+        stock_price_dtype = (
+            DataTypes.AK_STOCK_ZH_A_HIST_QFQ_MON
+            if period == "M"
+            else DataTypes.AK_STOCK_ZH_A_HIST_QFQ
+        )
         stock_price_monthly = self.jh_data.get_data(
-            stock_price_dtype,
-            start=start,
-            end=end
+            stock_price_dtype, start=start, end=end
         )
 
         from .metrics import calculate_returns
+
         stock_returns = calculate_returns(stock_price_monthly)
 
         # Fama-MacBeth验证获取Mean_Lambda
@@ -151,7 +160,7 @@ class FactorSelector(Selector):
             method="fama_macbeth",
             alpha=factor_alpha,
             period=period,
-            test_window=test_window
+            test_window=test_window,
         )
 
         # --- 构建权重逻辑 ---
@@ -207,23 +216,29 @@ class FactorSelector(Selector):
             print(f"因子选股 - {factor.name} ({FACTOR_CONFIGS[factor]['name']})")
             print(f"{'='*60}")
             print(f"显著性水平: {factor_alpha}")
-            console.print(f"显著正向因子 ({len(significant_positive)}): [green]{significant_positive}[/green]")
-            console.print(f"显著负向因子/异象 ({len(significant_negative)}): [yellow]{significant_negative}[/yellow]")
+            console.print(
+                f"显著正向因子 ({len(significant_positive)}): [green]{significant_positive}[/green]"
+            )
+            console.print(
+                f"显著负向因子/异象 ({len(significant_negative)}): [yellow]{significant_negative}[/yellow]"
+            )
             print(f"不显著因子 ({len(insignificant_factors)}): {insignificant_factors}")
             print(f"不显著因子权重缩放比例: {insignificant_weight_ratio}")
             print(f"{'='*60}\n")
 
         # --- 计算评分 ---
-        exposure_cols = ['symbol', 'date'] + factor_names
+        exposure_cols = ["symbol", "date"] + factor_names
 
-        missing_cols = [col for col in exposure_cols if col not in factor_exposures.columns]
+        missing_cols = [
+            col for col in exposure_cols if col not in factor_exposures.columns
+        ]
         if missing_cols:
             raise ValueError(f"因子暴露数据中缺少列: {missing_cols}")
 
         exposures = factor_exposures[exposure_cols].copy()
 
-        latest_date = exposures['date'].max()
-        exposures_latest = exposures[exposures['date'] == latest_date].copy()
+        latest_date = exposures["date"].max()
+        exposures_latest = exposures[exposures["date"] == latest_date].copy()
 
         initial_count = len(exposures_latest)
         exposures_clean = exposures_latest.dropna(subset=factor_names)
@@ -240,9 +255,11 @@ class FactorSelector(Selector):
         if exposures_clean.empty:
             raise ValueError("没有有效的因子暴露数据")
 
-        exposures_clean = exposures_clean.drop_duplicates(subset=['symbol'], keep='last')
+        exposures_clean = exposures_clean.drop_duplicates(
+            subset=["symbol"], keep="last"
+        )
 
-        score_df = exposures_clean[['symbol']].copy()
+        score_df = exposures_clean[["symbol"]].copy()
 
         score_values = np.zeros(len(exposures_clean))
         for f in factor_names:
@@ -250,18 +267,17 @@ class FactorSelector(Selector):
             effective_weight = abs(w) if w >= 0 else -abs(w)
             score_values += effective_weight * exposures_clean[f].values
 
-        score_df['score'] = score_values
+        score_df["score"] = score_values
 
-        score_df = score_df.sort_values('score', ascending=False)
+        score_df = score_df.sort_values("score", ascending=False)
         top_stocks = score_df.head(top_n).copy()
         bottom_stocks = score_df.tail(bottom_n).copy()
 
         return FactorSelectionResult(
-            top_selections=top_stocks['symbol'].tolist(),
-            bottom_selections=bottom_stocks['symbol'].tolist(),
+            top_selections=top_stocks["symbol"].tolist(),
+            bottom_selections=bottom_stocks["symbol"].tolist(),
             weights=weights,
             fm_result=fm_result,
-            top_scores=top_stocks['score'].tolist(),
-            bottom_scores=bottom_stocks['score'].tolist(),
+            top_scores=top_stocks["score"].tolist(),
+            bottom_scores=bottom_stocks["score"].tolist(),
         )
-

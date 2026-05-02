@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, field_serializer, field_validator
 
 from .enums import Frequency
 from .portfolio import PortfolioAnalysisSpec, PortfolioSpec, RebalancePolicySpec
+from .risk_rules import RiskRuleSpec
 from .selection import SelectionSpec
 from .strategy import StrategySpec
 
@@ -24,17 +25,38 @@ class SessionConfig(BaseModel):
     一般通过 `SessionServiceConfigBuilder.with_session(...)` 设置。
     """
 
-    session_id: Optional[str] = Field(default=None, description="会话 ID，用于关联持久化状态、订单和运行记录。")
-    mode: Literal["paper", "live"] = Field(default="paper", description="运行模式：`paper` 为模拟盘，`live` 为实盘。")
-    price_lookback_days: int = Field(default=180, description="执行策略和选股时向前回看的行情天数。")
+    session_id: Optional[str] = Field(
+        default=None, description="会话 ID，用于关联持久化状态、订单和运行记录。"
+    )
+    mode: Literal["paper", "live"] = Field(
+        default="paper", description="运行模式：`paper` 为模拟盘，`live` 为实盘。"
+    )
+    price_lookback_days: int = Field(
+        default=180, description="执行策略和选股时向前回看的行情天数。"
+    )
     max_candidates: int = Field(default=10, description="每轮最多处理的候选标的数量。")
-    auto_start: bool = Field(default=False, description="Session 初始化完成后是否自动启动调度线程。")
-    frequency: Frequency = Field(default=Frequency.DAILY, description="交易频率枚举，用于描述策略运行节奏。")
-    price_slippage: float = Field(default=0.0, description="成交滑点比例，例如 `0.001` 表示千分之一。")
-    interval_seconds: int = Field(default=300, description="固定间隔调度模式下，两次执行之间的秒数。")
-    cron_expression: Optional[str] = Field(default=None, description="cron 调度表达式；设置后通常优先于固定秒级间隔。")
-    timezone: str = Field(default="Asia/Shanghai", description="cron 调度使用的时区名称。")
-    restore_persisted_state: bool = Field(default=True, description="启动时是否从持久化存储恢复最近一次保存的 session 状态。")
+    auto_start: bool = Field(
+        default=False, description="Session 初始化完成后是否自动启动调度线程。"
+    )
+    frequency: Frequency = Field(
+        default=Frequency.DAILY, description="交易频率枚举，用于描述策略运行节奏。"
+    )
+    price_slippage: float = Field(
+        default=0.0, description="成交滑点比例，例如 `0.001` 表示千分之一。"
+    )
+    interval_seconds: int = Field(
+        default=300, description="固定间隔调度模式下，两次执行之间的秒数。"
+    )
+    cron_expression: Optional[str] = Field(
+        default=None, description="cron 调度表达式；设置后通常优先于固定秒级间隔。"
+    )
+    timezone: str = Field(
+        default="Asia/Shanghai", description="cron 调度使用的时区名称。"
+    )
+    restore_persisted_state: bool = Field(
+        default=True,
+        description="启动时是否从持久化存储恢复最近一次保存的 session 状态。",
+    )
 
     @field_validator("frequency", mode="before")
     @classmethod
@@ -55,10 +77,22 @@ class SessionServiceConfig(BaseModel):
     - `strategy_specs` / `portfolio_spec`：策略和组合配置
     """
 
-    session: SessionConfig = Field(default_factory=SessionConfig, description="Session 运行参数。")
-    selection_spec: Optional[SelectionSpec] = Field(default=None, description="当前使用的选股器配置。")
-    strategy_specs: List[StrategySpec] = Field(default_factory=list, description="当前启用的策略配置列表。")
-    portfolio_spec: PortfolioSpec = Field(default_factory=PortfolioSpec, description="组合优化与调仓配置。")
+    session: SessionConfig = Field(
+        default_factory=SessionConfig, description="Session 运行参数。"
+    )
+    selection_spec: Optional[SelectionSpec] = Field(
+        default=None, description="当前使用的选股器配置。"
+    )
+    strategy_specs: List[StrategySpec] = Field(
+        default_factory=list, description="当前启用的策略配置列表。"
+    )
+    risk_rule_specs: List[RiskRuleSpec] = Field(
+        default_factory=list,
+        description="风险规则配置列表，用于实盘/模拟盘的风险管理。",
+    )
+    portfolio_spec: PortfolioSpec = Field(
+        default_factory=PortfolioSpec, description="组合优化与调仓配置。"
+    )
 
     @classmethod
     def defaults(cls) -> "SessionServiceConfig":
@@ -73,16 +107,22 @@ class SessionServiceConfigBuilder:
     """
 
     def __init__(self, base_config: Optional[SessionServiceConfig] = None):
-        self._config = (base_config or SessionServiceConfig.defaults()).model_copy(deep=True)
+        self._config = (base_config or SessionServiceConfig.defaults()).model_copy(
+            deep=True
+        )
 
     @classmethod
     def defaults(cls) -> "SessionServiceConfigBuilder":
         """从默认配置创建一个新的 builder。"""
         return cls()
 
-    def _apply_model_updates(self, target_model: BaseModel, **candidate_updates: Any) -> BaseModel:
+    def _apply_model_updates(
+        self, target_model: BaseModel, **candidate_updates: Any
+    ) -> BaseModel:
         updates = {
-            key: value for key, value in candidate_updates.items() if not isinstance(value, _UnsetType)
+            key: value
+            for key, value in candidate_updates.items()
+            if not isinstance(value, _UnsetType)
         }
         return target_model.model_copy(update=updates)
 
@@ -197,6 +237,37 @@ class SessionServiceConfigBuilder:
         )
         return self
 
+    def with_risk_rules(
+        self,
+        risk_rule_specs: List[RiskRuleSpec],
+    ) -> "SessionServiceConfigBuilder":
+        """一次性替换全部风险规则配置列表。"""
+        self._config.risk_rule_specs = list(risk_rule_specs)
+        return self
+
+    def add_risk_rule(
+        self,
+        *,
+        name: str,
+        params: Optional[Any] = None,
+        alias: Optional[str] = None,
+    ) -> "SessionServiceConfigBuilder":
+        """追加一条风险规则配置。
+
+        参数说明：
+        - `name`：规则注册名，例如 `stop_loss`、`trailing_stop`。
+        - `params`：规则初始化参数字典。
+        - `alias`：可选别名，便于日志、接口展示或区分多个同类规则实例。
+        """
+        self._config.risk_rule_specs.append(
+            RiskRuleSpec(
+                name=name,
+                params=params or {},
+                alias=alias,
+            )
+        )
+        return self
+
     def with_portfolio(
         self,
         *,
@@ -302,7 +373,6 @@ class SessionServiceConfigBuilder:
         """直接替换完整的组合配置对象。"""
         self._config.portfolio_spec = portfolio_spec
         return self
-
 
     def build(self) -> SessionServiceConfig:
         """生成最终配置对象。"""

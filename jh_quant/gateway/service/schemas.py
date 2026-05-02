@@ -23,40 +23,62 @@ class SchedulerStatus(BaseModel):
     )
     timezone: str = Field(description="Scheduler timezone.")
     schedule_type: str = Field(default="interval", description="Current schedule mode.")
-    next_run_at: Optional[str] = Field(default=None, description="Next scheduled run time.")
+    next_run_at: Optional[str] = Field(
+        default=None, description="Next scheduled run time."
+    )
     next_run_in_seconds: Optional[float] = Field(
         default=None,
         description="Seconds until the next run.",
     )
-    next_runs: List[str] = Field(default_factory=list, description="Next scheduled run times.")
+    next_runs: List[str] = Field(
+        default_factory=list, description="Next scheduled run times."
+    )
 
 
 class TradingCycleResultResponse(BaseModel):
     session_id: str = Field(description="Current session ID.")
     mode: str = Field(description="Session running mode.")
     cycle_time: str = Field(description="Completed time for the latest trading cycle.")
-    selection_count: int = Field(description="Number of selected securities in the latest cycle.")
+    selection_count: int = Field(
+        description="Number of selected securities in the latest cycle."
+    )
     long_candidate_count: int = Field(
         description="Number of long candidates identified in the latest cycle."
     )
     short_candidate_count: int = Field(
         description="Number of short candidates identified in the latest cycle."
     )
-    executed_buy_count: int = Field(description="Number of buy orders executed in the latest cycle.")
-    executed_sell_count: int = Field(description="Number of sell orders executed in the latest cycle.")
-    selected_symbols: List[str] = Field(default_factory=list, description="Selected symbols.")
-    long_symbols: List[str] = Field(default_factory=list, description="Long candidate symbols.")
-    short_symbols: List[str] = Field(default_factory=list, description="Short candidate symbols.")
+    executed_buy_count: int = Field(
+        description="Number of buy orders executed in the latest cycle."
+    )
+    executed_sell_count: int = Field(
+        description="Number of sell orders executed in the latest cycle."
+    )
+    selected_symbols: List[str] = Field(
+        default_factory=list, description="Selected symbols."
+    )
+    long_symbols: List[str] = Field(
+        default_factory=list, description="Long candidate symbols."
+    )
+    short_symbols: List[str] = Field(
+        default_factory=list, description="Short candidate symbols."
+    )
     status: str = Field(default="success", description="Execution status.")
-    error: Optional[str] = Field(default=None, description="Error text when execution fails.")
+    error: Optional[str] = Field(
+        default=None, description="Error text when execution fails."
+    )
 
 
 class SessionStatusResponse(BaseModel):
     session_id: str = Field(description="Current session ID.")
     mode: str = Field(description="Session running mode.")
     running: bool = Field(description="Whether the scheduler is currently running.")
-    scheduler: SchedulerStatus = Field(description="Scheduler configuration and status summary.")
-    last_error: Optional[str] = Field(default=None, description="Most recent runtime error.")
+    scheduler: SchedulerStatus = Field(
+        description="Scheduler configuration and status summary."
+    )
+    last_error: Optional[str] = Field(
+        default=None, description="Most recent runtime error."
+    )
     last_result: Optional[TradingCycleResultResponse] = Field(
         default=None,
         description="Most recent trading cycle result.",
@@ -66,31 +88,62 @@ class SessionStatusResponse(BaseModel):
 class RuntimeSnapshotResponse(BaseModel):
     session_id: str = Field(description="Session ID for the runtime snapshot.")
     generated_at: str = Field(description="Snapshot generation time.")
-    positions: Dict[str, Any] = Field(description="Current positions and runtime state.")
-    oms_state: Optional[Dict[str, Any]] = Field(default=None, description="Full OMS exported state.")
+    positions: Dict[str, Any] = Field(
+        description="Current positions and runtime state."
+    )
+    oms_state: Optional[Dict[str, Any]] = Field(
+        default=None, description="Full OMS exported state."
+    )
 
 
 class PerformanceSnapshotResponse(BaseModel):
     session_id: str = Field(description="Session ID for the performance snapshot.")
     generated_at: str = Field(description="Snapshot generation time.")
     summary: Dict[str, Any] = Field(description="Summary performance metrics.")
-    holding_returns: List[Dict[str, Any]] = Field(default_factory=list, description="Latest holding return rows.")
-    turnover: List[Dict[str, Any]] = Field(default_factory=list, description="Turnover rows grouped by trade date.")
-    equity_curve: List[Dict[str, Any]] = Field(default_factory=list, description="Equity curve rows grouped by trade date.")
-    trade_activity: List[Dict[str, Any]] = Field(default_factory=list, description="Trade activity rows grouped by trade date.")
-    position_exposure: Dict[str, Any] = Field(default_factory=dict, description="Position exposure analysis.")
-    latest_portfolio: Dict[str, Any] = Field(default_factory=dict, description="Latest portfolio snapshot.")
+    holding_returns: List[Dict[str, Any]] = Field(
+        default_factory=list, description="Latest holding return rows."
+    )
+    turnover: List[Dict[str, Any]] = Field(
+        default_factory=list, description="Turnover rows grouped by trade date."
+    )
+    equity_curve: List[Dict[str, Any]] = Field(
+        default_factory=list, description="Equity curve rows grouped by trade date."
+    )
+    trade_activity: List[Dict[str, Any]] = Field(
+        default_factory=list, description="Trade activity rows grouped by trade date."
+    )
+    position_exposure: Dict[str, Any] = Field(
+        default_factory=dict, description="Position exposure analysis."
+    )
+    latest_portfolio: Dict[str, Any] = Field(
+        default_factory=dict, description="Latest portfolio snapshot."
+    )
 
 
 class SessionConfigResponse(BaseModel):
-    session_id: str = Field(description="Session ID for the session configuration snapshot.")
-    config_bundle: SessionServiceConfig = Field(description="Unified session configuration bundle.")
+    session_id: str = Field(
+        description="Session ID for the session configuration snapshot."
+    )
+    config_bundle: SessionServiceConfig = Field(
+        description="Unified session configuration bundle."
+    )
     session: Dict[str, Any] = Field(description="Session-level configuration.")
-    selection_spec: Optional[Dict[str, Any]] = Field(default=None, description="Current selection spec.")
-    selection_provider: Dict[str, Any] = Field(default_factory=dict, description="Selection provider configuration.")
-    strategy_specs: List[Dict[str, Any]] = Field(default_factory=list, description="Configured strategy specs.")
-    portfolio_spec: Optional[Dict[str, Any]] = Field(default=None, description="Current portfolio spec.")
-    config_source: str = Field(default="bootstrap", description="Where the active config bundle was loaded from.")
+    selection_spec: Optional[Dict[str, Any]] = Field(
+        default=None, description="Current selection spec."
+    )
+    selection_provider: Dict[str, Any] = Field(
+        default_factory=dict, description="Selection provider configuration."
+    )
+    strategy_specs: List[Dict[str, Any]] = Field(
+        default_factory=list, description="Configured strategy specs."
+    )
+    portfolio_spec: Optional[Dict[str, Any]] = Field(
+        default=None, description="Current portfolio spec."
+    )
+    config_source: str = Field(
+        default="bootstrap",
+        description="Where the active config bundle was loaded from.",
+    )
     persisted_user_config_available: bool = Field(
         default=False,
         description="Whether a dedicated persisted user config exists for the current session.",
@@ -102,18 +155,24 @@ class SessionConfigResponse(BaseModel):
 
 
 class SessionConfigUpdateRequest(BaseModel):
-    config_bundle: SessionServiceConfig = Field(description="Unified session configuration bundle to apply.")
+    config_bundle: SessionServiceConfig = Field(
+        description="Unified session configuration bundle to apply."
+    )
 
 
 class SessionConfigUpdateResponse(BaseModel):
     status: str = Field(description="Unified service config update result.")
     session_id: str = Field(description="Session ID for the updated service.")
-    config_bundle: SessionServiceConfig = Field(description="Current unified service configuration bundle.")
+    config_bundle: SessionServiceConfig = Field(
+        description="Current unified service configuration bundle."
+    )
 
 
 class ConfigurableComponentDefinition(BaseModel):
     name: str = Field(description="Registered component name.")
-    params_schema: Dict[str, Any] = Field(default_factory=dict, description="JSON schema for user-editable params.")
+    params_schema: Dict[str, Any] = Field(
+        default_factory=dict, description="JSON schema for user-editable params."
+    )
     runtime_dependencies: List[str] = Field(
         default_factory=list,
         description="Dependencies injected by the service at runtime and not expected from the API caller.",
@@ -132,7 +191,9 @@ class AnalyticsSnapshotResponse(BaseModel):
     generated_at: str = Field(description="Snapshot generation time.")
     status: SessionStatusResponse = Field(description="Service status snapshot.")
     runtime: RuntimeSnapshotResponse = Field(description="Runtime snapshot.")
-    performance: PerformanceSnapshotResponse = Field(description="Performance snapshot.")
+    performance: PerformanceSnapshotResponse = Field(
+        description="Performance snapshot."
+    )
     config: SessionConfigResponse = Field(description="Config snapshot.")
 
 
@@ -144,15 +205,21 @@ class SessionActionResponse(BaseModel):
 class StrategyConfigUpdateResponse(BaseModel):
     status: str = Field(description="Strategy configuration update result.")
     count: int = Field(description="Number of strategy configs applied.")
-    strategy_specs: List[StrategySpec] = Field(default_factory=list, description="Current strategy specs.")
+    strategy_specs: List[StrategySpec] = Field(
+        default_factory=list, description="Current strategy specs."
+    )
 
 
 class StrategyConfigUpdateRequest(BaseModel):
-    strategy_specs: List[StrategySpec] = Field(default_factory=list, description="Strategy specs to replace the current set.")
+    strategy_specs: List[StrategySpec] = Field(
+        default_factory=list, description="Strategy specs to replace the current set."
+    )
 
 
 class StrategyConfigSnapshotResponse(BaseModel):
-    strategy_specs: List[StrategySpec] = Field(default_factory=list, description="Current strategy specs.")
+    strategy_specs: List[StrategySpec] = Field(
+        default_factory=list, description="Current strategy specs."
+    )
     available_strategies: List[ConfigurableComponentDefinition] = Field(
         default_factory=list,
         description="Available registered strategies and their editable params schema.",
@@ -160,15 +227,21 @@ class StrategyConfigSnapshotResponse(BaseModel):
 
 
 class SchedulerConfigUpdateRequest(BaseModel):
-    interval_seconds: Optional[int] = Field(default=None, ge=1, description="Interval in seconds.")
+    interval_seconds: Optional[int] = Field(
+        default=None, ge=1, description="Interval in seconds."
+    )
     cron_expression: Optional[str] = Field(default=None, description="Cron expression.")
     timezone: Optional[str] = Field(default=None, description="Scheduler timezone.")
-    auto_start: Optional[bool] = Field(default=None, description="Whether to auto start the scheduler.")
+    auto_start: Optional[bool] = Field(
+        default=None, description="Whether to auto start the scheduler."
+    )
 
 
 class SchedulerConfigUpdateResponse(BaseModel):
     status: str = Field(description="Scheduler configuration update result.")
-    running: bool = Field(description="Whether the scheduler is running after the update.")
+    running: bool = Field(
+        description="Whether the scheduler is running after the update."
+    )
     scheduler: SchedulerStatus = Field(description="Updated scheduler configuration.")
     auto_start: bool = Field(description="Updated auto-start configuration.")
 
@@ -176,7 +249,9 @@ class SchedulerConfigUpdateResponse(BaseModel):
 class SchedulerConfigSnapshotResponse(BaseModel):
     running: bool = Field(description="Whether the scheduler is currently running.")
     auto_start: bool = Field(description="Current auto-start configuration.")
-    scheduler: SchedulerStatus = Field(description="Current scheduler configuration and status.")
+    scheduler: SchedulerStatus = Field(
+        description="Current scheduler configuration and status."
+    )
 
 
 class SelectionConfigUpdateResponse(BaseModel):
@@ -191,8 +266,12 @@ class SelectionConfigUpdateRequest(BaseModel):
 
 
 class SelectionConfigSnapshotResponse(BaseModel):
-    selection_spec: Optional[SelectionSpec] = Field(default=None, description="Current selection spec.")
-    active_selection_config: Dict[str, Any] = Field(default_factory=dict, description="Resolved active selection config.")
+    selection_spec: Optional[SelectionSpec] = Field(
+        default=None, description="Current selection spec."
+    )
+    active_selection_config: Dict[str, Any] = Field(
+        default_factory=dict, description="Resolved active selection config."
+    )
     available_selections: List[ConfigurableComponentDefinition] = Field(
         default_factory=list,
         description="Available registered selection providers and their editable params schema.",
@@ -217,27 +296,50 @@ class PortfolioConfigSnapshotResponse(BaseModel):
 
 
 class PortfolioOptimizeRequest(BaseModel):
-    as_of_date: Optional[str] = Field(default=None, description="Optimization end date in YYYY-MM-DD format.")
-    preview_only: bool = Field(default=True, description="Whether to only preview optimization results.")
-    symbols: Optional[List[str]] = Field(default=None, description="Optional explicit symbol override.")
+    as_of_date: Optional[str] = Field(
+        default=None, description="Optimization end date in YYYY-MM-DD format."
+    )
+    preview_only: bool = Field(
+        default=True, description="Whether to only preview optimization results."
+    )
+    symbols: Optional[List[str]] = Field(
+        default=None, description="Optional explicit symbol override."
+    )
 
 
 class PortfolioOptimizeResponse(BaseModel):
     status: str = Field(description="Optimization result status.")
     optimizer: str = Field(description="Optimizer name.")
     as_of_date: str = Field(description="Optimization date.")
-    symbols: List[str] = Field(default_factory=list, description="Final symbol universe actually used in optimization.")
-    weights: List[Dict[str, Any]] = Field(default_factory=list, description="Target portfolio weights.")
-    diagnostics: Dict[str, Any] = Field(default_factory=dict, description="Optimization diagnostics.")
-    preview_only: bool = Field(default=True, description="Whether the result is preview-only.")
+    symbols: List[str] = Field(
+        default_factory=list,
+        description="Final symbol universe actually used in optimization.",
+    )
+    weights: List[Dict[str, Any]] = Field(
+        default_factory=list, description="Target portfolio weights."
+    )
+    diagnostics: Dict[str, Any] = Field(
+        default_factory=dict, description="Optimization diagnostics."
+    )
+    preview_only: bool = Field(
+        default=True, description="Whether the result is preview-only."
+    )
 
 
 class PortfolioAnalysisResponse(BaseModel):
     portfolio_spec: PortfolioSpec = Field(description="Current portfolio spec.")
-    current_portfolio: Dict[str, Any] = Field(default_factory=dict, description="Current holding snapshot.")
-    drift: Dict[str, Any] = Field(default_factory=dict, description="Current vs target drift snapshot.")
-    latest_optimization: Optional[Dict[str, Any]] = Field(default=None, description="Latest optimization payload.")
-    latest_rebalance: Optional[Dict[str, Any]] = Field(default=None, description="Latest rebalance payload.")
+    current_portfolio: Dict[str, Any] = Field(
+        default_factory=dict, description="Current holding snapshot."
+    )
+    drift: Dict[str, Any] = Field(
+        default_factory=dict, description="Current vs target drift snapshot."
+    )
+    latest_optimization: Optional[Dict[str, Any]] = Field(
+        default=None, description="Latest optimization payload."
+    )
+    latest_rebalance: Optional[Dict[str, Any]] = Field(
+        default=None, description="Latest rebalance payload."
+    )
 
 
 class PortfolioHistoryResponse(BaseModel):
@@ -247,37 +349,63 @@ class PortfolioHistoryResponse(BaseModel):
 
 class SessionEventRecordResponse(BaseModel):
     event_type: str = Field(description="Persisted service event type.")
-    event_time: Optional[str] = Field(default=None, description="Persisted event timestamp.")
-    export_time: Optional[str] = Field(default=None, description="Snapshot export timestamp.")
-    state_data: Dict[str, Any] = Field(default_factory=dict, description="Persisted service state payload.")
+    event_time: Optional[str] = Field(
+        default=None, description="Persisted event timestamp."
+    )
+    export_time: Optional[str] = Field(
+        default=None, description="Snapshot export timestamp."
+    )
+    state_data: Dict[str, Any] = Field(
+        default_factory=dict, description="Persisted service state payload."
+    )
 
 
 class SessionEventHistoryResponse(BaseModel):
     session_id: str = Field(description="Session ID for the service event history.")
     count: int = Field(description="Number of returned service events.")
-    events: List[SessionEventRecordResponse] = Field(default_factory=list, description="Persisted service events.")
+    events: List[SessionEventRecordResponse] = Field(
+        default_factory=list, description="Persisted service events."
+    )
 
 
 class PortfolioRebalanceRequest(BaseModel):
-    as_of_date: Optional[str] = Field(default=None, description="Rebalance date in YYYY-MM-DD format.")
-    preview_only: bool = Field(default=True, description="Whether to only preview rebalance orders.")
-    symbols: Optional[List[str]] = Field(default=None, description="Optional explicit symbol override.")
-    force: bool = Field(default=False, description="Whether to bypass rebalance policy checks.")
+    as_of_date: Optional[str] = Field(
+        default=None, description="Rebalance date in YYYY-MM-DD format."
+    )
+    preview_only: bool = Field(
+        default=True, description="Whether to only preview rebalance orders."
+    )
+    symbols: Optional[List[str]] = Field(
+        default=None, description="Optional explicit symbol override."
+    )
+    force: bool = Field(
+        default=False, description="Whether to bypass rebalance policy checks."
+    )
 
 
 class PortfolioRebalanceResponse(BaseModel):
     status: str = Field(description="Rebalance result status.")
     as_of_date: str = Field(description="Rebalance date.")
-    preview_only: bool = Field(default=True, description="Whether the response is a preview.")
-    should_rebalance: bool = Field(default=False, description="Whether rebalance policy allows execution.")
+    preview_only: bool = Field(
+        default=True, description="Whether the response is a preview."
+    )
+    should_rebalance: bool = Field(
+        default=False, description="Whether rebalance policy allows execution."
+    )
     reason: str = Field(default="", description="Reason for the rebalance decision.")
     execution_path: Optional[str] = Field(
         default=None,
         description="Execution path used for this rebalance, e.g. strategy-driven portfolio overlay.",
     )
-    target_allocations: List[Dict[str, Any]] = Field(default_factory=list, description="Target allocation plan.")
-    buy_orders: List[Dict[str, Any]] = Field(default_factory=list, description="Buy order plan.")
-    sell_orders: List[Dict[str, Any]] = Field(default_factory=list, description="Sell order plan.")
+    target_allocations: List[Dict[str, Any]] = Field(
+        default_factory=list, description="Target allocation plan."
+    )
+    buy_orders: List[Dict[str, Any]] = Field(
+        default_factory=list, description="Buy order plan."
+    )
+    sell_orders: List[Dict[str, Any]] = Field(
+        default_factory=list, description="Sell order plan."
+    )
     blocked_buy_orders: List[Dict[str, Any]] = Field(
         default_factory=list,
         description="Buy orders blocked or capped by runtime cash constraints.",
@@ -315,18 +443,24 @@ class TradingCycleResult:
 
 
 class CloseAllPositionsRequest(BaseModel):
-    slippage: float = Field(default=0.0, description="Slippage ratio for batch closeout.")
+    slippage: float = Field(
+        default=0.0, description="Slippage ratio for batch closeout."
+    )
 
 
 class CloseAllPositionsResponse(BaseModel):
     status: str = Field(description="Operation result.")
     closed_count: int = Field(description="Number of closed positions.")
-    executed_trades: List[Dict[str, Any]] = Field(default_factory=list, description="Executed trades.")
+    executed_trades: List[Dict[str, Any]] = Field(
+        default_factory=list, description="Executed trades."
+    )
 
 
 class SingleSymbolTradeRequest(BaseModel):
     symbol: str = Field(description="Ticker symbol.")
-    target_qty: Optional[int] = Field(default=None, description="Target quantity to trade.")
+    target_qty: Optional[int] = Field(
+        default=None, description="Target quantity to trade."
+    )
     slippage: float = Field(default=0.0, description="Per-trade slippage ratio.")
 
 
@@ -335,7 +469,9 @@ class SingleSymbolTradeResponse(BaseModel):
     action: str = Field(description="Operation type.")
     symbol: str = Field(description="Ticker symbol.")
     executed: bool = Field(description="Whether the trade was executed.")
-    trade: Optional[Dict[str, Any]] = Field(default=None, description="Executed trade details.")
+    trade: Optional[Dict[str, Any]] = Field(
+        default=None, description="Executed trade details."
+    )
     message: str = Field(description="Result description.")
 
 
@@ -344,6 +480,7 @@ class SingleSymbolTradeResponse(BaseModel):
 
 class OHLCVRecord(BaseModel):
     """Single OHLCV data point returned by data endpoints."""
+
     symbol: str = Field(description="Ticker symbol or index code.")
     date: str = Field(description="Trade date in YYYY-MM-DD format.")
     open: float = Field(description="Opening price.")
@@ -352,14 +489,18 @@ class OHLCVRecord(BaseModel):
     close: float = Field(description="Closing price.")
     volume: float = Field(default=0.0, description="Trading volume.")
     amount: float = Field(default=0.0, description="Trading amount.")
-    chg: Optional[float] = Field(default=None, description="Change rate (%). Present for index data.")
+    chg: Optional[float] = Field(
+        default=None, description="Change rate (%). Present for index data."
+    )
 
 
 class DataListResponse(BaseModel):
     """Generic paginated data response."""
-    data: List[Dict[str, Any]] = Field(default_factory=list, description="OHLCV data records.")
-    count: int = Field(description="Number of records returned.")
 
+    data: List[Dict[str, Any]] = Field(
+        default_factory=list, description="OHLCV data records."
+    )
+    count: int = Field(description="Number of records returned.")
 
 
 # ── Multi-Session API models ────────────────────────────────────────
@@ -375,27 +516,49 @@ class SessionInfoResponse(BaseModel):
     mode: str = Field(description="Running mode: paper or live.")
     running: bool = Field(description="Whether the scheduler is currently running.")
     strategy_count: int = Field(description="Number of configured strategies.")
-    strategy_names: List[str] = Field(default_factory=list, description="Configured strategy names/aliases.")
-    selection_name: Optional[str] = Field(default=None, description="Selection provider name or alias.")
-    portfolio_enabled: bool = Field(default=False, description="Whether portfolio optimization is enabled.")
+    strategy_names: List[str] = Field(
+        default_factory=list, description="Configured strategy names/aliases."
+    )
+    selection_name: Optional[str] = Field(
+        default=None, description="Selection provider name or alias."
+    )
+    portfolio_enabled: bool = Field(
+        default=False, description="Whether portfolio optimization is enabled."
+    )
     initial_capital: float = Field(description="Initial capital for this session.")
-    current_value: Optional[float] = Field(default=None, description="Current portfolio total value.")
-    total_return_pct: Optional[float] = Field(default=None, description="Total return percentage.")
+    current_value: Optional[float] = Field(
+        default=None, description="Current portfolio total value."
+    )
+    total_return_pct: Optional[float] = Field(
+        default=None, description="Total return percentage."
+    )
     daily_pnl: Optional[float] = Field(default=None, description="Current daily PnL.")
     position_count: int = Field(default=0, description="Number of current positions.")
-    max_drawdown: float = Field(default=0.0, description="Maximum historical drawdown (negative).")
+    max_drawdown: float = Field(
+        default=0.0, description="Maximum historical drawdown (negative)."
+    )
     win_rate: Optional[float] = Field(default=None, description="Win rate (0.0-1.0).")
     total_trades: int = Field(default=0, description="Total number of trades.")
-    total_pnl: float = Field(default=0.0, description="Total realized + unrealized PnL.")
-    last_error: Optional[str] = Field(default=None, description="Most recent runtime error.")
-    last_result: Optional[TradingCycleResultResponse] = Field(default=None, description="Most recent trading cycle result.")
-    created_at: Optional[str] = Field(default=None, description="Service creation time.")
+    total_pnl: float = Field(
+        default=0.0, description="Total realized + unrealized PnL."
+    )
+    last_error: Optional[str] = Field(
+        default=None, description="Most recent runtime error."
+    )
+    last_result: Optional[TradingCycleResultResponse] = Field(
+        default=None, description="Most recent trading cycle result."
+    )
+    created_at: Optional[str] = Field(
+        default=None, description="Service creation time."
+    )
 
 
 class SessionListResponse(BaseModel):
     """Response listing all managed session instances."""
 
-    sessions: List[SessionInfoResponse] = Field(default_factory=list, description="Managed session instances.")
+    sessions: List[SessionInfoResponse] = Field(
+        default_factory=list, description="Managed session instances."
+    )
     count: int = Field(description="Current number of sessions.")
     max_sessions: int = Field(description="Maximum allowed sessions.")
 
@@ -403,9 +566,15 @@ class SessionListResponse(BaseModel):
 class SessionCreateRequest(BaseModel):
     """Request to create a new service under multi-service management."""
 
-    config_bundle: SessionServiceConfig = Field(description="Full service configuration bundle.")
-    initial_capital: float = Field(default=100000.0, ge=0, description="Initial capital for paper trading.")
-    auto_start: Optional[bool] = Field(default=None, description="Override auto_start from config.")
+    config_bundle: SessionServiceConfig = Field(
+        description="Full service configuration bundle."
+    )
+    initial_capital: float = Field(
+        default=100000.0, ge=0, description="Initial capital for paper trading."
+    )
+    auto_start: Optional[bool] = Field(
+        default=None, description="Override auto_start from config."
+    )
 
 
 class SessionCreateResponse(BaseModel):
@@ -433,10 +602,16 @@ class SessionTrendPoint(BaseModel):
 
     trade_date: str = Field(description="Trade date in YYYY-MM-DD format.")
     portfolio_value: float = Field(description="Total portfolio value on this date.")
-    cumulative_return: Optional[float] = Field(default=None, description="Cumulative return from inception.")
-    drawdown: float = Field(default=0.0, description="Drawdown from peak portfolio value.")
+    cumulative_return: Optional[float] = Field(
+        default=None, description="Cumulative return from inception."
+    )
+    drawdown: float = Field(
+        default=0.0, description="Drawdown from peak portfolio value."
+    )
     daily_pnl: Optional[float] = Field(default=None, description="Daily PnL.")
-    num_positions: int = Field(default=0, description="Number of open positions on this date.")
+    num_positions: int = Field(
+        default=0, description="Number of open positions on this date."
+    )
 
 
 class SessionTrendItem(BaseModel):
@@ -445,9 +620,15 @@ class SessionTrendItem(BaseModel):
     session_id: str = Field(description="Session ID.")
     mode: str = Field(description="Running mode (paper/live).")
     initial_capital: float = Field(description="Initial capital.")
-    strategy_names: List[str] = Field(default_factory=list, description="Strategy names/aliases.")
-    selection_name: Optional[str] = Field(default=None, description="Selection provider name.")
-    trends: List[SessionTrendPoint] = Field(default_factory=list, description="Daily trend data points.")
+    strategy_names: List[str] = Field(
+        default_factory=list, description="Strategy names/aliases."
+    )
+    selection_name: Optional[str] = Field(
+        default=None, description="Selection provider name."
+    )
+    trends: List[SessionTrendPoint] = Field(
+        default_factory=list, description="Daily trend data points."
+    )
 
 
 class SessionTrendsResponse(BaseModel):
@@ -455,5 +636,10 @@ class SessionTrendsResponse(BaseModel):
 
     generated_at: str = Field(description="Trends generation time.")
     count: int = Field(description="Number of sessions included.")
-    sessions: List[SessionTrendItem] = Field(default_factory=list, description="Per-session trend series.")
-    note: Optional[str] = Field(default=None, description="Informational message (e.g. when sessions were auto-limited).")
+    sessions: List[SessionTrendItem] = Field(
+        default_factory=list, description="Per-session trend series."
+    )
+    note: Optional[str] = Field(
+        default=None,
+        description="Informational message (e.g. when sessions were auto-limited).",
+    )

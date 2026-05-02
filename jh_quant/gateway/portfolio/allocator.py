@@ -32,7 +32,9 @@ def build_rebalance_plan(
                 "symbol": hold.get("symbol"),
                 "current_qty": int(hold.get("volume") or 0),
                 "current_market_value": market_value,
-                "current_weight": (market_value / total_equity) if total_equity > 0 else 0.0,
+                "current_weight": (
+                    (market_value / total_equity) if total_equity > 0 else 0.0
+                ),
             }
         )
 
@@ -45,23 +47,30 @@ def build_rebalance_plan(
     target = target_weights.copy()
     target["target_weight"] = target["target_weight"].astype(float)
     if float(target["target_weight"].sum()) > 0:
-        target["target_weight"] = target["target_weight"] / float(target["target_weight"].sum())
+        target["target_weight"] = target["target_weight"] / float(
+            target["target_weight"].sum()
+        )
     target["target_weight"] = target["target_weight"].clip(
         lower=float(portfolio_spec.min_weight),
         upper=float(portfolio_spec.max_weight),
     )
 
     prices = latest_prices.rename("latest_price").to_frame()
-    merged = (
-        current.merge(target[["symbol", "target_weight"]], on="symbol", how="outer")
-        .merge(prices, left_on="symbol", right_index=True, how="left")
+    merged = current.merge(
+        target[["symbol", "target_weight"]], on="symbol", how="outer"
+    ).merge(prices, left_on="symbol", right_index=True, how="left")
+    merged["current_qty"] = (
+        pd.to_numeric(merged["current_qty"], errors="coerce").fillna(0).astype(int)
     )
-    merged["current_qty"] = pd.to_numeric(merged["current_qty"], errors="coerce").fillna(0).astype(int)
     merged["current_market_value"] = pd.to_numeric(
         merged["current_market_value"], errors="coerce"
     ).fillna(0.0)
-    merged["current_weight"] = pd.to_numeric(merged["current_weight"], errors="coerce").fillna(0.0)
-    merged["target_weight"] = pd.to_numeric(merged["target_weight"], errors="coerce").fillna(0.0)
+    merged["current_weight"] = pd.to_numeric(
+        merged["current_weight"], errors="coerce"
+    ).fillna(0.0)
+    merged["target_weight"] = pd.to_numeric(
+        merged["target_weight"], errors="coerce"
+    ).fillna(0.0)
     merged = merged.dropna(subset=["latest_price"]).copy()
     merged["target_value"] = merged["target_weight"] * investable_equity
     merged["target_qty"] = (
@@ -70,7 +79,9 @@ def build_rebalance_plan(
     merged["target_qty"] = merged["target_qty"].fillna(0).astype(int)
     merged["delta_qty"] = merged["target_qty"] - merged["current_qty"].astype(int)
     merged["delta_value"] = merged["delta_qty"] * merged["latest_price"]
-    merged["abs_delta_weight"] = (merged["target_weight"] - merged["current_weight"]).abs()
+    merged["abs_delta_weight"] = (
+        merged["target_weight"] - merged["current_weight"]
+    ).abs()
 
     buy_orders = merged.loc[merged["delta_qty"] > 0, ["symbol", "delta_qty"]].copy()
     buy_orders.rename(columns={"delta_qty": "target_qty"}, inplace=True)
@@ -104,7 +115,9 @@ def build_rebalance_plan(
                 "abs_delta_weight",
                 "target_value",
             ]
-        ].sort_values(["target_weight", "symbol"], ascending=[False, True]).to_dict(orient="records"),
+        ]
+        .sort_values(["target_weight", "symbol"], ascending=[False, True])
+        .to_dict(orient="records"),
         "buy_orders": buy_orders.to_dict(orient="records"),
         "sell_orders": sell_orders.to_dict(orient="records"),
         "projected_buy_cost": projected_buy_cost,

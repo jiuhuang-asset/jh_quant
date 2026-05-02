@@ -331,7 +331,7 @@ def process_ak(df: JhDataType):
 
 
 def reverse_ts(df: JhDataType):
-    dt =  df.jh_dt
+    dt = df.jh_dt
     data = _reverse_data_rename(dt, df)
     data = _reverse_process_ts_data(data)
 
@@ -492,9 +492,7 @@ def _reverse_process_ak_data(data_type: DataTypes, df: pd.DataFrame) -> pd.DataF
     return df
 
 
-def _process_ak_data(
-    data_type: DataTypes, df: pd.DataFrame, **kwargs
-) -> pd.DataFrame:
+def _process_ak_data(data_type: DataTypes, df: pd.DataFrame, **kwargs) -> pd.DataFrame:
     """根据 data_type 统一处理返回的 DataFrame"""
 
     date_processer = _AkDateProcessor()

@@ -5,6 +5,7 @@ Provides unified interface for factor return and exposure calculations.
 
 设计：每个因子类型对应一个数据准备类 (FactorReturnData子类)
 """
+
 from typing import Optional, List, Dict, Union
 import pandas as pd
 from .config import FactorType, CalculationMethod, TimePeriod, DEFAULT_N_JOBS
@@ -22,11 +23,7 @@ class FactorEngine:
     - HOU_XUE_ZHANG, DHS
     """
 
-    def __init__(
-        self,
-        api_key: Optional[str] = None,
-        api_url: Optional[str] = None
-    ):
+    def __init__(self, api_key: Optional[str] = None, api_url: Optional[str] = None):
         """
         Initialize the factor engine.
 
@@ -47,7 +44,7 @@ class FactorEngine:
         symbols: Optional[List[str]] = None,
         n_jobs: Optional[int] = None,
         verbose: bool = True,
-        use_polars: bool = True
+        use_polars: bool = True,
     ) -> pd.DataFrame:
         """
         Calculate factor returns.
@@ -75,40 +72,42 @@ class FactorEngine:
         data_provider = data_class(api_key=self.api_key, api_url=self.api_url)
 
         prepared = data_provider.prepare_data(
-            period=period,
-            start_date=start_date,
-            end_date=end_date,
-            symbols=symbols
+            period=period, start_date=start_date, end_date=end_date, symbols=symbols
         )
 
-        stock_returns = prepared.get('stock_returns')
+        stock_returns = prepared.get("stock_returns")
 
         # CAPM uses market_return instead of market_cap
         if factor_type == FactorType.CAPM:
-            market_cap = prepared.get('market_return')
+            market_cap = prepared.get("market_return")
         else:
-            market_cap = prepared.get('market_cap')
+            market_cap = prepared.get("market_cap")
 
-        fundamentals = {k: v for k, v in prepared.items()
-                       if k not in ['stock_returns', 'market_cap', 'market_return']}
+        fundamentals = {
+            k: v
+            for k, v in prepared.items()
+            if k not in ["stock_returns", "market_cap", "market_return"]
+        }
 
         calculator = GeneralFactorCalculator(
             factor_type=factor_type,
             method=method,
             period=period,
             n_jobs=n_jobs,
-            use_polars=use_polars
+            use_polars=use_polars,
         )
 
         factor_returns = calculator.calculate(
             stock_returns=stock_returns,
             market_cap=market_cap,
-            fundamentals=fundamentals
+            fundamentals=fundamentals,
         )
 
         if verbose:
             period_label = "days" if period == TimePeriod.DAILY else "months"
-            print(f"\nCalculated {len(factor_returns)} {period_label} of factor returns")
+            print(
+                f"\nCalculated {len(factor_returns)} {period_label} of factor returns"
+            )
 
         return factor_returns
 
@@ -122,7 +121,7 @@ class FactorEngine:
         symbols: Optional[List[str]] = None,
         n_jobs: Optional[int] = None,
         verbose: bool = True,
-        use_polars: bool = True
+        use_polars: bool = True,
     ) -> Dict[FactorType, pd.DataFrame]:
         """
         Calculate multiple factor returns at once.
@@ -156,7 +155,7 @@ class FactorEngine:
                     symbols=symbols,
                     n_jobs=n_jobs,
                     verbose=verbose,
-                    use_polars=use_polars
+                    use_polars=use_polars,
                 )
             except Exception as e:
                 if verbose:
@@ -169,7 +168,7 @@ class FactorEngine:
         stock_returns: pd.DataFrame,
         factor_returns: pd.DataFrame,
         n_jobs: int = 4,
-        verbose: bool = True
+        verbose: bool = True,
     ) -> pd.DataFrame:
         """
         Calculate stock factor exposures.
@@ -191,9 +190,7 @@ class FactorEngine:
 
         calculator = StockExposureCalculator(n_jobs=n_jobs)
         exposures = calculator.calculate_all_exposures(
-            stock_returns,
-            factor_returns,
-            verbose=verbose
+            stock_returns, factor_returns, verbose=verbose
         )
 
         return exposures
@@ -210,7 +207,7 @@ def calculate_factor_returns(
     api_url: Optional[str] = None,
     n_jobs: Optional[int] = 1,
     use_polars: bool = True,
-    **kwargs
+    **kwargs,
 ) -> pd.DataFrame:
     """
     Convenience function to calculate factor returns.
@@ -240,7 +237,7 @@ def calculate_factor_returns(
         DataFrame or Dict of factor returns
     """
     if isinstance(factor_type, str):
-        if factor_type.lower() == 'all':
+        if factor_type.lower() == "all":
             factor_types = FactorType.list_all()
         else:
             factor_types = [FactorType.from_value(factor_type)]
@@ -263,8 +260,8 @@ def calculate_factor_returns(
             end_date=end_date,
             symbols=symbols,
             n_jobs=n_jobs,
-            verbose=kwargs.get('verbose', True),
-            use_polars=use_polars
+            verbose=kwargs.get("verbose", True),
+            use_polars=use_polars,
         )
     else:
         return engine.calculate_all_factors(
@@ -275,8 +272,8 @@ def calculate_factor_returns(
             end_date=end_date,
             symbols=symbols,
             n_jobs=n_jobs,
-            verbose=kwargs.get('verbose', True),
-            use_polars=use_polars
+            verbose=kwargs.get("verbose", True),
+            use_polars=use_polars,
         )
 
 
@@ -285,7 +282,7 @@ def calculate_exposures(
     factor_returns: pd.DataFrame,
     period: str = "M",
     lookback: Optional[int] = None,
-    **kwargs
+    **kwargs,
 ) -> pd.DataFrame:
     """
     Convenience function to calculate stock factor exposures.
@@ -300,6 +297,6 @@ def calculate_exposures(
     Returns:
         DataFrame with factor exposures
     """
-    return calculate_stock_exposures(stock_returns, factor_returns, period, lookback, **kwargs)
-
-
+    return calculate_stock_exposures(
+        stock_returns, factor_returns, period, lookback, **kwargs
+    )

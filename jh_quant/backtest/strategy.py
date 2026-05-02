@@ -102,9 +102,7 @@ class StrategyTurtle(Strategy):
     - 长期趋势跟踪
     """
 
-    def __init__(
-        self, entry_window: int = 20, exit_window: int = 10
-    ):
+    def __init__(self, entry_window: int = 20, exit_window: int = 10):
         super().__init__()
         self.entry_window = entry_window
         self.exit_window = exit_window
@@ -149,9 +147,7 @@ class StrategyMovingAverageCrossover(Strategy):
     - 需要结合市场环境使用，避免在震荡市中频繁交易
     """
 
-    def __init__(
-        self, short_window: int = 50, long_window: int = 200
-    ):
+    def __init__(self, short_window: int = 50, long_window: int = 200):
         super().__init__()
         self.short_window = short_window
         self.long_window = long_window

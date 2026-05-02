@@ -10,6 +10,7 @@
 - 截距项验证接受已计算的因子收益率 DataFrame
 - Fama-MacBeth验证接受股票收益率和因子暴露数据
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -27,6 +28,7 @@ from ..config import DEFAULT_MIN_OBSERVATIONS
 @dataclass
 class FactorTestResult:
     """单个因子检验结果"""
+
     factor: str
     coefficient: float
     std_error: float
@@ -46,6 +48,7 @@ class InterceptValidationResult:
     对因子收益率序列进行单样本t检验（或对每个因子进行截距回归）
     检验每个因子的均值是否显著不为零
     """
+
     results: Dict[str, FactorTestResult] = field(default_factory=dict)
     summary: str = ""
 
@@ -57,27 +60,32 @@ class InterceptValidationResult:
         """转换为DataFrame便于查看"""
         rows = []
         for factor, res in self.results.items():
-            rows.append({
-                'factor': factor,
-                'coefficient': res.coefficient,
-                'std_error': res.std_error,
-                'std_error_nw': res.std_error_nw,
-                't_statistic': res.t_statistic,
-                't_statistic_nw': res.t_statistic_nw,
-                'p_value': res.p_value,
-                'p_value_nw': res.p_value_nw,
-                'significant_5pct': res.significant,
-            })
-        return pd.DataFrame(rows).set_index('factor')
+            rows.append(
+                {
+                    "factor": factor,
+                    "coefficient": res.coefficient,
+                    "std_error": res.std_error,
+                    "std_error_nw": res.std_error_nw,
+                    "t_statistic": res.t_statistic,
+                    "t_statistic_nw": res.t_statistic_nw,
+                    "p_value": res.p_value,
+                    "p_value_nw": res.p_value_nw,
+                    "significant_5pct": res.significant,
+                }
+            )
+        return pd.DataFrame(rows).set_index("factor")
 
 
 @dataclass
 class FMFactorTestResult:
     """Fama-MacBeth单个因子检验结果"""
+
     factor: str
     # Step 1: lambda_t across months
     lambdas: pd.Series  # monthly factor prices (from cross-sectional reg)
-    condition_numbers: pd.Series  # condition numbers for each cross-sectional regression
+    condition_numbers: (
+        pd.Series
+    )  # condition numbers for each cross-sectional regression
     # Step 2: time-series test
     mean_lambda: float
     std_lambda: float
@@ -97,6 +105,7 @@ class FamaMacBethValidationResult:
     Step 1: 每月横截面回归 R_i = λ'β + ε 得到 λ_t
     Step 2: λ_t 对时间序列回归，检验 λ 是否显著
     """
+
     results: Dict[str, FMFactorTestResult] = field(default_factory=dict)
     n_periods: int = 0
     n_stocks: int = 0
@@ -110,26 +119,25 @@ class FamaMacBethValidationResult:
         """转换为DataFrame便于查看"""
         rows = []
         for factor, res in self.results.items():
-            rows.append({
-                'factor': factor,
-                'mean_lambda': res.mean_lambda,   # mean_lambda其实就是因子风险溢价的估计值 可以直接用于beta加权（选股）
-                'std_lambda': res.std_lambda,
-                'std_lambda_nw': res.std_lambda_nw,
-                't_statistic': res.t_statistic,
-                't_statistic_nw': res.t_statistic_nw,
-                'p_value': res.p_value,
-                'p_value_nw': res.p_value_nw,
-                'significant_5pct': res.significant,
-                'n_periods': len(res.lambdas),
-            })
-        return pd.DataFrame(rows).set_index('factor')
+            rows.append(
+                {
+                    "factor": factor,
+                    "mean_lambda": res.mean_lambda,  # mean_lambda其实就是因子风险溢价的估计值 可以直接用于beta加权（选股）
+                    "std_lambda": res.std_lambda,
+                    "std_lambda_nw": res.std_lambda_nw,
+                    "t_statistic": res.t_statistic,
+                    "t_statistic_nw": res.t_statistic_nw,
+                    "p_value": res.p_value,
+                    "p_value_nw": res.p_value_nw,
+                    "significant_5pct": res.significant,
+                    "n_periods": len(res.lambdas),
+                }
+            )
+        return pd.DataFrame(rows).set_index("factor")
 
 
 def _newey_west_intercept_se(
-    values: np.ndarray,
-    mean: float,
-    n: int,
-    lag: int
+    values: np.ndarray, mean: float, n: int, lag: int
 ) -> tuple:
     """
     计算截距项检验的Newey-West调整后标准误
@@ -144,10 +152,11 @@ def _newey_west_intercept_se(
         (se_nw, t_stat_nw, p_value_nw)
     """
     from scipy import stats
+
     residuals = values - mean
 
     # gamma_0: 滞后0的方差（乘以n，保持与gamma_j一致）
-    gamma_0 = np.sum(residuals ** 2)
+    gamma_0 = np.sum(residuals**2)
 
     # Newey-West 方差估计
     q = gamma_0
@@ -276,6 +285,7 @@ def validate_factor_intercept(
 
     return InterceptValidationResult(results=results, summary=summary)
 
+
 # ============================================================================
 # Fama-MacBeth Two-Step Validation (Machtheod步验证)
 # ============================================================================
@@ -336,7 +346,7 @@ class FamaMacBethValidator:
         self,
         stock_returns: pd.DataFrame,
         factor_returns: pd.DataFrame,
-        factor_names: Optional[List[str]] = None
+        factor_names: Optional[List[str]] = None,
     ) -> FamaMacBethValidationResult:
         """
         执行Fama-MacBeth两步法验证
@@ -370,7 +380,7 @@ class FamaMacBethValidator:
 
         # 数据准备
         stock_returns = stock_returns.copy()
-        stock_returns['date'] = pd.to_datetime(stock_returns['date'])
+        stock_returns["date"] = pd.to_datetime(stock_returns["date"])
         factor_returns = factor_returns.copy()
         if isinstance(factor_returns.index, pd.DatetimeIndex):
             factor_returns.index = pd.to_datetime(factor_returns.index)
@@ -381,17 +391,17 @@ class FamaMacBethValidator:
         )
 
         # 合并用于截面回归
-        merged = stock_returns[['symbol', 'date', 'return']].merge(
-            beta_df[['symbol', 'date'] + factor_names],
-            on=['symbol', 'date'],
-            how='inner'
+        merged = stock_returns[["symbol", "date", "return"]].merge(
+            beta_df[["symbol", "date"] + factor_names],
+            on=["symbol", "date"],
+            how="inner",
         )
 
         if merged.empty:
             raise ValueError("股票收益率和beta数据无法匹配")
 
-        n_stocks = merged['symbol'].nunique()
-        n_periods = merged['date'].nunique()
+        n_stocks = merged["symbol"].nunique()
+        n_periods = merged["date"].nunique()
 
         if n_periods < self.min_periods:
             raise ValueError(
@@ -423,29 +433,26 @@ class FamaMacBethValidator:
         self,
         stock_returns: pd.DataFrame,
         factor_returns: pd.DataFrame,
-        factor_names: List[str]
+        factor_names: List[str],
     ) -> pd.DataFrame:
         """Estimate rolling betas by reusing the exposure calculator."""
         calculator = StockExposureCalculator(
-            min_observations=min(DEFAULT_MIN_OBSERVATIONS, self.lookback),
-            n_jobs=1
+            min_observations=min(DEFAULT_MIN_OBSERVATIONS, self.lookback), n_jobs=1
         )
         beta_df = calculator.calculate_all_exposures(
             stock_returns=stock_returns,
             factor_returns=factor_returns[factor_names],
             rolling=True,
             lookback_months=self.lookback,
-            verbose=False
+            verbose=False,
         )
         if beta_df.empty:
             return beta_df
-        cols = ['symbol', 'date'] + factor_names
+        cols = ["symbol", "date"] + factor_names
         return beta_df[[c for c in cols if c in beta_df.columns]].copy()
 
     def _step1_cross_sectional(
-        self,
-        data: pd.DataFrame,
-        factor_names: List[str]
+        self, data: pd.DataFrame, factor_names: List[str]
     ) -> Dict[str, pd.Series]:
         """
         Step 1: 每月横截面回归
@@ -468,10 +475,10 @@ class FamaMacBethValidator:
         condition_numbers: List[float] = []
         period_list: List[pd.Timestamp] = []
 
-        for date, group in data.groupby('date'):
+        for date, group in data.groupby("date"):
             period_list.append(pd.Timestamp(date))
 
-            y = group['return'].values
+            y = group["return"].values
             X = group[factor_names].values
 
             # 跳过数据不足的情况
@@ -524,20 +531,17 @@ class FamaMacBethValidator:
         # 转换为 Series，index 为日期
         result: Dict[str, pd.Series] = {}
         for f in factor_names:
-            result[f] = pd.Series(
-                lambda_series[f],
-                index=period_list
-            ).sort_index()
+            result[f] = pd.Series(lambda_series[f], index=period_list).sort_index()
 
         # 存储条件数序列供后续使用
-        self._last_condition_numbers = pd.Series(condition_numbers, index=period_list).sort_index()
+        self._last_condition_numbers = pd.Series(
+            condition_numbers, index=period_list
+        ).sort_index()
 
         return result
 
     def _step2_timeseries_test(
-        self,
-        lambda_by_period: Dict[str, pd.Series],
-        factor_names: List[str]
+        self, lambda_by_period: Dict[str, pd.Series], factor_names: List[str]
     ) -> Dict[str, FMFactorTestResult]:
         """
         Step 2: λ_t 时间序列检验
@@ -553,10 +557,9 @@ class FamaMacBethValidator:
         Returns:
             Dict[因子名 -> FMFactorTestResult]
         """
+
     def _step2_timeseries_test(
-        self,
-        lambda_by_period: Dict[str, pd.Series],
-        factor_names: List[str]
+        self, lambda_by_period: Dict[str, pd.Series], factor_names: List[str]
     ) -> Dict[str, FMFactorTestResult]:
         """
         Step 2: λ_t 时间序列检验
@@ -572,7 +575,7 @@ class FamaMacBethValidator:
 
             # <--- 新增：截取最近 N 期用于检验
             if self.test_window is not None and len(lambdas_full) > self.test_window:
-                lambdas = lambdas_full.iloc[-self.test_window:]
+                lambdas = lambdas_full.iloc[-self.test_window :]
             else:
                 lambdas = lambdas_full
 
@@ -580,7 +583,9 @@ class FamaMacBethValidator:
                 results[factor] = FMFactorTestResult(
                     factor=factor,
                     lambdas=lambdas_full,
-                    condition_numbers=getattr(self, '_last_condition_numbers', pd.Series()),
+                    condition_numbers=getattr(
+                        self, "_last_condition_numbers", pd.Series()
+                    ),
                     mean_lambda=np.nan,
                     std_lambda=np.nan,
                     std_lambda_nw=np.nan,
@@ -611,7 +616,7 @@ class FamaMacBethValidator:
             results[factor] = FMFactorTestResult(
                 factor=factor,
                 lambdas=lambdas,
-                condition_numbers=getattr(self, '_last_condition_numbers', pd.Series()),
+                condition_numbers=getattr(self, "_last_condition_numbers", pd.Series()),
                 mean_lambda=mean_lambda,
                 std_lambda=std_lambda,
                 std_lambda_nw=std_lambda_nw,
@@ -623,12 +628,9 @@ class FamaMacBethValidator:
             )
 
         return results
+
     def _newey_west_se(
-        self,
-        lambdas: np.ndarray,
-        mean_lambda: float,
-        n: int,
-        lag: int
+        self, lambdas: np.ndarray, mean_lambda: float, n: int, lag: int
     ) -> tuple:
         """
         计算Newey-West调整后的标准误
@@ -650,7 +652,7 @@ class FamaMacBethValidator:
         residuals = lambdas - mean_lambda
 
         # gamma_0: 滞后0的方差
-        gamma_0 = np.sum(residuals ** 2)
+        gamma_0 = np.sum(residuals**2)
 
         # Newey-West 方差估计
         q = gamma_0
@@ -661,7 +663,11 @@ class FamaMacBethValidator:
 
         # NW标准误
         std_lambda_nw = np.sqrt(q) / n if q >= 0 else np.nan
-        t_stat_nw = mean_lambda / std_lambda_nw if std_lambda_nw > 0 and not np.isnan(std_lambda_nw) else 0.0
+        t_stat_nw = (
+            mean_lambda / std_lambda_nw
+            if std_lambda_nw > 0 and not np.isnan(std_lambda_nw)
+            else 0.0
+        )
         p_value_nw = 2 * (1 - stats.t.cdf(abs(t_stat_nw), df=n - 1))
 
         return std_lambda_nw, t_stat_nw, p_value_nw
@@ -699,30 +705,36 @@ def validate_factor(
         InterceptValidationResult 或 FamaMacBethValidationResult
     """
     if method == "intercept":
-        return validate_factor_intercept(factor_returns, alpha, newey_west_lag, period, test_window)
+        return validate_factor_intercept(
+            factor_returns, alpha, newey_west_lag, period, test_window
+        )
     elif method == "fama_macbeth":
         if stock_returns is None or stock_returns.empty:
             raise ValueError("stock_returns is required for fama_macbeth validation")
         validator = FamaMacBethValidator(alpha=alpha, test_window=test_window)
         if factor_exposures is not None and not factor_exposures.empty:
-            factor_names = [c for c in factor_returns.columns if c in factor_exposures.columns]
-            merged = stock_returns[['symbol', 'date', 'return']].copy()
-            merged['date'] = pd.to_datetime(merged['date']).dt.strftime('%Y-%m-%d')
+            factor_names = [
+                c for c in factor_returns.columns if c in factor_exposures.columns
+            ]
+            merged = stock_returns[["symbol", "date", "return"]].copy()
+            merged["date"] = pd.to_datetime(merged["date"]).dt.strftime("%Y-%m-%d")
             exposures = factor_exposures.copy()
-            exposures['date'] = pd.to_datetime(exposures['date']).dt.strftime('%Y-%m-%d')
+            exposures["date"] = pd.to_datetime(exposures["date"]).dt.strftime(
+                "%Y-%m-%d"
+            )
             merged = merged.merge(
-                exposures[['symbol', 'date'] + factor_names],
-                on=['symbol', 'date'],
-                how='inner'
+                exposures[["symbol", "date"] + factor_names],
+                on=["symbol", "date"],
+                how="inner",
             )
             if merged.empty:
-                raise ValueError('stock_returns and factor_exposures cannot be aligned')
+                raise ValueError("stock_returns and factor_exposures cannot be aligned")
             lambda_by_period = validator._step1_cross_sectional(merged, factor_names)
             results = validator._step2_timeseries_test(lambda_by_period, factor_names)
             return FamaMacBethValidationResult(
                 results=results,
-                n_periods=merged['date'].nunique(),
-                n_stocks=merged['symbol'].nunique(),
+                n_periods=merged["date"].nunique(),
+                n_stocks=merged["symbol"].nunique(),
                 summary=(
                     f"Fama-MacBeth result (NW lag={validator.newey_west_lag}): "
                     f"{sum(1 for r in results.values() if r.significant)}/{len(results)} significant (alpha={alpha})\n"

@@ -8,6 +8,7 @@
 
 设计：使用 MarketDataProvider 统一获取市场数据，支持回测和实盘
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -21,7 +22,14 @@ from .oms import OMS
 from .position_sizer import ATRPositionSizer, PositionSizer
 from .utils import rprint
 from .config import Frequency
+from jh_quant.backtest.rules import (
+    ATRTrailingStopRule,
+    PositionState,
+    RiskRule,
+    maybe_compute_atr,
+)
 from jh_quant.backtest.strategy import Strategy
+
 
 class SignalGateway:
     """
@@ -37,6 +45,7 @@ class SignalGateway:
         market_data_provider: MarketDataProvider = None,
         position_sizer: PositionSizer = None,
         strict_mode: bool = True,
+        risk_rules: List[RiskRule] | None = None,
     ):
         """
         初始化信号网关
@@ -45,6 +54,7 @@ class SignalGateway:
             oms: 订单管理系统实例，必须提供
             market_data_provider: 市场数据提供者（用于获取K线数据）
             position_sizer: 头寸计算器（默认使用 ATR 方式）
+            risk_rules: 风险规则列表（StopLoss、TrailingStop 等），用于实盘/模拟盘风控
         """
         if oms is None:
             raise ValueError("SignalGateway requires an OMS instance")
@@ -54,14 +64,17 @@ class SignalGateway:
         self.position_sizer = position_sizer or ATRPositionSizer()
         self.strict_mode = strict_mode
         self.strategy_pool: List[dict] = []
+        self.risk_rules: List[RiskRule] = list(risk_rules or [])
 
     def add_strategy(self, strategy: Strategy, name: str, weight: float = 1.0):
         """添加策略到信号池"""
-        self.strategy_pool.append({
-            "name": name,
-            "strategy": strategy,
-            "weight": weight,
-        })
+        self.strategy_pool.append(
+            {
+                "name": name,
+                "strategy": strategy,
+                "weight": weight,
+            }
+        )
 
     def replace_strategies(self, strategies: List[dict]):
         """Replace the registered strategy pool in one call."""
@@ -72,6 +85,17 @@ class SignalGateway:
                 name=item["name"],
                 weight=item.get("weight", 1.0),
             )
+
+    def configure_risk_rules(
+        self,
+        risk_rules: List[RiskRule] | None = None,
+    ) -> None:
+        """Replace the current risk rule configuration.
+
+        Args:
+            risk_rules: 风险规则实例列表，传 None 等价于清空
+        """
+        self.risk_rules = list(risk_rules or [])
 
     def configure_position_sizer(self, sizer: PositionSizer) -> None:
         """动态更换头寸计算器
@@ -234,7 +258,11 @@ class SignalGateway:
     def _filter_to_symbol_latest_window(
         self, signal_df: pd.DataFrame, frequency: Frequency | str
     ) -> pd.DataFrame:
-        if signal_df.empty or "symbol" not in signal_df.columns or "date" not in signal_df.columns:
+        if (
+            signal_df.empty
+            or "symbol" not in signal_df.columns
+            or "date" not in signal_df.columns
+        ):
             return signal_df
 
         normalized = signal_df.copy()
@@ -242,6 +270,98 @@ class SignalGateway:
         latest_by_symbol = normalized.groupby("symbol")["date"].transform("max")
         max_age = self._frequency_max_age(frequency)
         return normalized.loc[normalized["date"] >= (latest_by_symbol - max_age)].copy()
+
+    def _evaluate_risk_exit(
+        self,
+        symbol: str,
+        hold,
+        price_df: pd.DataFrame,
+    ) -> bool:
+        """对单个持仓评估所有风险规则，判断是否应该卖出。
+
+        从 hold.entry_time 开始回放所有 bar，在每个 bar 上更新
+        PositionState 并调用规则的 on_tick/should_sell。
+        仅对最后一个 bar 检查 should_sell，若任一规则触发则返回 True。
+
+        Args:
+            symbol: 股票代码
+            hold: StockHoldRecord，需包含 entry_time 和 avg_cost
+            price_df: 包含该 symbol 的价格数据
+
+        Returns:
+            是否应该因风险规则而强制卖出
+        """
+        if not self.risk_rules:
+            return False
+
+        symbol_price = price_df[price_df["symbol"] == symbol].copy()
+        if symbol_price.empty:
+            return False
+
+        symbol_price["date"] = pd.to_datetime(symbol_price["date"])
+        symbol_price = symbol_price.sort_values("date")
+
+        buy_date = pd.Timestamp(hold.entry_time)
+        symbol_price = symbol_price[symbol_price["date"] >= buy_date]
+        if symbol_price.empty or len(symbol_price) < 2:
+            return False
+
+        state = PositionState()
+        state.enter(hold.avg_cost)
+
+        for rule in self.risk_rules:
+            rule.on_enter(state, hold.avg_cost)
+
+        atr_series = maybe_compute_atr(symbol_price, self.risk_rules)
+
+        if atr_series is not None:
+            first_idx = symbol_price.index[0]
+            atr_val = float(atr_series.loc[first_idx])
+            for rule in self.risk_rules:
+                if isinstance(rule, ATRTrailingStopRule):
+                    rule.update_stop(atr_val, hold.avg_cost)
+
+        all_indices = symbol_price.index.tolist()
+        prev_price: Optional[float] = float(symbol_price.loc[all_indices[0], "close"])
+
+        for idx in all_indices[1:]:
+            current_price = float(symbol_price.loc[idx, "close"])
+
+            state.holding_bars += 1
+            state.highest_price = max(
+                state.highest_price or current_price, current_price
+            )
+
+            if atr_series is not None:
+                atr_val = float(atr_series.loc[idx])
+                for rule in self.risk_rules:
+                    if isinstance(rule, ATRTrailingStopRule):
+                        rule.update_stop(atr_val, state.highest_price)
+
+            for rule in self.risk_rules:
+                rule.on_tick(state, current_price, prev_price)
+
+            if idx == all_indices[-1]:
+                force_sell = any(
+                    rule.should_sell(state, current_price, prev_price)
+                    for rule in self.risk_rules
+                )
+                if force_sell:
+                    rule_names = [
+                        type(r).__name__
+                        for r in self.risk_rules
+                        if r.should_sell(state, current_price, prev_price)
+                    ]
+                    rprint(
+                        label="RiskRule:",
+                        content=f"{symbol} 触发风控卖出: {', '.join(rule_names)} "
+                        f"(持仓成本: {hold.avg_cost:.2f}, 当前价: {current_price:.2f})",
+                    )
+                    return True
+
+            prev_price = current_price
+
+        return False
 
     def aggregate_signals(
         self,
@@ -261,7 +381,9 @@ class SignalGateway:
             包含 'symbol' 和 'score' 的DataFrame
         """
         if not self.strategy_pool:
-            rprint(label="Warning:", content="No strategies registered in signal gateway")
+            rprint(
+                label="Warning:", content="No strategies registered in signal gateway"
+            )
             return pd.DataFrame()
 
         signal_column = f"{signal_type}_signal"
@@ -393,14 +515,23 @@ class SignalGateway:
         ):
             return pd.DataFrame()
 
-
         raw_signals = self.aggregate_buy_signals(price=price, frequency=frequency)
 
         if raw_signals.empty:
             rprint(label="Info:", content="没有买入信号")
             return pd.DataFrame()
 
-        final_list = raw_signals.sort_values(by="score", ascending=False).head(max_candidates)
+        final_list = raw_signals.sort_values(by="score", ascending=False).head(
+            max_candidates
+        )
+
+        current_hold_symbols = {h.symbol for h in self.oms.get_positions().holds}
+        if current_hold_symbols:
+            final_list = final_list[~final_list["symbol"].isin(current_hold_symbols)]
+
+        if final_list.empty:
+            rprint(label="Info:", content="所有买入候选已在持仓中，跳过买入")
+            return pd.DataFrame()
 
         if self.market_data_provider is not None:
             latest_prices = self.get_latest_prices(final_list["symbol"].tolist())
@@ -458,22 +589,38 @@ class SignalGateway:
         ):
             return pd.DataFrame()
 
-
         sell_signals = self.aggregate_sell_signals(price=price, frequency=frequency)
-
-        if sell_signals.empty:
-            rprint(label="Info:", content="没有卖出信号")
-            return pd.DataFrame()
 
         holdings_map = {h.symbol: h for h in self.oms.executable_holds}
 
-        sell_candidates = sell_signals[
-            (sell_signals["symbol"].isin(holdings_map.keys()))
-            & (sell_signals["score"] > 1)
-        ].copy()
+        strategy_sell_symbols: set = set()
+        sell_candidate_rows: list[dict] = []
 
-        if sell_candidates.empty:
+        if not sell_signals.empty:
+            strategy_sells = sell_signals[
+                (sell_signals["symbol"].isin(holdings_map.keys()))
+                & (sell_signals["score"] > 1)
+            ]
+            if not strategy_sells.empty:
+                strategy_sell_symbols = set(strategy_sells["symbol"].tolist())
+                sell_candidate_rows.extend(
+                    {"symbol": row["symbol"], "score": row["score"]}
+                    for _, row in strategy_sells.iterrows()
+                )
+
+        if self.risk_rules:
+            for symbol, hold in holdings_map.items():
+                if symbol in strategy_sell_symbols:
+                    continue
+                if self._evaluate_risk_exit(symbol, hold, price):
+                    sell_candidate_rows.append(
+                        {"symbol": symbol, "score": float("inf")}
+                    )
+
+        if not sell_candidate_rows:
             return pd.DataFrame()
+
+        sell_candidates = pd.DataFrame(sell_candidate_rows)
 
         sell_orders = []
         for _, row in sell_candidates.iterrows():
@@ -510,7 +657,9 @@ class SignalGateway:
             exec_price = price_val * (1 + slippage) if slippage > 0 else price_val
 
             try:
-                order = Order(symbol=symbol, price=exec_price, volume=target_qty)
+                order = Order(
+                    symbol=symbol, price=exec_price, volume=target_qty, trade_type="BUY"
+                )
                 trade = self.oms.signal_buy(order)
                 executed_trades.append(trade)
             except Exception as e:
@@ -569,12 +718,21 @@ class SignalGateway:
                 target_qty = executable_qty
 
             try:
-                order = Order(symbol=symbol, price=exec_price, volume=target_qty)
+                order = Order(
+                    symbol=symbol,
+                    price=exec_price,
+                    volume=target_qty,
+                    trade_type="SELL",
+                )
                 trade = self.oms.signal_sell(order)
                 executed_trades.append(trade)
 
                 pnl = (exec_price - holding_info.avg_cost) * target_qty
-                pnl_pct = ((exec_price - holding_info.avg_cost) / holding_info.avg_cost * 100) if holding_info.avg_cost > 0 else 0
+                pnl_pct = (
+                    ((exec_price - holding_info.avg_cost) / holding_info.avg_cost * 100)
+                    if holding_info.avg_cost > 0
+                    else 0
+                )
                 rprint(
                     label="Trade:",
                     content=f"卖出 {symbol} {target_qty} 股 @ {exec_price:.2f}, "
@@ -605,10 +763,9 @@ class SignalGateway:
             return []
 
         holdings = self.oms.executable_holds
-        close_orders = pd.DataFrame([
-            {"symbol": h.symbol, "target_qty": h.volume}
-            for h in holdings
-        ])
+        close_orders = pd.DataFrame(
+            [{"symbol": h.symbol, "target_qty": h.volume} for h in holdings]
+        )
 
         rprint(
             label="Info:",

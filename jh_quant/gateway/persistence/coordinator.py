@@ -4,6 +4,7 @@ PersistenceCoordinator - bridges OMS runtime data to persistence layer.
 Acts as a facade implementing all five persistence protocols,
 delegating to an underlying OrderRecorder (or doing nothing if None).
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, List, Optional

@@ -4,7 +4,14 @@ from dataclasses import asdict, dataclass, is_dataclass
 import inspect
 from typing import TYPE_CHECKING, Any, Dict, Optional, Protocol, runtime_checkable
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, create_model, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    create_model,
+    field_validator,
+)
 
 from jh_quant.data import JHData
 
@@ -63,8 +70,13 @@ class SelectionSpec(BaseModel):
     """
 
     name: str = Field(description="选股器注册名，例如 `factor_selector`。")
-    params: Dict[str, Any] = Field(default_factory=dict, description="选股器初始化或运行所需的参数字典，也支持传入 dataclass 或 Pydantic 配置对象。")
-    alias: Optional[str] = Field(default=None, description="可选别名，便于在日志、接口或界面中展示。")
+    params: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="选股器初始化或运行所需的参数字典，也支持传入 dataclass 或 Pydantic 配置对象。",
+    )
+    alias: Optional[str] = Field(
+        default=None, description="可选别名，便于在日志、接口或界面中展示。"
+    )
 
     @field_validator("params", mode="before")
     @classmethod
@@ -126,14 +138,21 @@ def get_selection_config_model(name: str) -> Optional[type]:
     return SELECTION_PROVIDER_CONFIG_MODELS.get(name)
 
 
-def _callable_param_model(target: Any, model_name: str, *, exclude: Optional[set[str]] = None):
+def _callable_param_model(
+    target: Any, model_name: str, *, exclude: Optional[set[str]] = None
+):
     exclude = exclude or set()
     signature = inspect.signature(target)
     fields: Dict[str, tuple[Any, Any]] = {}
     for name, param in signature.parameters.items():
-        if name in exclude or param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
+        if name in exclude or param.kind in (
+            inspect.Parameter.VAR_POSITIONAL,
+            inspect.Parameter.VAR_KEYWORD,
+        ):
             continue
-        annotation = Any if param.annotation is inspect.Signature.empty else param.annotation
+        annotation = (
+            Any if param.annotation is inspect.Signature.empty else param.annotation
+        )
         default = ... if param.default is inspect.Signature.empty else param.default
         fields[name] = (annotation, default)
     return create_model(model_name, __config__=ConfigDict(extra="forbid"), **fields)
@@ -189,7 +208,9 @@ def validate_selection_params(name: str, params: Dict[str, Any]) -> Dict[str, An
 
 
 def normalize_selection_spec(spec: SelectionSpec) -> SelectionSpec:
-    return spec.model_copy(update={"params": validate_selection_params(spec.name, spec.params)})
+    return spec.model_copy(
+        update={"params": validate_selection_params(spec.name, spec.params)}
+    )
 
 
 def get_selection_params_schema(name: str) -> Dict[str, Any]:
@@ -211,7 +232,9 @@ def list_selection_definitions() -> list[dict[str, Any]]:
             "name": name,
             "params_schema": get_selection_params_schema(name),
             "config_model": getattr(get_selection_config_model(name), "__name__", None),
-            "runtime_dependencies": list(SELECTION_PROVIDER_RUNTIME_DEPENDENCIES.get(name, ())),
+            "runtime_dependencies": list(
+                SELECTION_PROVIDER_RUNTIME_DEPENDENCIES.get(name, ())
+            ),
         }
         for name in SELECTION_PROVIDER_REGISTRY
     ]
@@ -223,7 +246,9 @@ def build_selection_provider(
 ) -> tuple[SelectionSpec, SelectionProvider]:
     normalized_spec = normalize_selection_spec(spec)
     provider_cls = SELECTION_PROVIDER_REGISTRY[normalized_spec.name]
-    runtime_kwargs = _resolve_selection_runtime_kwargs(normalized_spec.name, market_data_provider)
+    runtime_kwargs = _resolve_selection_runtime_kwargs(
+        normalized_spec.name, market_data_provider
+    )
 
     if normalized_spec.name in SELECTION_PROVIDER_CONFIG_MODELS:
         config_cls = SELECTION_PROVIDER_CONFIG_MODELS[normalized_spec.name]

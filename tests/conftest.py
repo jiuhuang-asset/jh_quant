@@ -4,6 +4,7 @@ conftest.py - pytest configuration for gateway tests.
 Sets up polars mock before any project imports to avoid import chain
 requiring the optional polars dependency.
 """
+
 from __future__ import annotations
 
 import sys
@@ -175,5 +176,6 @@ if "polars" not in sys.modules:
     # Patch os.cpu_count so that joblib.Parallel uses n_jobs=1
     # (avoids spawning subprocesses that lack the polars mock)
     import os
+
     _orig_cpu_count = os.cpu_count
     os.cpu_count = lambda: 1

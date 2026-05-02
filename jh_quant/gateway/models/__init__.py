@@ -1,5 +1,50 @@
 """
-Core domain models for the signalgateway trading system(领域模型)
+Core domain models for the signalgateway trading system.
+
+Model overview
+--------------
+``SelectionSnapshot`` — dataclass, carries a universe of symbols selected for a cycle.
+    Returned by ``SelectionProvider.select()``. Lightweight, no persistence.
+
+``StockHoldRecord`` — in-memory holding kept inside OMS (Pydantic BaseModel).
+    Tracks symbol / volume / avg_cost / market_value / entry_time for one position.
+    ``entry_time`` is a ``datetime`` with second-level precision so that (a) T+1 gates
+    can operate on the date component, and (b) risk-rule replay can use the full
+    timestamp when filtering price bars.
+
+``Positions`` — portfolio snapshot (BaseModel). Aggregates total equity, available
+    balance, profit fields, and the current ``holds`` list. Built on-demand by OMS.
+
+``Order`` — transient request sent to OMS (BaseModel). Contains symbol, price,
+    volume, trade_type (BUY / SELL), and an optional signal_reason. Never persisted
+    directly — the resulting ``Trade`` is the persisted artifact.
+
+``Trade`` — persisted executed-trade record (PersistenceModel). ``trade_date`` is
+    stored as ``pd.Timestamp`` (coerced from string if needed), giving second-level
+    precision. Persisted to the ``trades`` table with a ``DatetimeField``.
+
+``DailyPerformance`` — persisted daily portfolio snapshot (PersistenceModel).
+    ``trade_date`` is ``pd.Timestamp`` but upserted by *date component only*
+    (``DateField`` in the DB), so there is one row per calendar day.
+
+``PositionSnapshot`` — persisted per-holding snapshot (PersistenceModel).
+    ``trade_date`` is ``pd.Timestamp``, stored as ``DatetimeField``.
+
+``PersistenceModel`` — mixin that adds ``to_record_payload()``, which normalizes
+    ``pd.Timestamp`` → Python ``datetime`` before persistence.
+
+Date / time conventions
+-----------------------
+- All *in-memory* date-time fields use ``datetime`` (``StockHoldRecord.entry_time``)
+  or ``pd.Timestamp`` (``Trade.trade_date``, ``DailyPerformance.trade_date``,
+  ``PositionSnapshot.trade_date``). Both carry second-level precision.
+- Format conversions happen at system boundaries only:
+  * Serialization (JSON / state export): ``.isoformat()``
+  * Persistence payloads: ``normalize_persistence_value`` converts
+    ``pd.Timestamp`` → ``datetime``; ``DatetimeField`` / ``DateField`` handle
+    the rest.
+  * API-facing date strings (``as_of_date``, ``start_date``, ``end_date``)
+    remain ``"YYYY-MM-DD"`` because they represent calendar-day parameters.
 """
 
 from __future__ import annotations
@@ -78,13 +123,18 @@ class SelectionSnapshot:
 
 
 class StockHoldRecord(BaseModel):
-    """Holding record kept in memory."""
+    """Holding record kept in memory.
+
+    ``entry_time`` carries second-level precision so that T+1 gates can
+    use the date component while risk-rule replay can filter price bars
+    with the full timestamp.
+    """
 
     symbol: str
     volume: int
     avg_cost: float = 0.0
     market_value: float = 0.0
-    buy_date: str = Field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d"))
+    entry_time: datetime = Field(default_factory=datetime.now)
 
 
 class Positions(BaseModel):
@@ -104,6 +154,7 @@ class Order(BaseModel):
     price: float
     volume: int
     trade_type: str = "BUY"
+    signal_reason: Optional[str] = None
 
 
 class Trade(PersistenceModel):
