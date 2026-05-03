@@ -57,6 +57,14 @@ class SessionConfig(BaseModel):
         default=True,
         description="启动时是否从持久化存储恢复最近一次保存的 session 状态。",
     )
+    enable_backfill: bool = Field(
+        default=False,
+        description="是否启用回填模式。启用后会从 backfill_from 开始逐日模拟交易。仅支持 Daily 或更粗频率。",
+    )
+    backfill_from: Optional[str] = Field(
+        default=None,
+        description="回填起始日期（格式 YYYY-MM-DD）。仅在 enable_backfill=True 时生效。",
+    )
 
     @field_validator("frequency", mode="before")
     @classmethod
@@ -140,6 +148,8 @@ class SessionServiceConfigBuilder:
         cron_expression: str | None | _UnsetType = _UNSET,
         timezone: str | _UnsetType = _UNSET,
         restore_persisted_state: bool | _UnsetType = _UNSET,
+        enable_backfill: bool | _UnsetType = _UNSET,
+        backfill_from: str | None | _UnsetType = _UNSET,
     ) -> "SessionServiceConfigBuilder":
         """更新 session 运行参数。
 
@@ -155,6 +165,8 @@ class SessionServiceConfigBuilder:
         - `cron_expression`：按 cron 表达式调度时的规则；设置后通常优先于固定间隔。
         - `timezone`：cron 调度所使用的时区。
         - `restore_persisted_state`：启动时是否从持久化存储恢复上一次保存的 session 状态。
+        - `enable_backfill`：是否启用回填模式，从 backfill_from 逐日模拟交易。
+        - `backfill_from`：回填起始日期（YYYY-MM-DD），仅在 enable_backfill=True 时生效。
 
         未传入的参数会保持原值不变；显式传入 `None` 的字段会被更新为 `None`。
         """
@@ -171,6 +183,8 @@ class SessionServiceConfigBuilder:
             cron_expression=cron_expression,
             timezone=timezone,
             restore_persisted_state=restore_persisted_state,
+            enable_backfill=enable_backfill,
+            backfill_from=backfill_from,
         )
         return self
 

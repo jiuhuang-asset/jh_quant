@@ -18,6 +18,7 @@ from jh_quant.backtest.backtest import (
 )
 
 from ..config import (
+    Frequency,
     PortfolioSpec,
     RiskRuleSpec,
     SELECTION_PROVIDER_REGISTRY,
@@ -143,6 +144,9 @@ class SessionService:
             self.configure_risk_rules(list(config.risk_rule_specs))
 
         self._suspend_user_config_persistence = False
+
+        if self.config.enable_backfill:
+            self.run_backfill()
 
         if self.config.auto_start:
             self.start_scheduler()
@@ -1450,6 +1454,130 @@ class SessionService:
                 extra["portfolio_rebalance"] = portfolio_cycle_payload
             self._persist_runtime_state(extra=extra)
             return result
+
+    def _is_frequency_suitable_for_backfill(self) -> bool:
+        """回填仅支持 Daily 或更粗的时间频率，防止在分钟内频率下使用过时价格。"""
+        coarse_frequencies = {Frequency.DAILY}
+        return self.config.frequency in coarse_frequencies
+
+    def run_backfill(self) -> TradingCycleResult:
+        """从 ``backfill_from`` 开始逐日模拟交易。
+
+        仅当 ``enable_backfill=True`` 且 ``frequency`` 为 Daily（或更粗）时可用。
+        通过设置 ``MarketDataProvider._backfill_from`` 将最新价格限制在当日收盘价，
+        从而消除前视偏差（look-ahead bias）。
+
+        若当前 session 已有历史记录，会自动从最后一天恢复，覆盖可能的
+        不完整数据，避免从头重复运行。在多 session 模式下，
+        ``MultiSessionService._lock`` 保证同一时间只有一个 session 执行回填。
+        """
+        if not self.config.enable_backfill:
+            raise ValueError("enable_backfill is not enabled")
+
+        if self.config.backfill_from is None:
+            raise ValueError("backfill_from must be set when enable_backfill=True")
+
+        if not self._is_frequency_suitable_for_backfill():
+            raise ValueError(
+                f"Backfill only supports Daily or coarser frequencies, "
+                f"got {self.config.frequency.value}"
+            )
+
+        config_from = datetime.strptime(self.config.backfill_from, "%Y-%m-%d")
+        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+        if config_from >= today:
+            raise ValueError(
+                f"backfill_from ({self.config.backfill_from}) must be before today"
+            )
+
+        # 检查历史记录，避免不必要的重复运行
+        backfill_start = config_from
+        try:
+            existing = self.persistence.query_daily_performance(
+                self.config.session_id
+            )
+            if existing is not None and not existing.empty:
+                last_date_val = existing["trade_date"].max()
+                if hasattr(last_date_val, "strftime"):
+                    last_date_str = last_date_val.strftime("%Y-%m-%d")
+                else:
+                    last_date_str = str(last_date_val)[:10]
+                last_dt = datetime.strptime(last_date_str, "%Y-%m-%d")
+
+                if last_dt >= config_from:
+                    backfill_start = last_dt
+                    self._log_execution_branch(
+                        "backfill",
+                        (
+                            f"检测到已有历史记录 (最新={last_date_str})，"
+                            f"从该日期恢复以覆盖可能的最后不完整日"
+                        ),
+                    )
+                    # 重置 OMS 到初始状态，避免与历史持仓冲突
+                    oms = self.gateway.oms
+                    oms.total = oms.initial_capital
+                    oms.available_balance = oms.initial_capital
+                    oms.total_profit = 0.0
+                    oms.daily_profit = 0.0
+                    oms.holds = []
+                    oms.trades = []
+                    oms.trade_pnl = {}
+        except Exception:
+            pass
+
+        md_provider = getattr(self.gateway, "market_data_provider", None)
+        if md_provider is None:
+            raise RuntimeError("No market_data_provider available for backfill")
+
+        if not hasattr(md_provider, "set_backfill_from"):
+            raise RuntimeError(
+                "market_data_provider does not support set_backfill_from"
+            )
+
+        total_days = (today - backfill_start).days + 1
+        self._log_execution_branch(
+            "backfill",
+            f"开始回填，起始日期={backfill_start.strftime('%Y-%m-%d')}，预计 {total_days} 天",
+        )
+
+        last_result: Optional[TradingCycleResult] = None
+        current = backfill_start
+        day_count = 0
+
+        while current <= today:
+            current_str = current.strftime("%Y-%m-%d")
+
+            try:
+                md_provider.set_backfill_from(current_str)
+                self.gateway.oms.set_simulation_date(current)
+                last_result = self.run_once(as_of_date=current_str)
+
+                day_count += 1
+                if day_count % 30 == 0 or day_count == 1:
+                    self._log_execution_branch(
+                        "backfill",
+                        (
+                            f"进度 {day_count}/{total_days}，"
+                            f"当前={current_str}，"
+                            f"已执行买入={last_result.executed_buy_count}，"
+                            f"卖出={last_result.executed_sell_count}"
+                        ),
+                    )
+            except Exception:
+                day_count += 1
+            finally:
+                current += timedelta(days=1)
+
+        md_provider.set_backfill_from(None)
+        self.gateway.oms.set_simulation_date(None)
+
+        self._log_execution_branch(
+            "backfill",
+            f"回填完成，共处理 {day_count} 天，起始日期={self.config.backfill_from}",
+        )
+
+        return last_result
 
     def _run_scheduler_loop(self):
         use_cron = bool(self.config.cron_expression)

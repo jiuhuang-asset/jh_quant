@@ -88,12 +88,25 @@ class MockOMS(OMS):
         self.trades: List[Trade] = []
         self.trade_pnl: Dict[str, float] = {}  # 用于计算胜率等
 
+        self._simulation_date: Optional[datetime] = None
+
         # 从 state_dict 恢复（不含DB，DB恢复由service层处理）
         if state_dict and restore_from in ("auto", "state"):
             try:
                 self.import_state(state_dict)
             except Exception:
                 pass
+
+    def set_simulation_date(self, date: Optional[datetime]) -> None:
+        """设置模拟日期，使 trade_date / entry_time 反映回填日而非当前时间。
+
+        传入 None 可退出模拟模式，恢复使用当前时间。
+        """
+        self._simulation_date = date
+
+    def _now(self) -> datetime:
+        """返回模拟日期（若已设置）或当前时钟时间。"""
+        return self._simulation_date or datetime.now()
 
     @property
     def session_id(self) -> str:
@@ -242,6 +255,7 @@ class MockOMS(OMS):
                 volume=order.volume,
                 avg_cost=order.price,
                 market_value=order.price * order.volume,
+                entry_time=self._now(),
             )
             self.holds.append(hold)
 
@@ -249,7 +263,7 @@ class MockOMS(OMS):
         trade = Trade(
             trade_id=self._generate_id("T"),
             session_id=self.session_id,
-            trade_date=pd.Timestamp(datetime.now()),
+            trade_date=pd.Timestamp(self._now()),
             symbol=order.symbol,
             trade_type="BUY",
             price=order.price,
@@ -310,7 +324,7 @@ class MockOMS(OMS):
         trade = Trade(
             trade_id=self._generate_id("T"),
             session_id=self.session_id,
-            trade_date=pd.Timestamp(datetime.now()),
+            trade_date=pd.Timestamp(self._now()),
             symbol=order.symbol,
             trade_type="SELL",
             price=order.price,
@@ -344,7 +358,7 @@ class MockOMS(OMS):
             PositionSnapshot object
         """
         if trade_date is None:
-            trade_date = datetime.now()
+            trade_date = self._now()
 
         cost_basis = hold.avg_cost * hold.volume
         pnl = hold.market_value - cost_basis
@@ -428,7 +442,7 @@ class MockOMS(OMS):
     @property
     def executable_holds(self) -> List[StockHoldRecord]:
         """Positions eligible for sale (T+1 gate: bought on a prior calendar day)."""
-        today = datetime.now().date()
+        today = self._now().date()
         holds = [
             hold
             for hold in self.holds

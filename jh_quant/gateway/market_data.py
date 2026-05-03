@@ -45,6 +45,17 @@ class BarData:
 
 
 class MarketDataProvider(ABC):
+    def __init__(self):
+        self._backfill_from: Optional[str] = None
+
+    def set_backfill_from(self, date: Optional[str]) -> None:
+        """Set the backfill date to prevent look-ahead bias.
+
+        When set, ``get_latest_prices()`` returns close prices as of this date
+        instead of the most recent available prices.
+        """
+        self._backfill_from = date
+
     @abstractmethod
     def get_latest_prices(self, symbols: List[str]) -> Dict[str, float]:
         """Return the latest known price for each requested symbol."""
@@ -140,8 +151,9 @@ class JHMarketDataProvider(MarketDataProvider):
         return timestamp.strftime("%Y-%m-%d")
 
     def get_latest_prices(self, symbols: List[str], to_df=True) -> Dict[str, float]:
+        end_date = self._backfill_from if self._backfill_from else "2099-12-31"
         price_df = self._get_price_df(
-            symbols=symbols, start_date="1900-01-01", end_date="2099-12-31", to_df=to_df
+            symbols=symbols, start_date="1900-01-01", end_date=end_date, to_df=to_df
         )
         if price_df is None or price_df.empty:
             return {}
