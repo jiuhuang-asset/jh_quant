@@ -55,7 +55,7 @@ from .config import (
     validate_selection_params,
     validate_strategy_params,
 )
-from .market_data import JHMarketDataProvider, MarketDataProvider, YFinanceProvider
+from .market_data import JHMarketDataProvider, MarketDataProvider
 from .models import (
     DailyPerformance,
     Order,
@@ -243,7 +243,6 @@ __all__ = [
     "TradingCycleResult",
     "TradingCycleResultResponse",
     "TurtleStrategyConfig",
-    "YFinanceProvider",
     "VolumeDivergenceStrategyConfig",
     "VolumeTrendStrategyConfig",
     "build_current_portfolio_snapshot",

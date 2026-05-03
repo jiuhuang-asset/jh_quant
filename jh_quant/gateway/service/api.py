@@ -49,6 +49,8 @@ from .schemas import (
     PortfolioOptimizeResponse,
     PortfolioRebalanceRequest,
     PortfolioRebalanceResponse,
+    PositionHistoryResponse,
+    PositionsResponse,
     RuntimeSnapshotResponse,
     SchedulerConfigSnapshotResponse,
     SchedulerConfigUpdateRequest,
@@ -72,6 +74,7 @@ from .schemas import (
     StrategyConfigSnapshotResponse,
     StrategyConfigUpdateRequest,
     StrategyConfigUpdateResponse,
+    TradeHistoryResponse,
     TradingCycleResultResponse,
 )
 
@@ -91,23 +94,18 @@ def _mount_mcp_server(app) -> None:
 
 _MAX_DATA_QUERY_ROWS = 10_000
 
+from jh_quant.gateway.market_data import MarketDataProvider
 
-def _resolve_md_provider(manager: MultiSessionService):
-    """Resolve a JHMarketDataProvider from the manager or its sessions."""
-    from ..market_data import JHMarketDataProvider
-
-    if manager._shared_md_provider is not None and isinstance(
-        manager._shared_md_provider, JHMarketDataProvider
-    ):
+def _resolve_md_provider(manager: MultiSessionService) -> MarketDataProvider|None:
+    if manager._shared_md_provider:
         return manager._shared_md_provider
 
     with manager._lock:
         for svc in manager._sessions.values():
             provider = getattr(svc.gateway, "market_data_provider", None)
-            if isinstance(provider, JHMarketDataProvider):
-                return provider
+            return provider
 
-    return JHMarketDataProvider()
+    return  None
 
 
 def _df_to_records(df, date_col: str = "date") -> list:
@@ -206,6 +204,8 @@ def _register_session_routes(app, manager: MultiSessionService):
         from datetime import datetime as _dt
 
         md = _resolve_md_provider(manager)
+        if not md:
+            return DataListResponse(data=[],count=0)
         _end = end_date or _dt.now().strftime("%Y-%m-%d")
         df = md.get_index_trends(symbol=symbol, start_date=start_date, end_date=_end)
         records = _df_to_records(df)
@@ -242,7 +242,7 @@ def _register_session_routes(app, manager: MultiSessionService):
         response_model=SessionRemoveResponse,
         operation_id="remove_service",
     )
-    def remove_service(session_id: str):
+    def remove_session(session_id: str):
         manager.remove_session(session_id)
         return SessionRemoveResponse(status="removed", session_id=session_id)
 
@@ -317,7 +317,7 @@ def _register_session_routes(app, manager: MultiSessionService):
             content=json_str,
             media_type="application/json",
             headers={
-                "Content-Disposition": f"attachment; filename=service-config-{session_id}.json"
+                "Content-Disposition": f"attachment; filename=session-config-{session_id}.json"
             },
         )
 
@@ -520,6 +520,39 @@ def _register_session_routes(app, manager: MultiSessionService):
             target_qty=request.target_qty,
             slippage=request.slippage,
         )
+
+    @app.get(
+        "/sessions/{session_id}/trades",
+        response_model=TradeHistoryResponse,
+        operation_id="get_trade_history",
+    )
+    def get_trade_history(
+        session_id: str,
+        symbol: Optional[str] = None,
+        limit: Optional[int] = None,
+    ):
+        return manager.get_session(session_id).get_trade_history(
+            symbol=symbol, limit=limit
+        )
+
+    @app.get(
+        "/sessions/{session_id}/positions",
+        response_model=PositionsResponse,
+        operation_id="get_positions",
+    )
+    def get_positions(session_id: str):
+        return manager.get_session(session_id).get_positions()
+
+    @app.get(
+        "/sessions/{session_id}/positions/history",
+        response_model=PositionHistoryResponse,
+        operation_id="get_position_history",
+    )
+    def get_position_history(
+        session_id: str,
+        symbol: Optional[str] = None,
+    ):
+        return manager.get_session(session_id).get_position_history(symbol=symbol)
 
 
 # ── app factory ──────────────────────────────────────────────

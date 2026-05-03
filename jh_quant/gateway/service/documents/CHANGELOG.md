@@ -1,5 +1,27 @@
 # SignalGateway Service API Changelog
 
+## v6 (2026-05-03)
+
+### New Features
+
+#### Trade & Position Endpoints
+- `GET /sessions/{session_id}/trades` — query historical trade records for a session. Optional query params: `symbol` (filter by ticker), `limit` (max records).
+- `GET /sessions/{session_id}/positions` — current position details with `avg_cost`, `entry_time` (first establishment time).
+- `GET /sessions/{session_id}/positions/history` — historical position snapshots, optionally filtered by `symbol`.
+
+#### New Response Models
+- `TradeRecordItem` — individual trade: `trade_id`, `session_id`, `trade_date`, `symbol`, `trade_type`, `price`, `quantity`, `amount`, `commission`, `slippage`, `total_cost`, `signal_reason`, `order_id`.
+- `TradeHistoryResponse` — `session_id`, `symbol` (optional filter), `count`, `trades: TradeRecordItem[]`.
+- `PositionDetail` — current holding: `symbol`, `quantity`, `avg_cost`, `market_value`, `entry_time`.
+- `PositionsResponse` — `session_id`, `portfolio_value`, `cash_balance`, `num_positions`, `positions: PositionDetail[]`.
+- `PositionSnapshotItem` — historical snapshot: `trade_date`, `symbol`, `quantity`, `avg_cost`, `current_price`, `market_value`, `pnl`, `pnl_pct`.
+- `PositionHistoryResponse` — `session_id`, `symbol` (optional filter), `count`, `snapshots: PositionSnapshotItem[]`.
+
+#### Bug Fixes
+- `_records_from_frame()` now properly converts `NaN` float values to `null` for JSON serialization.
+
+---
+
 ## v5 (2026-04-30)
 
 ### New Features

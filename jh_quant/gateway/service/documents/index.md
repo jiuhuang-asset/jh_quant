@@ -1,6 +1,6 @@
 # SignalGateway Service Documents Index
 
-Document version: `v4`
+Document version: `v6`
 
 ## Documents
 

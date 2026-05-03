@@ -188,8 +188,18 @@ class RiskfolioPortfolioOptimizer:
                 l=0,
                 hist=True,
             )
+        optimizer_messages = [
+            line.strip() for line in capture.getvalue().splitlines() if line.strip()
+        ]
         if weight_frame is None or weight_frame.empty:
-            raise ValueError("Riskfolio-Lib returned no portfolio weights")
+            detail = "; ".join(optimizer_messages) if optimizer_messages else "(no output)"
+            raise ValueError(
+                f"Riskfolio-Lib returned no portfolio weights. "
+                f"assets={clean_returns.shape[1]}, rows={clean_returns.shape[0]}, "
+                f"model={portfolio_spec.model}, rm={portfolio_spec.risk_measure}, "
+                f"obj={portfolio_spec.objective}. "
+                f"Optimizer output: {detail}"
+            )
 
         weight_series = (
             weight_frame.iloc[:, 0]
@@ -207,9 +217,6 @@ class RiskfolioPortfolioOptimizer:
             portfolio_spec,
             signal_scores=signal_scores,
         )
-        optimizer_messages = [
-            line.strip() for line in capture.getvalue().splitlines() if line.strip()
-        ]
 
         return PortfolioOptimizationResult(
             optimizer="riskfolio",

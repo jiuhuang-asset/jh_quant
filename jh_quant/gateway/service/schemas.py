@@ -643,3 +643,92 @@ class SessionTrendsResponse(BaseModel):
         default=None,
         description="Informational message (e.g. when sessions were auto-limited).",
     )
+
+
+# ── Trade History models ───────────────────────────────────────────
+
+
+class TradeRecordItem(BaseModel):
+    """Single executed trade record."""
+
+    trade_id: str = Field(description="Unique trade identifier.")
+    session_id: str = Field(description="Session ID.")
+    trade_date: str = Field(description="Trade execution timestamp.")
+    symbol: str = Field(description="Ticker symbol.")
+    trade_type: str = Field(description="BUY or SELL.")
+    price: float = Field(description="Execution price.")
+    quantity: int = Field(description="Number of shares.")
+    amount: float = Field(description="Trade amount (price * quantity).")
+    commission: float = Field(default=0.0, description="Commission fee.")
+    slippage: float = Field(default=0.0, description="Slippage applied.")
+    total_cost: float = Field(description="Total cost including commission.")
+    signal_reason: Optional[str] = Field(
+        default=None, description="Signal reason or strategy name."
+    )
+    order_id: Optional[str] = Field(default=None, description="Associated order ID.")
+
+
+class TradeHistoryResponse(BaseModel):
+    """Trade history for a session, optionally filtered by symbol."""
+
+    session_id: str = Field(description="Session ID.")
+    symbol: Optional[str] = Field(
+        default=None, description="Filtered symbol, if any."
+    )
+    count: int = Field(description="Number of trade records returned.")
+    trades: List[TradeRecordItem] = Field(
+        default_factory=list, description="Executed trade records."
+    )
+
+
+# ── Position Detail models ─────────────────────────────────────────
+
+
+class PositionDetail(BaseModel):
+    """Current holding detail for a single symbol."""
+
+    symbol: str = Field(description="Ticker symbol.")
+    quantity: int = Field(description="Number of shares held.")
+    avg_cost: float = Field(description="Average cost per share.")
+    market_value: float = Field(description="Current market value.")
+    entry_time: Optional[str] = Field(
+        default=None, description="When this position was first established."
+    )
+
+
+class PositionsResponse(BaseModel):
+    """Current positions for a session."""
+
+    session_id: str = Field(description="Session ID.")
+    portfolio_value: float = Field(description="Total portfolio value.")
+    cash_balance: float = Field(description="Available cash balance.")
+    num_positions: int = Field(description="Number of current positions.")
+    positions: List[PositionDetail] = Field(
+        default_factory=list, description="Current holding details."
+    )
+
+
+class PositionSnapshotItem(BaseModel):
+    """Historical position snapshot for a single symbol on a single date."""
+
+    trade_date: str = Field(description="Snapshot date.")
+    symbol: str = Field(description="Ticker symbol.")
+    quantity: int = Field(description="Number of shares held.")
+    avg_cost: float = Field(description="Average cost per share.")
+    current_price: float = Field(description="Closing price on this date.")
+    market_value: float = Field(description="Market value on this date.")
+    pnl: Optional[float] = Field(default=None, description="PnL on this date.")
+    pnl_pct: Optional[float] = Field(default=None, description="PnL percentage.")
+
+
+class PositionHistoryResponse(BaseModel):
+    """Historical position snapshots for a session, optionally filtered by symbol."""
+
+    session_id: str = Field(description="Session ID.")
+    symbol: Optional[str] = Field(
+        default=None, description="Filtered symbol, if any."
+    )
+    count: int = Field(description="Number of snapshot records returned.")
+    snapshots: List[PositionSnapshotItem] = Field(
+        default_factory=list, description="Position snapshot records."
+    )

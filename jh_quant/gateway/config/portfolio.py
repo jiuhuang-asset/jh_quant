@@ -1,7 +1,17 @@
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, ClassVar, Dict, List, Optional, Set
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+_VALID_OBJECTIVES: Set[str] = {"MinRisk", "Utility", "Sharpe", "MaxRet"}
+_VALID_MODELS: Set[str] = {"Classic", "BL", "FM"}
+_VALID_RISK_MEASURES: Set[str] = {
+    "MV", "KT", "MAD", "GMD", "MSV", "SKT",
+    "FLPM", "SLPM", "CVaR", "TG", "EVaR", "RLVaR",
+    "WR", "RG", "CVRG", "TGRG", "EVRG", "RVRG",
+    "MDD", "ADD",
+}
 
 
 class RebalanceMode(str, Enum):
@@ -111,6 +121,33 @@ class PortfolioSpec(BaseModel):
     analysis: PortfolioAnalysisSpec = Field(
         default_factory=PortfolioAnalysisSpec, description="组合分析参数配置。"
     )
+
+    @field_validator("objective")
+    @classmethod
+    def _validate_objective(cls, v: str) -> str:
+        if v not in _VALID_OBJECTIVES:
+            raise ValueError(
+                f"Invalid objective '{v}'. Must be one of: {sorted(_VALID_OBJECTIVES)}"
+            )
+        return v
+
+    @field_validator("model")
+    @classmethod
+    def _validate_model(cls, v: str) -> str:
+        if v not in _VALID_MODELS:
+            raise ValueError(
+                f"Invalid model '{v}'. Must be one of: {sorted(_VALID_MODELS)}"
+            )
+        return v
+
+    @field_validator("risk_measure")
+    @classmethod
+    def _validate_risk_measure(cls, v: str) -> str:
+        if v not in _VALID_RISK_MEASURES:
+            raise ValueError(
+                f"Invalid risk_measure '{v}'. Must be one of: {sorted(_VALID_RISK_MEASURES)}"
+            )
+        return v
 
 
 class PortfolioOptimizerDefinition(BaseModel):

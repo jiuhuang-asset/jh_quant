@@ -298,7 +298,7 @@ class SessionServiceConfigBuilder:
             - ``'Utility'``：最大化 Utility 函数 μw - l·φ_i(w)。
             - ``'Sharpe'``：最大化风险调整回报率（夏普比率），**默认值**。
             - ``'MaxRet'``：最大化组合预期收益。
-            - `risk_measure`：风险度量方式，可选值：
+        - `risk_measure`：风险度量方式，可选值：
             - ``'MV'``：标准差（均值方差），**默认值**。
             - ``'KT'``：Kurtosis 的平方根。
             - ``'MAD'``：平均绝对偏差。

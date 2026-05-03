@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 import inspect
 from typing import Any, Dict, List, Optional
 
@@ -47,6 +47,70 @@ def _params_to_plain_dict(params: Any) -> Dict[str, Any]:
     )
 
 
+# ── 风险规则参数配置 ──────────────────────────────────────────────────────────
+
+
+@dataclass
+class StopLossRuleConfig:
+    """固定止损规则参数。"""
+
+    pct: float  # 止损比例，现价相对入场价跌幅超过此比例时强制卖出
+
+
+@dataclass
+class TakeProfitRuleConfig:
+    """固定止盈规则参数。"""
+
+    pct: float  # 止盈比例，现价相对入场价涨幅超过此比例时强制卖出
+
+
+@dataclass
+class TrailingStopRuleConfig:
+    """移动止损规则参数。"""
+
+    pct: float  # 回撤比例，现价相对持仓以来最高价回撤超过此比例时强制卖出
+
+
+@dataclass
+class ATRTrailingStopRuleConfig:
+    """ATR 移动止损规则参数。"""
+
+    multiplier: float = 3.0  # ATR 乘数，止损距离 = multiplier × ATR
+    window: int = 20  # ATR 平滑窗口，用于计算真实波幅的滚动周期
+
+
+@dataclass
+class MaxHoldingBarsRuleConfig:
+    """最大持仓 bar 数规则参数。"""
+
+    bars: int  # 最大持仓 bar 数，持仓周期达到此上限时强制卖出
+
+
+@dataclass
+class MaxConsecutiveRisingBarsRuleConfig:
+    """连续上涨 bar 数限制规则参数。"""
+
+    bars: int  # 连续上涨 bar 数上限，连续上涨达到此数量时强制卖出
+
+
+@dataclass
+class MaxConsecutiveFallingBarsRuleConfig:
+    """连续下跌 bar 数限制规则参数。"""
+
+    bars: int  # 连续下跌 bar 数上限，连续下跌达到此数量时强制卖出
+
+
+RISK_RULE_CONFIG_MODELS: Dict[str, type] = {
+    "stop_loss": StopLossRuleConfig,
+    "take_profit": TakeProfitRuleConfig,
+    "trailing_stop": TrailingStopRuleConfig,
+    "atr_trailing_stop": ATRTrailingStopRuleConfig,
+    "max_holding_bars": MaxHoldingBarsRuleConfig,
+    "max_consecutive_rising": MaxConsecutiveRisingBarsRuleConfig,
+    "max_consecutive_falling": MaxConsecutiveFallingBarsRuleConfig,
+}
+
+
 RISK_RULE_REGISTRY: Dict[str, type[RiskRule]] = {
     "stop_loss": StopLossRule,
     "take_profit": TakeProfitRule,
@@ -58,10 +122,20 @@ RISK_RULE_REGISTRY: Dict[str, type[RiskRule]] = {
 }
 
 
-def register_risk_rule(name: str, rule_cls: type) -> None:
+def register_risk_rule(
+    name: str, rule_cls: type, config_model: Optional[type] = None
+) -> None:
+    """注册风险规则实现及其可选参数模型。"""
     if not issubclass(rule_cls, RiskRule):
         raise TypeError(f"{rule_cls} must inherit from RiskRule")
     RISK_RULE_REGISTRY[name] = rule_cls
+    if config_model is not None:
+        RISK_RULE_CONFIG_MODELS[name] = config_model
+
+
+def get_risk_rule_config_model(name: str) -> Optional[type]:
+    """获取某个风险规则注册名对应的参数模型类。"""
+    return RISK_RULE_CONFIG_MODELS.get(name)
 
 
 class RiskRuleSpec(BaseModel):
@@ -123,9 +197,25 @@ def _schema_from_callable(
     return model.model_json_schema()
 
 
+def _validated_model_to_dict(model_cls: type, params: Dict[str, Any]) -> Dict[str, Any]:
+    adapter = TypeAdapter(model_cls)
+    value = adapter.validate_python(params)
+    if isinstance(value, BaseModel):
+        return value.model_dump(exclude_none=False)
+    if is_dataclass(value):
+        return asdict(value)
+    return dict(value)
+
+
+def _schema_from_model(model_cls: type) -> Dict[str, Any]:
+    return TypeAdapter(model_cls).json_schema()
+
+
 def validate_risk_rule_params(name: str, params: Dict[str, Any]) -> Dict[str, Any]:
     if name not in RISK_RULE_REGISTRY:
         raise ValueError(f"Unsupported risk rule name: {name}")
+    if name in RISK_RULE_CONFIG_MODELS:
+        return _validated_model_to_dict(RISK_RULE_CONFIG_MODELS[name], params)
     rule_cls = RISK_RULE_REGISTRY[name]
     return _validate_callable_params(
         rule_cls.__init__,
@@ -144,6 +234,8 @@ def normalize_risk_rule_spec(spec: RiskRuleSpec) -> RiskRuleSpec:
 def get_risk_rule_params_schema(name: str) -> Dict[str, Any]:
     if name not in RISK_RULE_REGISTRY:
         raise ValueError(f"Unsupported risk rule name: {name}")
+    if name in RISK_RULE_CONFIG_MODELS:
+        return _schema_from_model(RISK_RULE_CONFIG_MODELS[name])
     rule_cls = RISK_RULE_REGISTRY[name]
     return _schema_from_callable(
         rule_cls.__init__,
@@ -157,6 +249,7 @@ def list_risk_rule_definitions() -> list[dict[str, Any]]:
         {
             "name": name,
             "params_schema": get_risk_rule_params_schema(name),
+            "config_model": getattr(get_risk_rule_config_model(name), "__name__", None),
         }
         for name in RISK_RULE_REGISTRY
     ]

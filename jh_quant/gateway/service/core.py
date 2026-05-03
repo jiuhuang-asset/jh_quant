@@ -512,7 +512,12 @@ class SessionService:
                 normalized[column] = normalized[column].apply(
                     lambda value: value.isoformat() if pd.notna(value) else None
                 )
-        return normalized.to_dict(orient="records")
+        records = normalized.to_dict(orient="records")
+        for r in records:
+            for k, v in r.items():
+                if isinstance(v, float) and pd.isna(v):
+                    r[k] = None
+        return records
 
     def _normalize_jsonable(self, value: Any) -> Any:
         if isinstance(value, dict):
@@ -1161,6 +1166,73 @@ class SessionService:
     def get_portfolio_history(self) -> Dict[str, Any]:
         snapshots = self.persistence.query_position_snapshots(self.config.session_id)
         return build_portfolio_history(snapshots)
+
+    def get_trade_history(
+        self, symbol: Optional[str] = None, limit: Optional[int] = None
+    ) -> Dict[str, Any]:
+        df = self.persistence.query_trades(self.config.session_id)
+        if df is None or df.empty:
+            return {
+                "session_id": self.config.session_id,
+                "symbol": symbol,
+                "count": 0,
+                "trades": [],
+            }
+        if symbol:
+            df = df[df["symbol"] == symbol]
+        if limit is not None and limit > 0:
+            df = df.tail(limit)
+        records = self._records_from_frame(df)
+        return {
+            "session_id": self.config.session_id,
+            "symbol": symbol,
+            "count": len(records),
+            "trades": records,
+        }
+
+    def get_positions(self) -> Dict[str, Any]:
+        positions = self.gateway.oms.get_positions()
+        holds = getattr(positions, "holds", []) or []
+        position_items = []
+        for hold in holds:
+            entry_time = getattr(hold, "entry_time", None)
+            position_items.append(
+                {
+                    "symbol": hold.symbol,
+                    "quantity": int(getattr(hold, "volume", 0)),
+                    "avg_cost": float(getattr(hold, "avg_cost", 0.0)),
+                    "market_value": float(getattr(hold, "market_value", 0.0)),
+                    "entry_time": entry_time.isoformat() if entry_time else None,
+                }
+            )
+        return {
+            "session_id": self.config.session_id,
+            "portfolio_value": float(getattr(positions, "total", 0.0)),
+            "cash_balance": float(getattr(positions, "available_balance", 0.0)),
+            "num_positions": len(position_items),
+            "positions": position_items,
+        }
+
+    def get_position_history(
+        self, symbol: Optional[str] = None
+    ) -> Dict[str, Any]:
+        df = self.persistence.query_position_snapshots(self.config.session_id)
+        if df is None or df.empty:
+            return {
+                "session_id": self.config.session_id,
+                "symbol": symbol,
+                "count": 0,
+                "snapshots": [],
+            }
+        if symbol:
+            df = df[df["symbol"] == symbol]
+        records = self._records_from_frame(df)
+        return {
+            "session_id": self.config.session_id,
+            "symbol": symbol,
+            "count": len(records),
+            "snapshots": records,
+        }
 
     def get_session_event_history(self) -> Dict[str, Any]:
         records = self.persistence.query_runtime_events(self.config.session_id)

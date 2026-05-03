@@ -1,6 +1,6 @@
-# SignalGateway Service API Documentation v4
+# SignalGateway Service API Documentation v6
 
-Document version: `v4` (changelog: [CHANGELOG.md](CHANGELOG.md))
+Document version: `v6` (changelog: [CHANGELOG.md](CHANGELOG.md))
 
 This document describes the HTTP API exposed by `jh_quant.signalgateway.service.api`, the key data models, and recommended frontend integration patterns.
 
@@ -108,6 +108,9 @@ To reduce requests, use `GET /sessions/{session_id}/analytics` which bundles `st
 | `POST` | `/sessions/{session_id}/close-all-positions` | Close all positions |
 | `POST` | `/sessions/{session_id}/signal-buy` | Single-symbol buy signal |
 | `POST` | `/sessions/{session_id}/signal-sell` | Single-symbol sell signal |
+| `GET` | `/sessions/{session_id}/trades` | Historical trade records |
+| `GET` | `/sessions/{session_id}/positions` | Current position details |
+| `GET` | `/sessions/{session_id}/positions/history` | Historical position snapshots |
 
 ## 4. Common Response and Error Handling
 
@@ -610,6 +613,110 @@ Request body:
 Submit single-symbol sell signal. Same request format as buy.
 
 Single-symbol trade response fields: `status`, `action`, `symbol`, `executed`, `trade`, `message`.
+
+### 11.4 `GET /sessions/{session_id}/trades`
+
+Query historical trade records for a session. Supports filtering by symbol and limiting results (newest first).
+
+Query parameters:
+- `symbol` (string, optional) — Filter by ticker symbol.
+- `limit` (int, optional) — Max number of records to return.
+
+Response (`TradeHistoryResponse`):
+```json
+{
+  "session_id": "demo",
+  "symbol": "000001.SZ",
+  "count": 3,
+  "trades": [
+    {
+      "trade_id": "t-abc123",
+      "session_id": "demo",
+      "trade_date": "2025-01-15T09:30:00",
+      "symbol": "000001.SZ",
+      "trade_type": "BUY",
+      "price": 12.50,
+      "quantity": 1000,
+      "amount": 12500.00,
+      "commission": 5.00,
+      "slippage": 0.0,
+      "total_cost": 12505.00,
+      "signal_reason": "turtle breakthrough entry",
+      "order_id": null
+    }
+  ]
+}
+```
+
+Each trade includes `trade_id`, `trade_date`, `symbol`, `trade_type` (BUY/SELL), `price`, `quantity`, `amount`, `commission`, `slippage`, `total_cost`, `signal_reason` (strategy name or signal reason), `order_id`.
+
+Use for: trade log table, per-symbol trade timeline, audit trail.
+
+### 11.5 `GET /sessions/{session_id}/positions`
+
+Get current real-time position details from OMS, including `avg_cost` and `entry_time`.
+
+Response (`PositionsResponse`):
+```json
+{
+  "session_id": "demo",
+  "portfolio_value": 105230.50,
+  "cash_balance": 30230.50,
+  "num_positions": 2,
+  "positions": [
+    {
+      "symbol": "000001.SZ",
+      "quantity": 1000,
+      "avg_cost": 12.35,
+      "market_value": 12500.00,
+      "entry_time": "2025-01-15T09:30:00"
+    },
+    {
+      "symbol": "600519.SH",
+      "quantity": 500,
+      "avg_cost": 1800.50,
+      "market_value": 62500.00,
+      "entry_time": "2025-02-20T10:15:00"
+    }
+  ]
+}
+```
+
+`entry_time` comes from OMS `StockHoldRecord.entry_time` — it records the timestamp when the position was first established. Subsequent additions to the same symbol do not update this field.
+
+Use for: position overview panel, cost basis display, holding duration analysis.
+
+### 11.6 `GET /sessions/{session_id}/positions/history`
+
+Query historical position snapshots for a session, optionally filtered by symbol.
+
+Query parameters:
+- `symbol` (string, optional) — Filter by ticker symbol.
+
+Response (`PositionHistoryResponse`):
+```json
+{
+  "session_id": "demo",
+  "symbol": "000001.SZ",
+  "count": 5,
+  "snapshots": [
+    {
+      "trade_date": "2025-01-15T15:00:00",
+      "symbol": "000001.SZ",
+      "quantity": 1000,
+      "avg_cost": 12.35,
+      "current_price": 12.50,
+      "market_value": 12500.00,
+      "pnl": 150.00,
+      "pnl_pct": 0.012
+    }
+  ]
+}
+```
+
+Each snapshot includes `trade_date`, `symbol`, `quantity`, `avg_cost`, `current_price`, `market_value`, `pnl`, `pnl_pct`.
+
+Use for: per-symbol position evolution chart, cost trend visualization, PnL timeline for individual holdings.
 
 ## 12. Event History
 

@@ -1,4 +1,4 @@
-# SignalGateway Service API Reference (v4)
+# SignalGateway Service API Reference (v6)
 
 Quick endpoint reference. For full details see [API_DOCUMENTATION.md](API_DOCUMENTATION.md).
 
@@ -84,6 +84,9 @@ All under `/sessions/{session_id}/*`.
 | `POST` | `/sessions/{session_id}/close-all-positions` | Close all positions |
 | `POST` | `/sessions/{session_id}/signal-buy` | Submit single-symbol buy signal |
 | `POST` | `/sessions/{session_id}/signal-sell` | Submit single-symbol sell signal |
+| `GET` | `/sessions/{session_id}/trades` | Historical trade records |
+| `GET` | `/sessions/{session_id}/positions` | Current position details |
+| `GET` | `/sessions/{session_id}/positions/history` | Historical position snapshots |
 
 ## Key Response Models
 
@@ -111,6 +114,12 @@ All under `/sessions/{session_id}/*`.
 | `SessionTrendsResponse` | `generated_at`, `count`, `sessions: SessionTrendItem[]`, `note` |
 | `SessionTrendItem` | `session_id`, `mode`, `initial_capital`, `strategy_names`, `selection_name`, `trends: SessionTrendPoint[]` |
 | `SessionTrendPoint` | `trade_date`, `portfolio_value`, `cumulative_return`, `drawdown`, `daily_pnl`, `num_positions` |
+| `TradeRecordItem` | `trade_id`, `session_id`, `trade_date`, `symbol`, `trade_type`, `price`, `quantity`, `amount`, `commission`, `slippage`, `total_cost`, `signal_reason`, `order_id` |
+| `TradeHistoryResponse` | `session_id`, `symbol`, `count`, `trades: TradeRecordItem[]` |
+| `PositionDetail` | `symbol`, `quantity`, `avg_cost`, `market_value`, `entry_time` |
+| `PositionsResponse` | `session_id`, `portfolio_value`, `cash_balance`, `num_positions`, `positions: PositionDetail[]` |
+| `PositionSnapshotItem` | `trade_date`, `symbol`, `quantity`, `avg_cost`, `current_price`, `market_value`, `pnl`, `pnl_pct` |
+| `PositionHistoryResponse` | `session_id`, `symbol`, `count`, `snapshots: PositionSnapshotItem[]` |
 
 ## Query Parameters
 
@@ -125,3 +134,6 @@ All under `/sessions/{session_id}/*`.
 | `/data/stock` | `start_date` | string | Start date YYYY-MM-DD (default 2020-01-01) |
 | `/data/stock` | `end_date` | string | End date YYYY-MM-DD (default today) |
 | `/data/stock` | `frequency` | string | Data frequency: `daily` (default) or `spot` |
+| `/sessions/{session_id}/trades` | `symbol` | string | Filter by ticker symbol (optional) |
+| `/sessions/{session_id}/trades` | `limit` | int | Max records to return (optional) |
+| `/sessions/{session_id}/positions/history` | `symbol` | string | Filter by ticker symbol (optional) |
