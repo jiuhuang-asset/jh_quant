@@ -15,7 +15,7 @@ from .protocols import (
     RuntimeStatePersistence,
     SessionStatePersistence,
     TradePersistence,
-    UserConfigPersistence,
+    SessionConfigPersistence,
 )
 from .recorder import (
     MemFireCloudRecorder,
@@ -33,7 +33,7 @@ __all__ = [
     "RuntimeStatePersistence",
     "SessionStatePersistence",
     "TradePersistence",
-    "UserConfigPersistence",
+    "SessionConfigPersistence",
     "OrderRecorder",
     "TortoiseOrderRecorder",
     "SQLiteOrderRecorder",

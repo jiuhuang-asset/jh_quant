@@ -117,9 +117,9 @@ class SessionService:
         self._last_portfolio_rebalance_at: Optional[datetime] = None
         self.selection_provider: Optional[SelectionProvider] = None
         self._config_source = "bootstrap"
-        self._persisted_user_config_available = False
-        self._persisted_user_config_updated_at: Optional[str] = None
-        self._suspend_user_config_persistence = True
+        self._persisted_session_config_available = False
+        self._persisted_session_config_updated_at: Optional[str] = None
+        self._suspend_session_config_persistence = True
 
         oms_session_id = getattr(self.gateway.oms, "session_id", None)
         if self.config.session_id is None:
@@ -134,7 +134,7 @@ class SessionService:
         self._last_result: Optional[TradingCycleResult] = None
         self._last_error: Optional[str] = None
 
-        self._restore_user_config()
+        self._restore_session_config()
         self._restore_session_state()
         self._initialize_selection_provider(selection_provider)
         self._restore_oms_state()
@@ -143,7 +143,8 @@ class SessionService:
         if config.risk_rule_specs:
             self.configure_risk_rules(list(config.risk_rule_specs))
 
-        self._suspend_user_config_persistence = False
+        self._suspend_session_config_persistence = False
+        self._persist_session_config(source="bootstrap")
 
         if self.config.enable_backfill:
             self.run_backfill()
@@ -182,20 +183,20 @@ class SessionService:
         self.portfolio_spec = self.session_config.portfolio_spec
         self._config_source = source
 
-    def _restore_user_config(self) -> None:
+    def _restore_session_config(self) -> None:
         if not self.config.restore_persisted_state:
             return
 
         try:
-            saved = self.persistence.load_latest_user_config(self.config.session_id)
+            saved = self.persistence.load_latest_session_config(self.config.session_id)
             if not saved:
                 return
             config_bundle = saved.get("config_bundle")
             if not config_bundle:
                 return
-            self._persisted_user_config_available = True
-            self._persisted_user_config_updated_at = saved.get("export_time")
-            self._apply_config_bundle(config_bundle, source="persisted_user_config")
+            self._persisted_session_config_available = True
+            self._persisted_session_config_updated_at = saved.get("export_time")
+            self._apply_config_bundle(config_bundle, source="persisted_session_config")
         except Exception:
             pass
 
@@ -214,11 +215,11 @@ class SessionService:
         if (
             config_bundle
             and self.config.restore_persisted_state
-            and not self._persisted_user_config_available
+            and not self._persisted_session_config_available
         ):
-            self._apply_config_bundle(config_bundle, source="persisted_user_config")
-            self._persisted_user_config_available = True
-            self._persisted_user_config_updated_at = state.get("export_time")
+            self._apply_config_bundle(config_bundle, source="persisted_session_config")
+            self._persisted_session_config_available = True
+            self._persisted_session_config_updated_at = state.get("export_time")
 
         last_result = session_state.get("last_result")
         if last_result:
@@ -273,7 +274,7 @@ class SessionService:
             self.gateway.replace_strategies(built)
             self.strategy_specs = normalized_specs
             self.session_config.strategy_specs = list(normalized_specs)
-            self._persist_user_config(source="runtime_update")
+            self._persist_session_config(source="runtime_update")
             self._persist_runtime_state(extra={"event": "strategy_config_updated"})
 
     def configure_risk_rules(self, risk_rule_specs: List[RiskRuleSpec]):
@@ -289,7 +290,7 @@ class SessionService:
             rules = build_risk_rules(normalized_specs)
             self.gateway.configure_risk_rules(risk_rules=rules)
             self.session_config.risk_rule_specs = list(normalized_specs)
-            self._persist_user_config(source="runtime_update")
+            self._persist_session_config(source="runtime_update")
             self._persist_runtime_state(extra={"event": "risk_rule_config_updated"})
 
     def _build_selection_instance(self, spec: SelectionSpec) -> SelectionProvider:
@@ -305,14 +306,14 @@ class SessionService:
             provider = self._build_selection_instance(selection_spec)
             self.selection_provider = provider
             self.session_config.selection_spec = self.selection_specs
-            self._persist_user_config(source="runtime_update")
+            self._persist_session_config(source="runtime_update")
             self._persist_runtime_state(extra={"event": "selection_config_updated"})
 
     def configure_portfolio(self, portfolio_spec):
         with self._lock:
             self.portfolio_spec = portfolio_spec
             self.session_config.portfolio_spec = portfolio_spec
-            self._persist_user_config(source="runtime_update")
+            self._persist_session_config(source="runtime_update")
             self._persist_runtime_state(extra={"event": "portfolio_config_updated"})
 
     def _validate_scheduler_inputs(
@@ -422,7 +423,7 @@ class SessionService:
                 self.config.timezone = timezone
             if auto_start is not None:
                 self.config.auto_start = auto_start
-            self._persist_user_config(source="runtime_update")
+            self._persist_session_config(source="runtime_update")
 
             self._persist_runtime_state(
                 extra={
@@ -478,7 +479,7 @@ class SessionService:
             else:
                 self.gateway.configure_risk_rules(risk_rules=[])
 
-            self._persist_user_config(source="runtime_update")
+            self._persist_session_config(source="runtime_update")
             self._persist_runtime_state(extra={"event": "service_config_replaced"})
 
         if was_scheduler_running or self.config.auto_start:
@@ -785,8 +786,8 @@ class SessionService:
                 "strategy_specs": [spec.model_dump() for spec in self.strategy_specs],
                 "portfolio_spec": self.portfolio_spec.model_dump(mode="json"),
                 "config_source": self._config_source,
-                "persisted_user_config_available": self._persisted_user_config_available,
-                "persisted_user_config_updated_at": self._persisted_user_config_updated_at,
+                "persisted_session_config_available": self._persisted_session_config_available,
+                "persisted_session_config_updated_at": self._persisted_session_config_updated_at,
                 "running": self._scheduler_running,
                 "last_error": self._last_error,
                 "last_result": asdict(self._last_result) if self._last_result else None,
@@ -805,19 +806,19 @@ class SessionService:
         if hasattr(self.gateway.oms, "export_state"):
             self.persistence.save_session_state(self.gateway.oms.export_state())
 
-    def _persist_user_config(self, *, source: str = "runtime_update") -> None:
-        if self._suspend_user_config_persistence:
+    def _persist_session_config(self, *, source: str = "runtime_update") -> None:
+        if self._suspend_session_config_persistence:
             return
         export_time = datetime.now().isoformat()
         config_bundle = self.session_config.model_dump(mode="json")
         config_bundle["export_time"] = export_time
-        self.persistence.save_user_config(
+        self.persistence.save_session_config(
             self.config.session_id,
             config_bundle,
             source=source,
         )
-        self._persisted_user_config_available = True
-        self._persisted_user_config_updated_at = export_time
+        self._persisted_session_config_available = True
+        self._persisted_session_config_updated_at = export_time
         self._config_source = source
 
     def _persist_trades(self, trades: List[Any]) -> None:
@@ -847,8 +848,8 @@ class SessionService:
             strategy_specs=[spec.model_dump() for spec in self.strategy_specs],
             portfolio_spec=self.portfolio_spec.model_dump(mode="json"),
             config_source=self._config_source,
-            persisted_user_config_available=self._persisted_user_config_available,
-            persisted_user_config_updated_at=self._persisted_user_config_updated_at,
+            persisted_session_config_available=self._persisted_session_config_available,
+            persisted_session_config_updated_at=self._persisted_session_config_updated_at,
         ).model_dump()
 
     def get_strategy_config_snapshot(self) -> Dict[str, Any]:
@@ -1504,6 +1505,21 @@ class SessionService:
                 else:
                     last_date_str = str(last_date_val)[:10]
                 last_dt = datetime.strptime(last_date_str, "%Y-%m-%d")
+
+                config_count = self.persistence.count_session_configs(
+                    self.config.session_id
+                )
+                if config_count >= 2:
+                    self._log_execution_branch(
+                        "backfill",
+                        (
+                            f"[警告] 当前 session 存在 {config_count} 条配置变更记录，"
+                            f"已持久化的回填数据可能由不同的配置版本生成。"
+                            f"已有数据最晚日期={last_date_str}，"
+                            f"本次将使用最新配置从 {last_dt.strftime('%Y-%m-%d') if last_dt >= config_from else config_from.strftime('%Y-%m-%d')} 继续回填，"
+                            f"可能导致前后数据口径不一致。建议使用新的 session_id 重新回填。"
+                        ),
+                    )
 
                 if last_dt >= config_from:
                     backfill_start = last_dt

@@ -106,7 +106,7 @@ class PersistenceCoordinator:
             return None
         return self.recorder.load_latest_runtime_state(session_id)
 
-    def save_user_config(
+    def save_session_config(
         self,
         session_id: str,
         config_bundle: dict,
@@ -115,12 +115,17 @@ class PersistenceCoordinator:
     ) -> None:
         if self.recorder is None:
             return
-        self.recorder.save_user_config(session_id, config_bundle, source=source)
+        self.recorder.save_session_config(session_id, config_bundle, source=source)
 
-    def load_latest_user_config(self, session_id: str) -> Optional[dict]:
+    def load_latest_session_config(self, session_id: str) -> Optional[dict]:
         if self.recorder is None:
             return None
-        return self.recorder.load_latest_user_config(session_id)
+        return self.recorder.load_latest_session_config(session_id)
+
+    def count_session_configs(self, session_id: str) -> int:
+        if self.recorder is None:
+            return 0
+        return self.recorder.count_session_configs(session_id)
 
     def query_runtime_events(self, session_id: str) -> "pd.DataFrame":
         import pandas as pd

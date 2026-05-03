@@ -144,13 +144,13 @@ class SessionConfigResponse(BaseModel):
         default="bootstrap",
         description="Where the active config bundle was loaded from.",
     )
-    persisted_user_config_available: bool = Field(
+    persisted_session_config_available: bool = Field(
         default=False,
-        description="Whether a dedicated persisted user config exists for the current session.",
+        description="Whether a dedicated persisted session config exists for the current session.",
     )
-    persisted_user_config_updated_at: Optional[str] = Field(
+    persisted_session_config_updated_at: Optional[str] = Field(
         default=None,
-        description="Last update time of the dedicated persisted user config record.",
+        description="Last update time of the dedicated persisted session config record.",
     )
 
 

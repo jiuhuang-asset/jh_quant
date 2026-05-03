@@ -5,6 +5,8 @@ Persistence adapters for trades, performance snapshots, and session state.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 from abc import ABC, abstractmethod
 from concurrent.futures import Future
 from datetime import date, datetime
@@ -27,7 +29,7 @@ from .models import (
     RuntimeStateRecord,
     SessionStateRecord,
     TradeRecord,
-    UserConfigRecord,
+    SessionConfigRecord,
     require_tortoise_orm,
 )
 from .protocols import (
@@ -161,7 +163,7 @@ class OrderRecorder(
         raise NotImplementedError
 
     @abstractmethod
-    def save_user_config(
+    def save_session_config(
         self,
         session_id: str,
         config_bundle: Dict[str, Any],
@@ -171,7 +173,11 @@ class OrderRecorder(
         raise NotImplementedError
 
     @abstractmethod
-    def load_latest_user_config(self, session_id: str) -> Optional[Dict[str, Any]]:
+    def load_latest_session_config(self, session_id: str) -> Optional[Dict[str, Any]]:
+        raise NotImplementedError
+
+    @abstractmethod
+    def count_session_configs(self, session_id: str) -> int:
         raise NotImplementedError
 
     def close(self):
@@ -335,16 +341,21 @@ class TortoiseOrderRecorder(OrderRecorder):
     ) -> Optional[Dict[str, Any]]:
         return await self._load_latest_state_record(RuntimeStateRecord, session_id)
 
-    def save_user_config(
+    @staticmethod
+    def _compute_config_md5(config_bundle: Dict[str, Any]) -> str:
+        canonical = json.dumps(config_bundle, sort_keys=True, ensure_ascii=False)
+        return hashlib.md5(canonical.encode("utf-8")).hexdigest()
+
+    def save_session_config(
         self,
         session_id: str,
         config_bundle: Dict[str, Any],
         *,
         source: str = "runtime_update",
     ):
-        self._run(self._save_user_config(session_id, config_bundle, source=source))
+        self._run(self._save_session_config(session_id, config_bundle, source=source))
 
-    async def _save_user_config(
+    async def _save_session_config(
         self,
         session_id: str,
         config_bundle: Dict[str, Any],
@@ -353,8 +364,10 @@ class TortoiseOrderRecorder(OrderRecorder):
     ):
         normalized_bundle = normalize_jsonable_value(config_bundle)
         export_time = _as_datetime(normalized_bundle.get("export_time", datetime.now()))
-        await UserConfigRecord.update_or_create(
+        config_md5 = self._compute_config_md5(normalized_bundle)
+        await SessionConfigRecord.get_or_create(
             session_id=session_id,
+            config_md5=config_md5,
             defaults={
                 "config_bundle": normalized_bundle,
                 "source": source,
@@ -362,14 +375,14 @@ class TortoiseOrderRecorder(OrderRecorder):
             },
         )
 
-    def load_latest_user_config(self, session_id: str) -> Optional[Dict[str, Any]]:
-        return self._run(self._load_latest_user_config(session_id))
+    def load_latest_session_config(self, session_id: str) -> Optional[Dict[str, Any]]:
+        return self._run(self._load_latest_session_config(session_id))
 
-    async def _load_latest_user_config(
+    async def _load_latest_session_config(
         self, session_id: str
     ) -> Optional[Dict[str, Any]]:
         row = (
-            await UserConfigRecord.filter(session_id=session_id)
+            await SessionConfigRecord.filter(session_id=session_id)
             .order_by("-export_time")
             .first()
         )
@@ -381,6 +394,12 @@ class TortoiseOrderRecorder(OrderRecorder):
             "source": row.source,
             "export_time": row.export_time.isoformat(),
         }
+
+    def count_session_configs(self, session_id: str) -> int:
+        return self._run(self._count_session_configs(session_id))
+
+    async def _count_session_configs(self, session_id: str) -> int:
+        return await SessionConfigRecord.filter(session_id=session_id).count()
 
     def query_runtime_events(self, session_id: str) -> pd.DataFrame:
         return self._run(self._query_runtime_events(session_id))

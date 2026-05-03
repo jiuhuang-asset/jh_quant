@@ -84,19 +84,23 @@ class RuntimeStatePersistence(Protocol):
 
 
 @runtime_checkable
-class UserConfigPersistence(Protocol):
-    """Protocol for user-managed config bundle persistence."""
+class SessionConfigPersistence(Protocol):
+    """Protocol for session config bundle persistence."""
 
-    def save_user_config(
+    def save_session_config(
         self,
         session_id: str,
         config_bundle: dict,
         *,
         source: str = "runtime_update",
     ) -> None:
-        """Save the latest user-managed config bundle for a session."""
+        """Save a session config bundle record (appends, never overwrites)."""
         ...
 
-    def load_latest_user_config(self, session_id: str) -> dict | None:
-        """Load the latest user-managed config bundle for a given session_id."""
+    def load_latest_session_config(self, session_id: str) -> dict | None:
+        """Load the latest session config bundle for a given session_id."""
+        ...
+
+    def count_session_configs(self, session_id: str) -> int:
+        """Return the number of config records for a given session_id."""
         ...
