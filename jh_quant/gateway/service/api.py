@@ -207,6 +207,7 @@ def _register_session_routes(app, manager: MultiSessionService):
         if not md:
             return DataListResponse(data=[],count=0)
         _end = end_date or _dt.now().strftime("%Y-%m-%d")
+        # breakpoint()
         df = md.get_index_trends(symbol=symbol, start_date=start_date, end_date=_end)
         records = _df_to_records(df)
         return DataListResponse(data=records, count=len(records))

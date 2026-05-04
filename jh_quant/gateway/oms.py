@@ -81,6 +81,7 @@ class MockOMS(OMS):
         self.available_balance = initial_capital
         self.total_profit = 0.0
         self.daily_profit = 0.0
+        self._prev_portfolio_value = initial_capital
         self.holds: List[StockHoldRecord] = []
         self.start_time = start_time or datetime.now()
 
@@ -157,6 +158,7 @@ class MockOMS(OMS):
             "available_balance": self.available_balance,
             "total_profit": self.total_profit,
             "daily_profit": self.daily_profit,
+            "_prev_portfolio_value": self._prev_portfolio_value,
             "start_time": self.start_time.isoformat() if self.start_time else None,
             "holds": convert_to_serializable(holds_data),
             "trades": convert_to_serializable(trades_data),
@@ -177,6 +179,9 @@ class MockOMS(OMS):
         self.available_balance = state.get("available_balance", self.initial_capital)
         self.total_profit = state.get("total_profit", 0.0)
         self.daily_profit = state.get("daily_profit", 0.0)
+        self._prev_portfolio_value = state.get(
+            "_prev_portfolio_value", self.initial_capital
+        )
 
         # 恢复start_time
         start_time_str = state.get("start_time")
@@ -405,11 +410,11 @@ class MockOMS(OMS):
         position_value = sum(h.market_value for h in self.holds)
         portfolio_value = self.available_balance + position_value
 
-        prev_portfolio = self.total - self.daily_profit
+        prev_portfolio = self._prev_portfolio_value
         daily_return = (
             (portfolio_value - prev_portfolio) / prev_portfolio
             if prev_portfolio > 0
-            else 0
+            else 0.0
         )
         cumulative_return = (
             (portfolio_value - self.initial_capital) / self.initial_capital
@@ -434,8 +439,9 @@ class MockOMS(OMS):
             self.compute_position_snapshot(hold, trade_date) for hold in self.holds
         ]
 
-        # Reset daily profit after computing
+        # Reset daily profit after computing and track portfolio value
         self.daily_profit = 0.0
+        self._prev_portfolio_value = portfolio_value
 
         return daily_perf, snapshots
 

@@ -225,6 +225,25 @@ class SessionServiceConfigBuilder:
         self._config.strategy_specs = list(strategy_specs)
         return self
 
+    def with_strategy(
+        self,
+        *,
+        name: str,
+        weight: float = 1.0,
+        params: Optional[Any] = None,
+        alias: Optional[str] = None,
+    ) -> "SessionServiceConfigBuilder":
+        """替换为单条策略配置（清空已有策略列表）。"""
+        self._config.strategy_specs = [
+            StrategySpec(
+                name=name,
+                weight=weight,
+                params=params or {},
+                alias=alias,
+            )
+        ]
+        return self
+
     def add_strategy(
         self,
         *,
@@ -257,6 +276,23 @@ class SessionServiceConfigBuilder:
     ) -> "SessionServiceConfigBuilder":
         """一次性替换全部风险规则配置列表。"""
         self._config.risk_rule_specs = list(risk_rule_specs)
+        return self
+
+    def with_risk_rule(
+        self,
+        *,
+        name: str,
+        params: Optional[Any] = None,
+        alias: Optional[str] = None,
+    ) -> "SessionServiceConfigBuilder":
+        """替换为单条风险规则配置（清空已有风险规则列表）。"""
+        self._config.risk_rule_specs = [
+            RiskRuleSpec(
+                name=name,
+                params=params or {},
+                alias=alias,
+            )
+        ]
         return self
 
     def add_risk_rule(

@@ -343,7 +343,11 @@ class TortoiseOrderRecorder(OrderRecorder):
 
     @staticmethod
     def _compute_config_md5(config_bundle: Dict[str, Any]) -> str:
-        canonical = json.dumps(config_bundle, sort_keys=True, ensure_ascii=False)
+        content = {
+            k: v for k, v in config_bundle.items()
+            if k not in ("export_time",)
+        }
+        canonical = json.dumps(content, sort_keys=True, ensure_ascii=False)
         return hashlib.md5(canonical.encode("utf-8")).hexdigest()
 
     def save_session_config(

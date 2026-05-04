@@ -190,7 +190,7 @@ class SignalGateway:
         )
         if price_matrix.empty:
             return pd.DataFrame()
-        returns = price_matrix.pct_change().dropna(how="all")
+        returns = price_matrix.pct_change(fill_method=None).dropna(how="all")
         return returns.dropna(axis=1, how="all")
 
     def _normalize_frequency(self, frequency: Frequency | str | None) -> Frequency:
@@ -292,11 +292,11 @@ class SignalGateway:
             是否应该因风险规则而强制卖出
         """
         if not self.risk_rules:
-            return False
+            return None
 
         symbol_price = price_df[price_df["symbol"] == symbol].copy()
         if symbol_price.empty:
-            return False
+            return None
 
         symbol_price["date"] = pd.to_datetime(symbol_price["date"])
         symbol_price = symbol_price.sort_values("date")
@@ -304,7 +304,7 @@ class SignalGateway:
         buy_date = pd.Timestamp(hold.entry_time)
         symbol_price = symbol_price[symbol_price["date"] >= buy_date]
         if symbol_price.empty or len(symbol_price) < 2:
-            return False
+            return None
 
         state = PositionState()
         state.enter(hold.avg_cost)
@@ -357,11 +357,11 @@ class SignalGateway:
                         content=f"{symbol} 触发风控卖出: {', '.join(rule_names)} "
                         f"(持仓成本: {hold.avg_cost:.2f}, 当前价: {current_price:.2f})",
                     )
-                    return True
+                    return "risk_rule:" + ",".join(rule_names)
 
             prev_price = current_price
 
-        return False
+        return None
 
     def aggregate_signals(
         self,
@@ -378,7 +378,7 @@ class SignalGateway:
             signal_type: 信号类型 "buy" 或 "sell"
 
         Returns:
-            包含 'symbol' 和 'score' 的DataFrame
+            包含 'symbol'、'score' 和 'reasons' 的DataFrame
         """
         if not self.strategy_pool:
             rprint(
@@ -394,14 +394,18 @@ class SignalGateway:
             signal_df = strat["strategy"](price)
             signal_df = self._filter_to_symbol_latest_window(signal_df, frequency)
             signal_df[weighted_column] = signal_df[signal_column] * strat["weight"]
-            all_signals.append(signal_df[["symbol", weighted_column]])
+            signal_df["_strategy_name"] = strat["name"]
+            all_signals.append(
+                signal_df[["symbol", weighted_column, "_strategy_name"]]
+            )
 
         if not all_signals:
             return pd.DataFrame(columns=["symbol", "score"])
 
+        concat_all = pd.concat(all_signals)
+
         combined = (
-            pd.concat(all_signals)
-            .groupby("symbol")[weighted_column]
+            concat_all.groupby("symbol")[weighted_column]
             .sum()
             .reset_index()
         )
@@ -524,6 +528,7 @@ class SignalGateway:
         final_list = raw_signals.sort_values(by="score", ascending=False).head(
             max_candidates
         )
+        final_list["reason"] = "strategy"
 
         current_hold_symbols = {h.symbol for h in self.oms.get_positions().holds}
         if current_hold_symbols:
@@ -604,7 +609,7 @@ class SignalGateway:
             if not strategy_sells.empty:
                 strategy_sell_symbols = set(strategy_sells["symbol"].tolist())
                 sell_candidate_rows.extend(
-                    {"symbol": row["symbol"], "score": row["score"]}
+                    {"symbol": row["symbol"], "score": row["score"], "reason": "strategy"}
                     for _, row in strategy_sells.iterrows()
                 )
 
@@ -612,9 +617,10 @@ class SignalGateway:
             for symbol, hold in holdings_map.items():
                 if symbol in strategy_sell_symbols:
                     continue
-                if self._evaluate_risk_exit(symbol, hold, price):
+                risk_reason = self._evaluate_risk_exit(symbol, hold, price)
+                if risk_reason is not None:
                     sell_candidate_rows.append(
-                        {"symbol": symbol, "score": float("inf")}
+                        {"symbol": symbol, "score": float("inf"), "reason": risk_reason}
                     )
 
         if not sell_candidate_rows:
@@ -626,7 +632,9 @@ class SignalGateway:
         for _, row in sell_candidates.iterrows():
             symbol = row["symbol"]
             qty = holdings_map[symbol].volume
-            sell_orders.append({"symbol": symbol, "target_qty": qty})
+            sell_orders.append(
+                {"symbol": symbol, "target_qty": qty, "reason": row.get("reason", "strategy")}
+            )
 
         return pd.DataFrame(sell_orders)
 
@@ -658,7 +666,10 @@ class SignalGateway:
 
             try:
                 order = Order(
-                    symbol=symbol, price=exec_price, volume=target_qty, trade_type="BUY"
+                    symbol=symbol,
+                    price=exec_price,
+                    volume=target_qty,
+                    trade_type="BUY",
                 )
                 trade = self.oms.signal_buy(order)
                 executed_trades.append(trade)
@@ -764,7 +775,10 @@ class SignalGateway:
 
         holdings = self.oms.executable_holds
         close_orders = pd.DataFrame(
-            [{"symbol": h.symbol, "target_qty": h.volume} for h in holdings]
+            [
+                {"symbol": h.symbol, "target_qty": h.volume, "reason": "manual_close"}
+                for h in holdings
+            ]
         )
 
         rprint(

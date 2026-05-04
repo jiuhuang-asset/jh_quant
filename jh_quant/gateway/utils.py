@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 
 import pandas as pd
@@ -7,12 +8,14 @@ from rich.table import Table
 
 console = Console()
 
+_ERROR_RE = re.compile(r"error|错误", re.IGNORECASE)
+_WARNING_RE = re.compile(r"warning|警告", re.IGNORECASE)
+
 
 def rprint(label: str, content: str, add_datetime: bool = True):
-    label_lower = label.lower()
-    if "error" in label_lower:
+    if _ERROR_RE.search(label) or _ERROR_RE.search(content):
         label_color, content_color = "bold red", "bold red"
-    elif "warning" in label_lower:
+    elif _WARNING_RE.search(label) or _WARNING_RE.search(content):
         label_color, content_color = "bold yellow", "bold yellow"
     else:
         label_color, content_color = "bold blue", "bold green"

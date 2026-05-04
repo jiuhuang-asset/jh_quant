@@ -70,7 +70,10 @@ def build_current_portfolio_snapshot(
     }
 
 
-def build_portfolio_history(position_snapshots: pd.DataFrame) -> Dict[str, Any]:
+def build_portfolio_history(
+    position_snapshots: pd.DataFrame,
+    daily_perf: Optional[pd.DataFrame] = None,
+) -> Dict[str, Any]:
     if position_snapshots is None or position_snapshots.empty:
         return {
             "weight_history": [],
@@ -80,9 +83,24 @@ def build_portfolio_history(position_snapshots: pd.DataFrame) -> Dict[str, Any]:
     frame = position_snapshots.copy()
     frame["trade_date"] = _normalize_timestamp(frame["trade_date"])
     frame = frame.dropna(subset=["trade_date"])
-    frame["portfolio_value"] = frame.groupby("trade_date")["market_value"].transform(
-        "sum"
-    )
+
+    if daily_perf is not None and not daily_perf.empty:
+        perf = daily_perf.copy()
+        perf["trade_date"] = _normalize_timestamp(perf["trade_date"])
+        perf = perf.dropna(subset=["trade_date"])
+        frame = frame.merge(
+            perf[["trade_date", "portfolio_value", "cash_balance"]],
+            on="trade_date",
+            how="left",
+        )
+        frame["portfolio_value"] = frame["portfolio_value"].fillna(
+            frame.groupby("trade_date")["market_value"].transform("sum")
+        )
+    else:
+        frame["portfolio_value"] = frame.groupby("trade_date")["market_value"].transform(
+            "sum"
+        )
+
     frame["weight"] = frame["market_value"] / frame["portfolio_value"].replace(0, pd.NA)
     weight_history = frame[
         ["trade_date", "symbol", "quantity", "market_value", "weight"]

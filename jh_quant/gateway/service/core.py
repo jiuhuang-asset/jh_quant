@@ -589,7 +589,12 @@ class SessionService:
                     }
                 )
 
-            executable_rows.append({"symbol": symbol, "target_qty": allowed_qty})
+            executable_rows.append(
+                {
+                    "symbol": symbol,
+                    "target_qty": allowed_qty,
+                }
+            )
             if symbol in latest_prices.index:
                 projected_sell_value += float(latest_prices[symbol]) * float(
                     allowed_qty
@@ -675,7 +680,12 @@ class SessionService:
                 )
 
             cost = latest_price * allowed_qty
-            executable_rows.append({"symbol": symbol, "target_qty": allowed_qty})
+            executable_rows.append(
+                {
+                    "symbol": symbol,
+                    "target_qty": allowed_qty,
+                }
+            )
             projected_buy_cost += cost
             remaining_cash -= cost
 
@@ -1170,7 +1180,8 @@ class SessionService:
 
     def get_portfolio_history(self) -> Dict[str, Any]:
         snapshots = self.persistence.query_position_snapshots(self.config.session_id)
-        return build_portfolio_history(snapshots)
+        daily_perf = self.persistence.query_daily_performance(self.config.session_id)
+        return build_portfolio_history(snapshots, daily_perf=daily_perf)
 
     def get_trade_history(
         self, symbol: Optional[str] = None, limit: Optional[int] = None
@@ -1486,6 +1497,9 @@ class SessionService:
 
         config_from = datetime.strptime(self.config.backfill_from, "%Y-%m-%d")
         today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        # backfill 仅回填到昨天为止，今天留给调度器正常执行，
+        # 避免今天已有交易记录导致 resume 逻辑误判为"全部已回填"。
+        backfill_end = today - timedelta(days=1)
 
         if config_from >= today:
             raise ValueError(
@@ -1522,25 +1536,63 @@ class SessionService:
                     )
 
                 if last_dt >= config_from:
-                    backfill_start = last_dt
+                    # 从最后持久化日期的下一天开始，避免覆盖已有数据。
+                    # OMS 已通过 _restore_oms_state() 恢复到上次运行结束时的状态，
+                    # 因此无需重置，直接继续回填缺失的日期即可。
+                    backfill_start = last_dt + timedelta(days=1)
                     self._log_execution_branch(
                         "backfill",
                         (
                             f"检测到已有历史记录 (最新={last_date_str})，"
-                            f"从该日期恢复以覆盖可能的最后不完整日"
+                            f"从 {backfill_start.strftime('%Y-%m-%d')} 继续回填"
                         ),
                     )
-                    # 重置 OMS 到初始状态，避免与历史持仓冲突
-                    oms = self.gateway.oms
-                    oms.total = oms.initial_capital
-                    oms.available_balance = oms.initial_capital
-                    oms.total_profit = 0.0
-                    oms.daily_profit = 0.0
-                    oms.holds = []
-                    oms.trades = []
-                    oms.trade_pnl = {}
-        except Exception:
-            pass
+        except Exception as exc:
+            self._log_execution_branch(
+                "backfill",
+                f"查询 daily_performances 异常（将尝试从 OMS 交易历史恢复）: {exc}",
+            )
+        else:
+            if existing is None or existing.empty:
+                self._log_execution_branch(
+                    "backfill",
+                    "daily_performances 无历史记录，尝试从 OMS 交易历史恢复",
+                )
+
+        # 如果 daily_performances 无记录，尝试从 OMS 已恢复的历史交易中推断最新日期
+        oms = getattr(self.gateway, "oms", None)
+        oms_trades = getattr(oms, "trades", None) if oms is not None else None
+        if oms_trades:
+            oms_last_trade_dt: Optional[datetime] = None
+            for trade in oms_trades:
+                td = getattr(trade, "trade_date", None)
+                if td is None:
+                    continue
+                if hasattr(td, "to_pydatetime"):
+                    dt = td.to_pydatetime()
+                elif hasattr(td, "strftime"):
+                    dt = datetime.strptime(td.strftime("%Y-%m-%d"), "%Y-%m-%d")
+                else:
+                    dt = datetime.strptime(str(td)[:10], "%Y-%m-%d")
+                dt = dt.replace(hour=0, minute=0, second=0, microsecond=0)
+                if oms_last_trade_dt is None or dt > oms_last_trade_dt:
+                    oms_last_trade_dt = dt
+            if oms_last_trade_dt is not None and oms_last_trade_dt >= backfill_start:
+                oms_next = oms_last_trade_dt + timedelta(days=1)
+                self._log_execution_branch(
+                    "backfill",
+                    (
+                        f"从 OMS 历史交易恢复，最新交易日期="
+                        f"{oms_last_trade_dt.strftime('%Y-%m-%d')}，"
+                        f"从 {oms_next.strftime('%Y-%m-%d')} 继续回填"
+                    ),
+                )
+                backfill_start = oms_next
+        else:
+            self._log_execution_branch(
+                "backfill",
+                "OMS 中也没有历史交易记录，将从头开始回填",
+            )
 
         md_provider = getattr(self.gateway, "market_data_provider", None)
         if md_provider is None:
@@ -1551,17 +1603,42 @@ class SessionService:
                 "market_data_provider does not support set_backfill_from"
             )
 
-        total_days = (today - backfill_start).days + 1
+        total_days = (backfill_end - backfill_start).days + 1
+        if total_days <= 0:
+            self._log_execution_branch(
+                "backfill",
+                f"回填{self.config.session_id}已是最新，无需执行",
+            )
+            return None
         self._log_execution_branch(
             "backfill",
-            f"开始回填，起始日期={backfill_start.strftime('%Y-%m-%d')}，预计 {total_days} 天",
+            f"开始回填{self.config.session_id}，起始日期={backfill_start.strftime('%Y-%m-%d')}，结束日期={backfill_end.strftime('%Y-%m-%d')}，预计 {total_days} 天",
         )
+
+        # 预取全量价格数据，避免逐日触发 JhData 重复下载
+        try:
+            pre_selection = self.selection_provider.select(
+                as_of_date=backfill_start.strftime("%Y-%m-%d")
+            )
+            pre_symbols = pre_selection.top_selections
+            if pre_symbols:
+                self._log_execution_branch(
+                    "backfill",
+                    f"预取全量价格数据，日期={backfill_start.strftime('%Y-%m-%d')}~{backfill_end.strftime('%Y-%m-%d')}，标的数={len(pre_symbols)}",
+                )
+                _ = self.gateway.get_price_data(
+                    symbols=pre_symbols,
+                    start_date=backfill_start.strftime("%Y-%m-%d"),
+                    end_date=backfill_end.strftime("%Y-%m-%d"),
+                )
+        except Exception:
+            pass
 
         last_result: Optional[TradingCycleResult] = None
         current = backfill_start
         day_count = 0
 
-        while current <= today:
+        while current <= backfill_end:
             current_str = current.strftime("%Y-%m-%d")
 
             try:
@@ -1581,6 +1658,10 @@ class SessionService:
                         ),
                     )
             except Exception:
+                self._log_execution_branch(
+                    "backfill",
+                    f"回填 {current_str} 失败: {traceback.format_exc()}",
+                )
                 day_count += 1
             finally:
                 current += timedelta(days=1)
@@ -1723,7 +1804,10 @@ class SessionService:
 
             try:
                 order = Order(
-                    symbol=symbol, price=exec_price, volume=target_qty, trade_type="BUY"
+                    symbol=symbol,
+                    price=exec_price,
+                    volume=target_qty,
+                    trade_type="BUY",
                 )
                 trade = self.gateway.oms.signal_buy(order)
                 self._persist_trades([trade])
@@ -1784,7 +1868,10 @@ class SessionService:
 
             try:
                 order = Order(
-                    symbol=symbol, price=exec_price, volume=sell_qty, trade_type="SELL"
+                    symbol=symbol,
+                    price=exec_price,
+                    volume=sell_qty,
+                    trade_type="SELL",
                 )
                 trade = self.gateway.oms.signal_sell(order)
                 self._persist_trades([trade])
