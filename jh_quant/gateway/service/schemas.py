@@ -529,8 +529,8 @@ class SessionInfoResponse(BaseModel):
     current_value: Optional[float] = Field(
         default=None, description="Current portfolio total value."
     )
-    total_return_pct: Optional[float] = Field(
-        default=None, description="Total return percentage."
+    total_return: Optional[float] = Field(
+        default=None, description="Cumulative total return from inception (raw ratio, e.g. 0.15 = 15%)."
     )
     daily_pnl: Optional[float] = Field(default=None, description="Current daily PnL.")
     position_count: int = Field(default=0, description="Number of current positions.")
@@ -602,8 +602,8 @@ class SessionTrendPoint(BaseModel):
 
     trade_date: str = Field(description="Trade date in YYYY-MM-DD format.")
     portfolio_value: float = Field(description="Total portfolio value on this date.")
-    cumulative_return: Optional[float] = Field(
-        default=None, description="Cumulative return from inception."
+    total_return: Optional[float] = Field(
+        default=None, description="Cumulative total return from inception (raw ratio, e.g. 0.15 = 15%)."
     )
     drawdown: float = Field(
         default=0.0, description="Drawdown from peak portfolio value."

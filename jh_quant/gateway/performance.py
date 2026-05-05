@@ -34,7 +34,7 @@ EQUITY_CURVE_COLUMNS = [
     "cash_balance",
     "position_value",
     "daily_return",
-    "cumulative_return",
+    "total_return",
     "daily_pnl",
     "num_positions",
     "drawdown",
@@ -80,9 +80,11 @@ def _load_daily_position_values(
     if not daily_perf.empty:
         daily_perf = daily_perf.copy()
         daily_perf["trade_date"] = _normalize_trade_dates(daily_perf, "trade_date")
-        return daily_perf[["trade_date", "position_value", "portfolio_value"]].dropna(
-            subset=["trade_date"]
-        )
+        cols = ["trade_date", "position_value", "portfolio_value"]
+        for extra in ("cash_balance", "num_positions", "daily_pnl"):
+            if extra in daily_perf.columns:
+                cols.append(extra)
+        return daily_perf[cols].dropna(subset=["trade_date"])
 
     snaps = source.query_position_snapshots(session_id) if snaps is None else snaps
     if snaps.empty:
@@ -185,11 +187,11 @@ def calculate_equity_curve(
         result["portfolio_value"] = result["portfolio_value"].astype(float)
         initial_value = result["portfolio_value"].iloc[0]
         if initial_value and initial_value > 0:
-            result["cumulative_return"] = (
+            result["total_return"] = (
                 result["portfolio_value"] - initial_value
             ) / initial_value
         else:
-            result["cumulative_return"] = 0.0
+            result["total_return"] = 0.0
         result["daily_return"] = result["portfolio_value"].pct_change().fillna(0.0)
         peak = result["portfolio_value"].cummax()
         result["drawdown"] = (
@@ -212,7 +214,7 @@ def calculate_equity_curve(
     result = daily_values.copy().sort_values("trade_date")
     result["cash_balance"] = 0.0
     result["daily_return"] = 0.0
-    result["cumulative_return"] = 0.0
+    result["total_return"] = 0.0
     result["daily_pnl"] = 0.0
     result["num_positions"] = 0
     peak = result["portfolio_value"].astype(float).cummax()
@@ -417,6 +419,9 @@ def get_performance_summary(
         "total_pnl": 0.0,
         "total_return": 0.0,
         "max_drawdown": 0.0,
+        "portfolio_value": 0.0,
+        "initial_capital": 0.0,
+        "cash_ratio": 1.0,
     }
 
     if trades.empty:
@@ -449,19 +454,26 @@ def get_performance_summary(
     result["total_pnl"] = result["realized_pnl"] + result["unrealized_pnl"]
 
     if not daily_values.empty:
-        equity_curve = daily_values.sort_values("trade_date")["portfolio_value"].astype(
-            float
-        )
+        sorted_values = daily_values.sort_values("trade_date")
+        equity_curve = sorted_values["portfolio_value"].astype(float)
         running_peak = equity_curve.cummax()
         drawdown = (
             (equity_curve - running_peak) / running_peak.replace(0, pd.NA)
         ).fillna(0.0)
         result["max_drawdown"] = float(drawdown.min())
         initial_value = float(equity_curve.iloc[0])
+        result["initial_capital"] = initial_value
+        result["portfolio_value"] = float(equity_curve.iloc[-1])
         if initial_value > 0:
             result["total_return"] = float(
                 (equity_curve.iloc[-1] - initial_value) / initial_value
             )
+        last_row = sorted_values.iloc[-1]
+        cash_balance = float(last_row.get("cash_balance", 0.0) or 0.0)
+        portfolio_val = result["portfolio_value"]
+        result["cash_ratio"] = (
+            (cash_balance / portfolio_val) if portfolio_val > 0 else 1.0
+        )
 
     return result
 

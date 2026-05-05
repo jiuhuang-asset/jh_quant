@@ -1,6 +1,6 @@
-# SignalGateway Service API Documentation v6
+# SignalGateway Service API Documentation v7
 
-Document version: `v6` (changelog: [CHANGELOG.md](CHANGELOG.md))
+Document version: `v7` (changelog: [CHANGELOG.md](CHANGELOG.md))
 
 This document describes the HTTP API exposed by `jh_quant.signalgateway.service.api`, the key data models, and recommended frontend integration patterns.
 
@@ -738,7 +738,7 @@ List all sessions with performance overview for dashboard cards.
 
 Response fields: `sessions: SessionInfoResponse[]`, `count: number`, `max_sessions: number`.
 
-`SessionInfoResponse`: `session_id`, `mode`, `running`, `strategy_count`, `strategy_names`, `selection_name`, `portfolio_enabled`, `initial_capital`, `current_value`, `total_return_pct`, `daily_pnl`, `position_count`, `max_drawdown`, `win_rate`, `total_trades`, `total_pnl`, `last_error`, `last_result`.
+`SessionInfoResponse`: `session_id`, `mode`, `running`, `strategy_count`, `strategy_names`, `selection_name`, `portfolio_enabled`, `initial_capital`, `current_value`, `total_return`, `daily_pnl`, `position_count`, `max_drawdown`, `win_rate`, `total_trades`, `total_pnl`, `last_error`, `last_result`.
 
 ### 13.2 `POST /sessions`
 
@@ -773,7 +773,7 @@ Response fields: `generated_at`, `count`, `note` (when auto-limited), `sessions:
 
 `SessionTrendItem`: `session_id`, `mode`, `initial_capital`, `strategy_names`, `selection_name`, `trends: SessionTrendPoint[]`.
 
-`SessionTrendPoint`: `trade_date`, `portfolio_value`, `cumulative_return`, `drawdown`, `daily_pnl`, `num_positions`.
+`SessionTrendPoint`: `trade_date`, `portfolio_value`, `total_return`, `drawdown`, `daily_pnl`, `num_positions`.
 
 When `session_ids` is omitted and total sessions exceed `limit`, only the latest N are returned with an informative `note`.
 
@@ -783,7 +783,7 @@ const { sessions } = await fetch('/sessions/trends?limit=8').then(r => r.json())
 const series = sessions.map(s => ({
   name: `${s.session_id} (${s.strategy_names.join(', ')})`,
   type: 'line',
-  data: s.trends.map(p => [p.trade_date, p.cumulative_return]),
+  data: s.trends.map(p => [p.trade_date, p.total_return]),
 }))
 ```
 

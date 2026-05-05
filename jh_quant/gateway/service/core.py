@@ -2178,10 +2178,10 @@ class MultiSessionService:
                     SessionTrendPoint(
                         trade_date=str(row.get("trade_date", "")),
                         portfolio_value=float(row.get("portfolio_value", 0.0)),
-                        cumulative_return=(
-                            float(row["cumulative_return"])
-                            if row.get("cumulative_return") is not None
-                            and not pd.isna(row["cumulative_return"])
+                        total_return=(
+                            float(row["total_return"])
+                            if row.get("total_return") is not None
+                            and not pd.isna(row["total_return"])
                             else None
                         ),
                         drawdown=float(row.get("drawdown", 0.0)),
@@ -2211,17 +2211,10 @@ class MultiSessionService:
     ) -> SessionInfoResponse:
         positions = svc.gateway.oms.get_positions()
         current_value = float(positions.total) if positions else None
-        initial_capital = float(getattr(svc.gateway.oms, "initial_capital", 0.0))
         selection_name = getattr(svc.selection_specs, "alias", None) or getattr(
             svc.selection_specs, "name", None
         )
         portfolio_enabled = bool(getattr(svc.portfolio_spec, "enabled", False))
-
-        total_return_pct = None
-        if current_value is not None and initial_capital > 0:
-            total_return_pct = round(
-                (current_value - initial_capital) / initial_capital * 100, 2
-            )
 
         daily_pnl = (
             float(getattr(positions, "daily_profit", 0.0)) if positions else None
@@ -2231,6 +2224,10 @@ class MultiSessionService:
 
         report = self._shared_persistence.get_performance_report(session_id)
         summary = report.get("summary", {})
+        initial_capital = float(summary.get("initial_capital", 0.0))
+        if initial_capital == 0.0:
+            initial_capital = float(getattr(svc.gateway.oms, "initial_capital", 0.0))
+        total_return = summary.get("total_return")
         max_drawdown = float(summary.get("max_drawdown", 0.0))
         win_rate = summary.get("win_rate")
         total_trades = int(summary.get("total_trades", 0))
@@ -2246,7 +2243,7 @@ class MultiSessionService:
             portfolio_enabled=portfolio_enabled,
             initial_capital=initial_capital,
             current_value=current_value,
-            total_return_pct=total_return_pct,
+            total_return=total_return,
             daily_pnl=daily_pnl,
             position_count=position_count,
             max_drawdown=max_drawdown,
@@ -2255,4 +2252,7 @@ class MultiSessionService:
             total_pnl=total_pnl,
             last_error=svc._last_error,
             last_result=svc._serialize_result(svc._last_result),
+            created_at=(
+                self._shared_persistence.load_earliest_session_config(session_id) or {}
+            ).get("created_at"),
         )

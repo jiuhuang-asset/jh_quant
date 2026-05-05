@@ -1,4 +1,4 @@
-# SignalGateway Service API Reference (v6)
+# SignalGateway Service API Reference (v7)
 
 Quick endpoint reference. For full details see [API_DOCUMENTATION.md](API_DOCUMENTATION.md).
 
@@ -110,10 +110,10 @@ All under `/sessions/{session_id}/*`.
 | `PortfolioHistoryResponse` | `weight_history`, `portfolio_value_history` |
 | `SchedulerConfigSnapshotResponse` | `running`, `auto_start`, `scheduler` |
 | `SessionListResponse` | `sessions: SessionInfoResponse[]`, `count`, `max_sessions` |
-| `SessionInfoResponse` | `session_id`, `mode`, `running`, `strategy_count`, `strategy_names`, `selection_name`, `portfolio_enabled`, `initial_capital`, `current_value`, `total_return_pct`, `daily_pnl`, `position_count`, `max_drawdown`, `win_rate`, `total_trades`, `total_pnl`, `last_error`, `last_result` |
+| `SessionInfoResponse` | `session_id`, `mode`, `running`, `strategy_count`, `strategy_names`, `selection_name`, `portfolio_enabled`, `initial_capital`, `current_value`, `total_return`, `daily_pnl`, `position_count`, `max_drawdown`, `win_rate`, `total_trades`, `total_pnl`, `last_error`, `last_result` |
 | `SessionTrendsResponse` | `generated_at`, `count`, `sessions: SessionTrendItem[]`, `note` |
 | `SessionTrendItem` | `session_id`, `mode`, `initial_capital`, `strategy_names`, `selection_name`, `trends: SessionTrendPoint[]` |
-| `SessionTrendPoint` | `trade_date`, `portfolio_value`, `cumulative_return`, `drawdown`, `daily_pnl`, `num_positions` |
+| `SessionTrendPoint` | `trade_date`, `portfolio_value`, `total_return`, `drawdown`, `daily_pnl`, `num_positions` |
 | `TradeRecordItem` | `trade_id`, `session_id`, `trade_date`, `symbol`, `trade_type`, `price`, `quantity`, `amount`, `commission`, `slippage`, `total_cost`, `signal_reason`, `order_id` |
 | `TradeHistoryResponse` | `session_id`, `symbol`, `count`, `trades: TradeRecordItem[]` |
 | `PositionDetail` | `symbol`, `quantity`, `avg_cost`, `market_value`, `entry_time` |

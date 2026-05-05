@@ -180,6 +180,10 @@ class OrderRecorder(
     def count_session_configs(self, session_id: str) -> int:
         raise NotImplementedError
 
+    @abstractmethod
+    def load_earliest_session_config(self, session_id: str) -> Optional[Dict[str, Any]]:
+        raise NotImplementedError
+
     def close(self):
         return None
 
@@ -404,6 +408,24 @@ class TortoiseOrderRecorder(OrderRecorder):
 
     async def _count_session_configs(self, session_id: str) -> int:
         return await SessionConfigRecord.filter(session_id=session_id).count()
+
+    def load_earliest_session_config(self, session_id: str) -> Optional[Dict[str, Any]]:
+        return self._run(self._load_earliest_session_config(session_id))
+
+    async def _load_earliest_session_config(
+        self, session_id: str
+    ) -> Optional[Dict[str, Any]]:
+        row = (
+            await SessionConfigRecord.filter(session_id=session_id)
+            .order_by("created_at")
+            .first()
+        )
+        if row is None:
+            return None
+        return {
+            "session_id": row.session_id,
+            "created_at": row.created_at.isoformat(),
+        }
 
     def query_runtime_events(self, session_id: str) -> pd.DataFrame:
         return self._run(self._query_runtime_events(session_id))

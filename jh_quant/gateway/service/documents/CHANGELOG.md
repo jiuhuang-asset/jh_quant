@@ -1,5 +1,36 @@
 # SignalGateway Service API Changelog
 
+## v7 (2026-05-05)
+
+### Breaking Changes
+
+#### Unified `total_return` field naming
+- **`SessionInfoResponse.total_return_pct` → `total_return`**: The field is now a raw float ratio (e.g., `0.15` = 15%) instead of a pre-formatted percentage string. Frontend should handle formatting (multiply by 100 and append `%`).
+- **`SessionTrendPoint.cumulative_return` → `total_return`**: Renamed for consistency with `SessionInfoResponse` and performance summary. Same raw float ratio format.
+- **`PerformanceSnapshotResponse.summary.total_return`**: Unchanged (was already a raw float ratio).
+
+#### Calculation logic consolidation
+- `_build_session_info()` no longer calculates `total_return` independently from live OMS portfolio value. Instead, it reuses `summary["total_return"]` from the performance report (`get_performance_report()` → `build_performance_report()`), ensuring all endpoints report the same metric.
+- Equity curve column `cumulative_return` renamed to `total_return` in `performance.py` for consistent naming across the entire stack.
+
+### Migration Guide (v6 → v7)
+
+**Frontend changes required:**
+```ts
+// Old (v6)
+sessionInfo.total_return_pct  // pre-formatted, e.g. 12.5 (meaning 12.5%)
+trendPoint.cumulative_return  // raw ratio
+
+// New (v7)
+sessionInfo.total_return      // raw ratio, e.g. 0.125
+trendPoint.total_return       // raw ratio, e.g. 0.125
+
+// Format for display:
+const pct = (value * 100).toFixed(2) + '%'
+```
+
+---
+
 ## v6 (2026-05-03)
 
 ### New Features
