@@ -191,26 +191,25 @@ def _register_session_routes(app, manager: MultiSessionService):
 
     # ── data endpoints (app-level) ───────────────────────────
 
-    @app.get(
-        "/data/index/{symbol}",
-        response_model=DataListResponse,
-        operation_id="get_index_trends",
-    )
-    def get_index_trends(
-        symbol: str,
-        start_date: str = "2020-01-01",
-        end_date: Optional[str] = None,
-    ):
-        from datetime import datetime as _dt
+    # @app.get(
+    #     "/data/index/{symbol}",
+    #     response_model=DataListResponse,
+    #     operation_id="get_index_trends",
+    # )
+    # def get_index_trends(
+    #     symbol: str,
+    #     start_date: Optional[str] = None ,
+    #     end_date: Optional[str] = None,
+    # ):
+    #     from datetime import datetime as _dt
 
-        md = _resolve_md_provider(manager)
-        if not md:
-            return DataListResponse(data=[],count=0)
-        _end = end_date or _dt.now().strftime("%Y-%m-%d")
-        # breakpoint()
-        df = md.get_index_trends(symbol=symbol, start_date=start_date, end_date=_end)
-        records = _df_to_records(df)
-        return DataListResponse(data=records, count=len(records))
+    #     md = _resolve_md_provider(manager)
+    #     if not md or not start_date:
+    #         return DataListResponse(data=[],count=0)
+    #     _end = end_date or _dt.now().strftime("%Y-%m-%d")
+    #     df = md.get_index_trends(symbol=symbol, start_date=start_date, end_date=_end)
+    #     records = _df_to_records(df)
+    #     return DataListResponse(data=records, count=len(records))
 
     @app.get(
         "/data/stock",
@@ -229,7 +228,7 @@ def _register_session_routes(app, manager: MultiSessionService):
         md = _resolve_md_provider(manager)
         _end = end_date or _dt.now().strftime("%Y-%m-%d")
         sym_list = [s.strip() for s in symbols.split(",") if s.strip()]
-        freq = Frequency(frequency) if frequency else Frequency.DAILY
+        freq = Frequency.from_value(frequency) if frequency else Frequency.DAILY
         df = md.get_price_data(
             symbols=sym_list, start_date=start_date, end_date=_end, frequency=freq
         )
@@ -531,10 +530,12 @@ def _register_session_routes(app, manager: MultiSessionService):
         session_id: str,
         symbol: Optional[str] = None,
         limit: Optional[int] = None,
-    ):
-        return manager.get_session(session_id).get_trade_history(
+    ):   
+        trades =  manager.get_session(session_id).get_trade_history(
             symbol=symbol, limit=limit
         )
+        # print(trades)
+        return trades
 
     @app.get(
         "/sessions/{session_id}/positions",

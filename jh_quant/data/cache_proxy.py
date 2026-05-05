@@ -26,7 +26,7 @@ class _DataCacheProxy:
         self._on_connection_error = on_connection_error
 
     def _request(self, method: str, path: str, **kwargs):
-        """Make an HTTP request to the service, with one retry on connection error."""
+        """Make an HTTP request to the service, with one retry on connection error or 502/503."""
         url = f"{self._service_url}{path}"
         try:
             resp = self._client.request(method, url, **kwargs)
@@ -34,6 +34,15 @@ class _DataCacheProxy:
             return resp.json()
         except (httpx.ConnectError, httpx.RemoteProtocolError):
             if self._on_connection_error:
+                new_url = self._on_connection_error()
+                self._service_url = new_url.rstrip("/")
+                url = f"{self._service_url}{path}"
+                resp = self._client.request(method, url, **kwargs)
+                resp.raise_for_status()
+                return resp.json()
+            raise
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code in (502, 503) and self._on_connection_error:
                 new_url = self._on_connection_error()
                 self._service_url = new_url.rstrip("/")
                 url = f"{self._service_url}{path}"

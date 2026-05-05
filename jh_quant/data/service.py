@@ -38,6 +38,7 @@ load_dotenv()
 
 # ---- Global state ----
 _db_conn: duckdb.DuckDBPyConnection = None
+_db_lock: threading.Lock = None
 _db_path: str = None
 _api_key: str = None
 _api_url: str = None
@@ -159,16 +160,17 @@ def create_app() -> FastAPI:
         data_type_str = req["data_type"]
         kwargs = req.get("kwargs", {})
         dt = DataTypes(data_type_str)
-        _init_table(data_type_str)
+        with _db_lock:
+            _init_table(data_type_str)
 
-        where_sql = _build_filter_sql(dt, kwargs)
-        dt_field = get_table_dt_field(dt)
-        order_clause = f"ORDER BY {dt_field}" if dt_field else "ORDER BY id"
+            where_sql = _build_filter_sql(dt, kwargs)
+            dt_field = get_table_dt_field(dt)
+            order_clause = f"ORDER BY {dt_field}" if dt_field else "ORDER BY id"
 
-        sql = f"SELECT * FROM {data_type_str} {where_sql} {order_clause}"
-        conn = get_db()
-        df = conn.sql(sql).to_df()
-        df.drop(columns=["id", "created_at"], errors="ignore", inplace=True)
+            sql = f"SELECT * FROM {data_type_str} {where_sql} {order_clause}"
+            conn = get_db()
+            df = conn.sql(sql).to_df()
+            df.drop(columns=["id", "created_at"], errors="ignore", inplace=True)
         return {"data": df.to_dict(orient="records"), "row_count": len(df)}
 
     @app.post("/count")
@@ -176,32 +178,36 @@ def create_app() -> FastAPI:
         data_type_str = req["data_type"]
         kwargs = req.get("kwargs", {})
         dt = DataTypes(data_type_str)
-        _init_table(data_type_str)
+        with _db_lock:
+            _init_table(data_type_str)
 
-        where_sql = _build_filter_sql(dt, kwargs)
-        sql = f"SELECT count(*) FROM {data_type_str} {where_sql}"
-        conn = get_db()
-        count_val = conn.execute(sql).fetchone()[0]
+            where_sql = _build_filter_sql(dt, kwargs)
+            sql = f"SELECT count(*) FROM {data_type_str} {where_sql}"
+            conn = get_db()
+            count_val = conn.execute(sql).fetchone()[0]
         return {"count": int(count_val)}
 
     @app.post("/import")
     def import_data(req: dict):
         data_type_str = req["data_type"]
         data = pd.DataFrame(req["data"])
-        n = _bulk_import(data_type_str, data)
+        with _db_lock:
+            n = _bulk_import(data_type_str, data)
         return {"status": "ok", "row_count": n}
 
     @app.post("/clear")
     def clear(req: dict):
         data_type_str = req["data_type"]
-        conn = get_db()
-        conn.execute(f"TRUNCATE TABLE {data_type_str}")
+        with _db_lock:
+            conn = get_db()
+            conn.execute(f"TRUNCATE TABLE {data_type_str}")
         return {"status": "ok"}
 
     @app.post("/init")
     def init_table(req: dict):
         data_type_str = req["data_type"]
-        _init_table(data_type_str)
+        with _db_lock:
+            _init_table(data_type_str)
         return {"status": "ok"}
 
     @app.post("/shutdown")
@@ -245,8 +251,10 @@ def _cleanup(signum=None, frame=None):
 
 
 def main():
-    global _db_conn, _db_path, _api_key, _api_url, _start_time
+    global _db_conn, _db_lock, _db_path, _api_key, _api_url, _start_time
     global _last_activity, _idle_timeout, _port_file
+
+    _db_lock = threading.Lock()
 
     parser = argparse.ArgumentParser(description="JHData DuckDB Service")
     parser.add_argument("--port", type=int, default=19876)
