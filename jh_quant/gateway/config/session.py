@@ -44,11 +44,8 @@ class SessionConfig(BaseModel):
     price_slippage: float = Field(
         default=0.0, description="成交滑点比例，例如 `0.001` 表示千分之一。"
     )
-    interval_seconds: int = Field(
-        default=300, description="固定间隔调度模式下，两次执行之间的秒数。"
-    )
     cron_expression: Optional[str] = Field(
-        default=None, description="cron 调度表达式；设置后通常优先于固定秒级间隔。"
+        default=None, description="cron 调度表达式。"
     )
     timezone: str = Field(
         default="Asia/Shanghai", description="cron 调度使用的时区名称。"
@@ -144,7 +141,6 @@ class SessionServiceConfigBuilder:
         auto_start: bool | _UnsetType = _UNSET,
         frequency: Frequency | str | _UnsetType = _UNSET,
         price_slippage: float | _UnsetType = _UNSET,
-        interval_seconds: int | _UnsetType = _UNSET,
         cron_expression: str | None | _UnsetType = _UNSET,
         timezone: str | _UnsetType = _UNSET,
         restore_persisted_state: bool | _UnsetType = _UNSET,
@@ -161,8 +157,7 @@ class SessionServiceConfigBuilder:
         - `auto_start`：Session 初始化后是否自动启动调度线程。
         - `frequency`：交易频率枚举，可传 `Frequency` 或其字符串值。
         - `price_slippage`：成交滑点比例，例如 `0.001` 表示千分之一。
-        - `interval_seconds`：按固定间隔调度时，两次执行之间的秒数。
-        - `cron_expression`：按 cron 表达式调度时的规则；设置后通常优先于固定间隔。
+        - `cron_expression`：按 cron 表达式调度时的规则。
         - `timezone`：cron 调度所使用的时区。
         - `restore_persisted_state`：启动时是否从持久化存储恢复上一次保存的 session 状态。
         - `enable_backfill`：是否启用回填模式，从 backfill_from 逐日模拟交易。
@@ -179,7 +174,6 @@ class SessionServiceConfigBuilder:
             auto_start=auto_start,
             frequency=frequency,
             price_slippage=price_slippage,
-            interval_seconds=interval_seconds,
             cron_expression=cron_expression,
             timezone=timezone,
             restore_persisted_state=restore_persisted_state,

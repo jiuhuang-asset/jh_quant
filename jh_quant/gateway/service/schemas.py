@@ -16,13 +16,12 @@ class HealthResponse(BaseModel):
 
 
 class SchedulerStatus(BaseModel):
-    interval_seconds: int = Field(description="Scheduler interval in seconds.")
     cron_expression: Optional[str] = Field(
         default=None,
         description="Cron expression when cron scheduling is enabled.",
     )
     timezone: str = Field(description="Scheduler timezone.")
-    schedule_type: str = Field(default="interval", description="Current schedule mode.")
+    schedule_type: str = Field(default="cron", description="Current schedule mode.")
     next_run_at: Optional[str] = Field(
         default=None, description="Next scheduled run time."
     )
@@ -227,9 +226,6 @@ class StrategyConfigSnapshotResponse(BaseModel):
 
 
 class SchedulerConfigUpdateRequest(BaseModel):
-    interval_seconds: Optional[int] = Field(
-        default=None, ge=1, description="Interval in seconds."
-    )
     cron_expression: Optional[str] = Field(default=None, description="Cron expression.")
     timezone: Optional[str] = Field(default=None, description="Scheduler timezone.")
     auto_start: Optional[bool] = Field(

@@ -179,10 +179,14 @@ class SessionService:
         )
         restored_session_id = self.config.session_id
         restored_restore_flag = self.config.restore_persisted_state
+        restored_auto_start = self.config.auto_start
+        restored_enable_backfill = self.config.enable_backfill
         self.session_config = restored_bundle
         self.config = self.session_config.session
         self.config.session_id = restored_session_id or self.config.session_id
         self.config.restore_persisted_state = restored_restore_flag
+        self.config.auto_start = restored_auto_start
+        self.config.enable_backfill = restored_enable_backfill
         self.session_config.session = self.config
         self.selection_specs = self.session_config.selection_spec
         self.strategy_specs = list(self.session_config.strategy_specs)
@@ -325,13 +329,9 @@ class SessionService:
     def _validate_scheduler_inputs(
         self,
         *,
-        interval_seconds: Optional[int] = None,
         cron_expression: Optional[str] = None,
         timezone: Optional[str] = None,
     ) -> None:
-        if interval_seconds is not None and interval_seconds <= 0:
-            raise ValueError("interval_seconds must be a positive integer")
-
         if timezone is not None:
             ZoneInfo(timezone)
 
@@ -342,7 +342,7 @@ class SessionService:
             croniter(cron_expression, datetime.now(tzinfo))
 
     def _build_scheduler_status(self) -> SchedulerStatus:
-        schedule_type = "cron" if self.config.cron_expression else "interval"
+        schedule_type = "cron" if self.config.cron_expression else "none"
         next_run_at: Optional[str] = None
         next_run_in_seconds: Optional[float] = None
         next_runs: List[str] = []
@@ -372,29 +372,8 @@ class SessionService:
                 next_run_at = None
                 next_run_in_seconds = None
                 next_runs = []
-        elif self._last_result and self._scheduler_running:
-            try:
-                base_time = datetime.fromisoformat(self._last_result.cycle_time)
-                next_tick = base_time + timedelta(seconds=self.config.interval_seconds)
-                next_run_at = next_tick.isoformat()
-                next_run_in_seconds = round(
-                    max(0.0, (next_tick - datetime.now()).total_seconds()),
-                    2,
-                )
-                next_runs = [
-                    (
-                        next_tick
-                        + timedelta(seconds=self.config.interval_seconds * offset)
-                    ).isoformat()
-                    for offset in range(3)
-                ]
-            except Exception:
-                next_run_at = None
-                next_run_in_seconds = None
-                next_runs = []
 
         return SchedulerStatus(
-            interval_seconds=self.config.interval_seconds,
             cron_expression=self.config.cron_expression,
             timezone=self.config.timezone,
             schedule_type=schedule_type,
@@ -406,13 +385,11 @@ class SessionService:
     def update_scheduler_config(
         self,
         *,
-        interval_seconds: Optional[int] = None,
         cron_expression: Optional[str] = None,
         timezone: Optional[str] = None,
         auto_start: Optional[bool] = None,
     ) -> Dict[str, Any]:
         self._validate_scheduler_inputs(
-            interval_seconds=interval_seconds,
             cron_expression=cron_expression,
             timezone=timezone,
         )
@@ -422,8 +399,6 @@ class SessionService:
             self.stop_scheduler()
 
         with self._lock:
-            if interval_seconds is not None:
-                self.config.interval_seconds = interval_seconds
             self.config.cron_expression = cron_expression
             if timezone is not None:
                 self.config.timezone = timezone
@@ -435,7 +410,6 @@ class SessionService:
                 extra={
                     "event": "scheduler_config_updated",
                     "scheduler": {
-                        "interval_seconds": self.config.interval_seconds,
                         "cron_expression": self.config.cron_expression,
                         "timezone": self.config.timezone,
                         "auto_start": self.config.auto_start,
@@ -1710,25 +1684,21 @@ class SessionService:
         return last_result
 
     def _run_scheduler_loop(self):
-        use_cron = bool(self.config.cron_expression)
-        scheduler: Optional[CronScheduler] = None
-        first_iteration = True
-        if use_cron:
-            scheduler = CronScheduler(
-                self.config.cron_expression,
-                self.config.timezone,
+        if not self.config.cron_expression:
+            self._log_execution_branch(
+                "scheduler", "未配置 cron_expression，调度线程退出"
             )
+            self._scheduler_running = False
+            return
+
+        scheduler = CronScheduler(
+            self.config.cron_expression,
+            self.config.timezone,
+        )
 
         while not self._scheduler_stop_event.is_set():
-            if use_cron and scheduler is not None:
-                if not scheduler.wait(self._scheduler_stop_event):
-                    break
-            elif not first_iteration:
-                try:
-                    if self._scheduler_stop_event.wait(self.config.interval_seconds):
-                        break
-                except BaseException:
-                    break
+            if not scheduler.wait(self._scheduler_stop_event):
+                break
 
             try:
                 self.run_once()
@@ -1750,10 +1720,14 @@ class SessionService:
                     self._persist_runtime_state(extra={"event": "cycle_error"})
                 except Exception:
                     pass
-            first_iteration = False
 
     def start_scheduler(self):
         if self._scheduler_running:
+            return
+        if not self.config.cron_expression:
+            self._log_execution_branch(
+                "scheduler", "未配置 cron_expression，无法启动调度"
+            )
             return
         self._scheduler_stop_event.clear()
         self._scheduler_running = True

@@ -75,8 +75,6 @@ SEMI_SYMBOLS = [
 def run_service() -> None:
     host = os.getenv("GATEWAY_HOST", "127.0.0.1")
     port = int(os.getenv("GATEWAY_PORT", "8000"))
-    auto_start = os.getenv("GATEWAY_AUTO_START", "0") == "1"
-
     recorder = SQLiteOrderRecorder(db_path="mocktrade.db")
     persistence = PersistenceCoordinator(recorder=recorder)
     md_provider = JHMarketDataProvider()
@@ -92,10 +90,9 @@ def run_service() -> None:
         .with_session(
             session_id="semi-momentum-001",
             mode="paper",
-            interval_seconds=300,
             price_lookback_days=200,
             max_candidates=30,
-            auto_start=auto_start,
+            auto_start=True,
             cron_expression="0 16 * * 1-5",
             enable_backfill=True,
             backfill_from="2025-10-01"
@@ -132,13 +129,12 @@ def run_service() -> None:
         .with_session(
             session_id="semi-dualthrust-002",
             mode="paper",
-            interval_seconds=300,
             price_lookback_days=200,
             max_candidates=30,
-            auto_start=auto_start,
+            auto_start=True,
             cron_expression="0 16 * * 1-5",
             enable_backfill=True,
-            backfill_from="2025-10-01"            
+            backfill_from="2025-10-01",
         )
         .with_strategy(
             name="dual_thrust",

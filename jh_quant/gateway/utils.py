@@ -3,6 +3,7 @@ from datetime import datetime
 
 import pandas as pd
 from rich.console import Console
+from rich.markup import escape as rich_escape
 from rich.panel import Panel
 from rich.table import Table
 
@@ -25,15 +26,22 @@ def rprint(label: str, content: str, add_datetime: bool = True):
         args = [
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             label_color,
-            label,
+            rich_escape(label),
             label_color,
             content_color,
-            content,
+            rich_escape(content),
             content_color,
         ]
     else:
         template = "[{}]{}[/{}]: [{}]{}[/{}]"
-        args = [label_color, label, label_color, content_color, content, content_color]
+        args = [
+            label_color,
+            rich_escape(label),
+            label_color,
+            content_color,
+            rich_escape(content),
+            content_color,
+        ]
 
     console.print(template.format(*args))
 
@@ -46,7 +54,6 @@ def print_service_startup_summary(
     port: int,
     timezone: str,
     auto_start: bool,
-    interval_seconds: int,
     cron_expression: str | None = None,
 ) -> None:
     """Print a compact startup summary for the SignalGateway service."""
@@ -54,7 +61,7 @@ def print_service_startup_summary(
     scheduler_mode = (
         f"Cron: {cron_expression}"
         if cron_expression
-        else f"Interval: {interval_seconds}s"
+        else "Cron: (not configured)"
     )
 
     summary_table = Table.grid(padding=(0, 2))

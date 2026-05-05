@@ -481,7 +481,6 @@ def _register_session_routes(app, manager: MultiSessionService):
     )
     def update_scheduler_config(session_id: str, request: SchedulerConfigUpdateRequest):
         return manager.get_session(session_id).update_scheduler_config(
-            interval_seconds=request.interval_seconds,
             cron_expression=request.cron_expression,
             timezone=request.timezone,
             auto_start=request.auto_start,
@@ -630,7 +629,7 @@ def run_gateway_app(
     )
     for svc_info in sessions.sessions:
         rprint(
-            label=f"  [{svc_info.session_id}]",
+            label=f"Session:{svc_info.session_id}",
             content=f"mode={svc_info.mode}, running={svc_info.running}",
         )
 
