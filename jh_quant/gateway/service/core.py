@@ -133,6 +133,7 @@ class SessionService:
         self._scheduler_running = False
         self._last_result: Optional[TradingCycleResult] = None
         self._last_error: Optional[str] = None
+        self._trade_calendar: Optional[set] = None
 
         self._restore_session_config()
         self._restore_session_state()
@@ -147,7 +148,12 @@ class SessionService:
         self._persist_session_config(source="bootstrap")
 
         if self.config.enable_backfill:
-            self.run_backfill()
+            if self.config.mode == "paper":
+                self.run_backfill()
+            else:
+                self._log_execution_branch(
+                    "backfill", "非模拟盘, 跳过backfill"
+                )
 
         if self.config.auto_start:
             self.start_scheduler()
@@ -497,6 +503,16 @@ class SessionService:
             auto_start=self.config.auto_start,
             scheduler=self._build_scheduler_status(),
         ).model_dump()
+
+    def _get_trade_calendar(self) -> set:
+        if self._trade_calendar is not None:
+            return self._trade_calendar
+        md_provider = getattr(self.gateway, "market_data_provider", None)
+        if md_provider is not None and hasattr(md_provider, "get_trade_calendar"):
+            self._trade_calendar = md_provider.get_trade_calendar()
+        else:
+            self._trade_calendar = set()
+        return self._trade_calendar
 
     def _as_of_date(self, as_of_date: Optional[str] = None) -> str:
         return as_of_date or datetime.now().strftime("%Y-%m-%d")
@@ -1341,6 +1357,23 @@ class SessionService:
 
         with self._lock:
             cycle_date = self._as_of_date(as_of_date)
+            trade_calendar = self._get_trade_calendar()
+            if trade_calendar and cycle_date not in trade_calendar:
+                self._log_execution_branch(
+                    "run_once", f"{cycle_date} 不是交易日，跳过执行"
+                )
+                return TradingCycleResult(
+                    session_id=self.config.session_id,
+                    mode=self.config.mode,
+                    cycle_time=datetime.now().isoformat(),
+                    selection_count=0,
+                    long_candidate_count=0,
+                    short_candidate_count=0,
+                    executed_buy_count=0,
+                    executed_sell_count=0,
+                    status="skipped",
+                    error=f"non-trading day: {cycle_date}",
+                )
             price_start = self._price_start_date(cycle_date)
             selection = self.selection_provider.select(as_of_date=cycle_date)
             top_selections = selection.top_selections

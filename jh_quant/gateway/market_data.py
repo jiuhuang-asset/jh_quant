@@ -5,7 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 import pandas as pd
 
@@ -70,6 +70,13 @@ class MarketDataProvider(ABC):
         frequency: Frequency = Frequency.DAILY,
     ) -> pd.DataFrame:
         """Return historical OHLCV-style data for the requested symbols/date range."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_trade_calendar(
+        self,
+    ) -> Set[str]:
+        "交易日历"
         raise NotImplementedError
 
 
@@ -174,6 +181,14 @@ class JHMarketDataProvider(MarketDataProvider):
         if price_df is None or price_df.empty:
             return pd.DataFrame()
         return price_df.sort_values(["symbol", "date"]).copy()
+
+    def get_trade_calendar(self, start_date="2020-01-01"):
+        "获取交易日历"
+        data = self.jhd.get_data(
+           DataTypes.AK_TOOL_TRADE_DATE_HIST_SINA,
+           start=start_date
+        ).to_df()
+        return set(data["trade_date"].tolist()) 
 
     # def get_index_trends(self, symbol, start_date, end_date):
     #     data = self.jhd.get_data(
