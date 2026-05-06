@@ -33,7 +33,7 @@ class SemiConductorSelectionConfig:
 
 
 class SemiConductorSelectionProvider(SelectionProvider):
-    """返回 A 股市值最高的 50 只半导体 symbol。"""
+    """返回 A 股市值最高的 50 只半导体股票代码"""
 
     def __init__(self, config: SemiConductorSelectionConfig):
         self._symbols = list(config.symbols)
@@ -50,15 +50,14 @@ class SemiConductorSelectionProvider(SelectionProvider):
         return asdict(self._config)
 
 
-# 注册到系统，名称为 "semiconductor_selector"
+# 注册到系统，名称为 "半导体自选"，方便后面引用
 register_selection_provider(
-    name="semiconductor_selector",
+    name="半导体自选",
     provider_cls=SemiConductorSelectionProvider,
     config_model=SemiConductorSelectionConfig,
 )
 
-# ── 选股池 ────────────────────────────────────────────────────────────────
-
+# 自定义选股池(半导体)
 SEMI_SYMBOLS = [
     "688981", "688041", "688256", "002371", "688795", "688012", "688802", "688347",
     "603986", "688008", "688820", "603501", "301308", "688521", "688072", "688783",
@@ -69,8 +68,6 @@ SEMI_SYMBOLS = [
     "300661", "688728",
 ]
 
-
-# ── 主流程 ────────────────────────────────────────────────────────────────
 
 def run_service() -> None:
     host = os.getenv("GATEWAY_HOST", "127.0.0.1")
@@ -96,7 +93,7 @@ def run_service() -> None:
             backfill_from="2025-10-01"
         )
         .with_selection(
-            name="semiconductor_selector",
+            name="半导体自选",
             params=SemiConductorSelectionConfig(
                 symbols=SEMI_SYMBOLS,
             ),

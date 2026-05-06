@@ -1,28 +1,26 @@
-BSD 3-Clause License
+jh_quant - 量化交易研究平台
+Copyright (C) 2026 jh_quant
 
-Copyright (c) 2026 jh_quant
+本程序是自由软件：您可以在自由软件基金会发布的 GNU Affero 通用公共许可证
+（AGPL）第三版或（您可选的）任何更新版本的条款下重新分发和/或修改本程序。
 
-Redistribution and use in source and binary forms, with or without modification,
-are permitted provided that the following conditions are met:
+分发本程序的目的是希望它有用，但没有任何担保；甚至没有对适销性或特定用途
+适用性的暗示担保。更多详细信息请参见 GNU Affero 通用公共许可证。
 
-1. Redistributions of source code must retain the above copyright notice, this
-   list of conditions and the following disclaimer.
+您应该已随本程序收到 GNU Affero 通用公共许可证的副本。如果没有，
+请参见 <https://www.gnu.org/licenses/agpl-3.0.html>。
 
-2. Redistributions in binary form must reproduce the above copyright notice,
-   this list of conditions and the following disclaimer in the documentation
-   and/or other materials provided with the distribution.
+-----------------------------------------------------------------------
 
-3. Neither the name of the copyright holder nor the names of its contributors
-   may be used to endorse or promote products derived from this software without
-   specific prior written permission.
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published
+by the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
 
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
