@@ -4,7 +4,7 @@ import os
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List
 
-from jh_quant.gateway import (
+from jh_quant.trading import (
     JHMarketDataProvider,
     MultiSessionService,
     PersistenceCoordinator,
@@ -12,9 +12,9 @@ from jh_quant.gateway import (
     SelectionSnapshot,
     SQLiteOrderRecorder,
     register_selection_provider,
-    run_gateway_app,
+    run_trading_app,
 )
-from jh_quant.gateway.config import (
+from jh_quant.trading.config import (
     ATRTrailingStopRuleConfig,
     MomentumStrategyConfig,
     RebalanceMode,
@@ -70,8 +70,8 @@ SEMI_SYMBOLS = [
 
 
 def run_service() -> None:
-    host = os.getenv("GATEWAY_HOST", "127.0.0.1")
-    port = int(os.getenv("GATEWAY_PORT", "8000"))
+    host = os.getenv("TRADING_HOST", "127.0.0.1")
+    port = int(os.getenv("TRADING_PORT", "8000"))
     recorder = SQLiteOrderRecorder(db_path="mocktrade.db")
     persistence = PersistenceCoordinator(recorder=recorder)
     md_provider = JHMarketDataProvider()
@@ -85,7 +85,7 @@ def run_service() -> None:
     config = (
         SessionServiceConfigBuilder.defaults()
         .with_session(
-            session_id="semi-momentum-001",
+            session_id="semi-momentum-a",
             mode="paper",
             price_slippage=0.001,  # 价格滑点
             cron_expression="0 16 * * 1-5",
@@ -122,7 +122,7 @@ def run_service() -> None:
     config_b = (
         SessionServiceConfigBuilder(base_config=config)
         .with_session(
-            session_id="semi-dualthrust-002",  
+            session_id="semi-dualthrust-b",  
         )
         .with_strategy(
             name="dual_thrust",
@@ -136,7 +136,7 @@ def run_service() -> None:
     _ = manager.create_session(config=config_b, initial_capital=100000)
 
 
-    run_gateway_app(manager=manager, host=host, port=port)
+    run_trading_app(manager=manager, host=host, port=port)
 
 
 if __name__ == "__main__":

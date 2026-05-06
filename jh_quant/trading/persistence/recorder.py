@@ -44,7 +44,7 @@ def _module_path() -> str:
     return (
         f"{__package__}.models"
         if __package__
-        else "jh_quant.gateway.persistence.models"
+        else "jh_quant.trading.persistence.models"
     )
 
 

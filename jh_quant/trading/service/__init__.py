@@ -2,7 +2,7 @@ from .api import (
     create_multi_session_app,
     create_session_app,
     create_unified_app,
-    run_gateway_app,
+    run_trading_app,
 )
 from .core import MultiSessionService, SessionService
 from .schemas import (
@@ -106,5 +106,5 @@ __all__ = [
     "create_multi_session_app",
     "create_session_app",
     "create_unified_app",
-    "run_gateway_app",
+    "run_trading_app",
 ]

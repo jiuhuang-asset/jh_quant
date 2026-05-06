@@ -137,9 +137,9 @@ from .service import (
     TradingCycleResultResponse,
     create_multi_session_app,
     create_session_app,
-    run_gateway_app,
+    run_trading_app,
 )
-from .signalgateway import SignalGateway
+from .engine import TradingEngine
 
 __all__ = [
     "AnalyticsSnapshotResponse",
@@ -228,7 +228,7 @@ __all__ = [
     "RuntimeStatePersistence",
     "SessionStatusResponse",
     "SessionStatePersistence",
-    "SignalGateway",
+    "TradingEngine",
     "SessionService",
     "SingleSymbolTradeRequest",
     "SingleSymbolTradeResponse",
@@ -271,7 +271,7 @@ __all__ = [
     "register_risk_rule",
     "register_selection_provider",
     "register_strategy",
-    "run_gateway_app",
+    "run_trading_app",
     "validate_risk_rule_params",
     "validate_selection_params",
     "validate_strategy_params",

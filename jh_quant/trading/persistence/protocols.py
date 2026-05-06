@@ -1,5 +1,5 @@
 """
-Persistence protocol definitions for signalgateway components.
+Persistence protocol definitions for trading components.
 
 These protocols define the contract for persistence operations.
 Components that need persistence should declare dependencies on these

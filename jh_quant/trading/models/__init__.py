@@ -1,5 +1,5 @@
 """
-Core domain models for the signalgateway trading system.
+Core domain models for the trading system.
 
 Model overview
 --------------

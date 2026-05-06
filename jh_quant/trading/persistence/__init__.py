@@ -1,5 +1,5 @@
 """
-Persistence module for signalgateway.
+Persistence module for the trading system.
 
 Provides persistence layer components:
 - recorder.py: Order recorder implementations (SQLite, Postgres, Tortoise)

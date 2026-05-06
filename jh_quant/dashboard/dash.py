@@ -99,7 +99,7 @@ def display_factors(factor_returns: pd.DataFrame):
     webview.start()
 
 
-class GatewayView:
+class TradingView:
     def __init__(
         self,
         host: str = "127.0.0.1",
@@ -126,7 +126,7 @@ class GatewayView:
 
 
 
-def display_gateway(
+def display_trading(
     host: str = "127.0.0.1",
     port: int = 8000,
     protocol: str = "http",
@@ -134,9 +134,9 @@ def display_gateway(
     refresh_interval_ms: int = 15000,
 ):
     rprint(
-        f"[cyan]  Starting gateway dashboard..."
+        f"[cyan]  Starting trading dashboard..."
     )
-    api = GatewayView(
+    api = TradingView(
         host=host,
         port=port,
         protocol=protocol,

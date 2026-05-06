@@ -45,7 +45,7 @@ from ..portfolio import (
     optimize_portfolio_preview,
 )
 from ..oms import MockOMS
-from ..signalgateway import SignalGateway
+from ..engine import TradingEngine
 from ..utils import rprint
 from .schemas import (
     AnalyticsSnapshotResponse,
@@ -100,7 +100,7 @@ class CronScheduler:
 class SessionService:
     def __init__(
         self,
-        gateway: SignalGateway,
+        gateway: TradingEngine,
         config: SessionServiceConfig,
         selection_provider: Optional[SelectionProvider] = None,
         persistence: Optional[PersistenceCoordinator] = None,
@@ -1971,7 +1971,7 @@ class MultiSessionService:
 
             config.session.session_id = session_id
             oms = MockOMS(session_id=session_id, initial_capital=initial_capital)
-            gateway = SignalGateway(
+            gateway = TradingEngine(
                 oms=oms,
                 market_data_provider=self._shared_md_provider,
             )

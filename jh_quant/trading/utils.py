@@ -56,7 +56,7 @@ def print_service_startup_summary(
     auto_start: bool,
     cron_expression: str | None = None,
 ) -> None:
-    """Print a compact startup summary for the SignalGateway service."""
+    """Print a compact startup summary for the trading service."""
     base_url = f"http://{host}:{port}"
     scheduler_mode = (
         f"Cron: {cron_expression}"
@@ -83,7 +83,7 @@ def print_service_startup_summary(
     console.print(
         Panel.fit(
             summary_table,
-            title="SignalGateway Service",
+            title="Trading Service",
             border_style="blue",
         )
     )

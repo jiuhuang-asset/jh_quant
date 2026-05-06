@@ -1,5 +1,5 @@
 """
-Database models using Tortoise ORM for signalgateway persistence.
+Database models using Tortoise ORM for trading persistence.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ except ImportError:  # pragma: no cover - optional dependency at runtime
 def require_tortoise_orm() -> None:
     if not TORTOISE_ORM_AVAILABLE:
         raise ImportError(
-            "tortoise-orm is required to use signalgateway persistence recorders"
+            "tortoise-orm is required to use trading persistence recorders"
         )
 
 

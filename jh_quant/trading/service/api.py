@@ -94,7 +94,7 @@ def _mount_mcp_server(app) -> None:
 
 _MAX_DATA_QUERY_ROWS = 10_000
 
-from jh_quant.gateway.market_data import MarketDataProvider
+from jh_quant.trading.market_data import MarketDataProvider
 
 def _resolve_md_provider(manager: MultiSessionService) -> MarketDataProvider|None:
     if manager._shared_md_provider:
@@ -589,7 +589,7 @@ def create_session_app(session: SessionService):
 
 def create_unified_app(manager: MultiSessionService):
     """Create a FastAPI app with all unified routes registered."""
-    app = _create_base_app(title="jh-quant Gateway")
+    app = _create_base_app(title="jh-quant Trading")
     _register_session_routes(app, manager)
     _mount_mcp_server(app)
     return app
@@ -599,13 +599,13 @@ def create_unified_app(manager: MultiSessionService):
 create_multi_session_app = create_unified_app
 
 
-def run_gateway_app(
+def run_trading_app(
     session: Optional[SessionService] = None,
     host: str = "127.0.0.1",
     port: int = 8000,
     manager: Optional[MultiSessionService] = None,
 ):
-    """Launch the gateway API via uvicorn.
+    """Launch the trading API via uvicorn.
 
     Prefer passing *manager* directly. When *session* is provided instead,
     it is automatically wrapped in a single-session manager.
@@ -614,7 +614,7 @@ def run_gateway_app(
     are stopped and persistence connections are closed.
     """
     if uvicorn is None:
-        raise ImportError("uvicorn is required to run the gateway API")
+        raise ImportError("uvicorn is required to run the trading API")
 
     if manager is None:
         if session is None:

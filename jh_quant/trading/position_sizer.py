@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 if TYPE_CHECKING:
-    from .signalgateway import PositionSizer
+    from .engine import PositionSizer
 
 # Re-export the protocol for external implementers
 __all__ = ["PositionSizer", "ATRPositionSizer", "FixedWeightPositionSizer"]
@@ -24,7 +24,7 @@ class PositionSizer(Protocol):
     用户实现的 PositionSizer 可通过 service.configure_position_sizer() 注入。
 
     Example:
-        from jh_quant.gateway.position_sizer import PositionSizer
+        from jh_quant.trading.position_sizer import PositionSizer
 
         class MyPositionSizer:
             def calculate(

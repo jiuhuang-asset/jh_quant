@@ -1,5 +1,5 @@
 """
-Request and response models for the gateway session API.
+Request and response models for the trading session API.
 """
 
 from __future__ import annotations

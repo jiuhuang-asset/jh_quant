@@ -8,13 +8,13 @@
 
 ## 模块
 
-| 模块                           | 说明                                                           | 文档                              |
-| ------------------------------ | -------------------------------------------------------------- | --------------------------------- |
+| 模块                           | 说明                                                 | 文档                              |
+| ------------------------------ | ---------------------------------------------------- | --------------------------------- |
 | [data](docs/data.md)           | 多种数据获取，兼容akshare和tushare数据类型及调用风格 | [README](docs/data/index.md)      |
-| [gateway](docs/gateway.md)     | 交易网关，模拟(实时)交易                                       | [README](docs/gateway/index.md)   |
-| [backtest](docs/backtest.md)   | 回测引擎，快速策略验证，多种内置策略                           | [README](docs/backtest/index.md)  |
-| [factors](docs/factors.md)     | 因子计算，内置多种因子模型                                     | [README](docs/factors/index.md)   |
-| [dashboard](docs/dashboard.md) | PyWebView可视化仪表盘                                          | [README](docs/dashboard/index.md) |
+| [trading](docs/trading.md)     | 交易运行层，模拟(实时)交易与会话编排                 | [README](docs/trading/index.md)   |
+| [backtest](docs/backtest.md)   | 回测引擎，快速策略验证，多种内置策略                 | [README](docs/backtest/index.md)  |
+| [factors](docs/factors.md)     | 因子计算，内置多种因子模型                           | [README](docs/factors/index.md)   |
+| [dashboard](docs/dashboard.md) | PyWebView可视化仪表盘                                | [README](docs/dashboard/index.md) |
 
 ## 快速开始
 
@@ -56,15 +56,16 @@ stock_price = jh.get_data(
 ```bash
 python run_paper.py
 ```
-
 *run_paper.py*的完整代码参考本repo根目录的[run_paper.py](./run_paper.py)
 
+在回填模式下（可以通过`enable_backfill=False`关闭），会完成历史交易模拟，并在本地开启服务
+
 **开启控制台仪表盘**
-
+开启本地服务之后, 可以通过如下代码开启控制台仪表盘
 ```python
-from jh_quant.dashboard import display_gateway
+from jh_quant.dashboard import display_trading
 
-display_gateway()
+display_trading()
 ```
 
 ![dashboard](assets/screenshots/gateway_sessions_sm.png)

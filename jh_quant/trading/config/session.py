@@ -74,7 +74,7 @@ class SessionConfig(BaseModel):
 
 
 class SessionServiceConfig(BaseModel):
-    """Gateway 的完整配置包。
+    """Trading 模块的完整配置包。
 
     包含三部分：
     - `session`：session 的运行参数
@@ -105,7 +105,7 @@ class SessionServiceConfig(BaseModel):
 
 
 class SessionServiceConfigBuilder:
-    """链式构建 Gateway 配置的辅助类。
+    """链式构建 Trading 配置的辅助类。
 
     设计目标是让调用端可以用连续的 `.with_xxx(...).add_xxx(...).build()`
     写法组织配置，同时保留较好的 IDE 自动补全体验。

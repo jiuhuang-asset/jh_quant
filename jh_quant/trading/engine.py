@@ -31,7 +31,7 @@ from jh_quant.backtest.rules import (
 from jh_quant.backtest.strategy import Strategy
 
 
-class SignalGateway:
+class TradingEngine:
     """
     通用信号网关：负责聚合多策略信号，并执行交易。
 
@@ -57,7 +57,7 @@ class SignalGateway:
             risk_rules: 风险规则列表（StopLoss、TrailingStop 等），用于实盘/模拟盘风控
         """
         if oms is None:
-            raise ValueError("SignalGateway requires an OMS instance")
+            raise ValueError("TradingEngine requires an OMS instance")
 
         self.oms = oms
         self.market_data_provider = market_data_provider
@@ -382,7 +382,7 @@ class SignalGateway:
         """
         if not self.strategy_pool:
             rprint(
-                label="Warning:", content="No strategies registered in signal gateway"
+                label="Warning:", content="No strategies registered in the trading module"
             )
             return pd.DataFrame()
 
