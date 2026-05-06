@@ -34,15 +34,15 @@ class SessionConfig(BaseModel):
     price_lookback_days: int = Field(
         default=180, description="执行策略和选股时向前回看的行情天数。"
     )
-    max_candidates: int = Field(default=10, description="每轮最多处理的候选标的数量。")
+    max_candidates: int = Field(default=20, description="每轮最多处理的候选标的数量。")
     auto_start: bool = Field(
-        default=False, description="Session 初始化完成后是否自动启动调度线程。"
+        default=True, description="Session 初始化完成后是否自动启动调度线程。"
     )
     frequency: Frequency = Field(
         default=Frequency.DAILY, description="交易频率枚举，用于描述策略运行节奏。"
     )
     price_slippage: float = Field(
-        default=0.0, description="成交滑点比例，例如 `0.001` 表示千分之一。"
+        default=0, description="成交滑点比例，例如 `0.001` 表示千分之一。"
     )
     cron_expression: Optional[str] = Field(
         default=None, description="cron 调度表达式。"

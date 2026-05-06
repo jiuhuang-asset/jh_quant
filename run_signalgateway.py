@@ -90,9 +90,7 @@ def run_service() -> None:
         .with_session(
             session_id="semi-momentum-001",
             mode="paper",
-            price_lookback_days=200,
-            max_candidates=30,
-            auto_start=True,
+            price_slippage=0.001,  # 价格滑点
             cron_expression="0 16 * * 1-5",
             enable_backfill=True,
             backfill_from="2025-10-01"
@@ -127,14 +125,7 @@ def run_service() -> None:
     config_b = (
         SessionServiceConfigBuilder(base_config=config)
         .with_session(
-            session_id="semi-dualthrust-002",
-            mode="paper",
-            price_lookback_days=200,
-            max_candidates=30,
-            auto_start=True,
-            cron_expression="0 16 * * 1-5",
-            enable_backfill=True,
-            backfill_from="2025-10-01",
+            session_id="semi-dualthrust-002",  
         )
         .with_strategy(
             name="dual_thrust",
@@ -142,7 +133,7 @@ def run_service() -> None:
             params=DualThrustStrategyConfig(),
         )
         .build()
-    )
+    ) 
 
     _ = manager.create_session(config=config, initial_capital=100000)
     _ = manager.create_session(config=config_b, initial_capital=100000)
