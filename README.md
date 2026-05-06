@@ -1,7 +1,7 @@
 # JH_QUANT
 
 ![banner](assets/banner_sm.png)
-量化交易研究与执行平台。支持：**免费数据获取**、**回测**、**因子计算**、 **模拟交易**、**信号网关**、**可视化仪表盘**
+量化交易研究与执行平台。支持：**免费数据获取**、**回测**、**因子计算**、 **模拟交易**、**持仓优化**、**信号网关**、**可视化仪表盘**
 
 - **官网**: https://jiuhuang.xyz
 - **文档**: https://doc.jiuhuang.xyz
@@ -10,7 +10,7 @@
 
 | 模块                           | 说明                                                           | 文档                              |
 | ------------------------------ | -------------------------------------------------------------- | --------------------------------- |
-| [data](docs/data.md)           | 数据获取和数据本地缓存，兼容akshare和tushare数据类型及调用风格 | [README](docs/data/index.md)      |
+| [data](docs/data.md)           | 多种数据获取，兼容akshare和tushare数据类型及调用风格 | [README](docs/data/index.md)      |
 | [gateway](docs/gateway.md)     | 交易网关，模拟(实时)交易                                       | [README](docs/gateway/index.md)   |
 | [backtest](docs/backtest.md)   | 回测引擎，快速策略验证，多种内置策略                           | [README](docs/backtest/index.md)  |
 | [factors](docs/factors.md)     | 因子计算，内置多种因子模型                                     | [README](docs/factors/index.md)   |
