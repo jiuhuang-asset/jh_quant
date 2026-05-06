@@ -413,6 +413,7 @@ class JHData:
         data_type: DataTypes,
         total: int,
         payload: dict,
+        write_cache: bool = False,
     ) -> pd.DataFrame:
         """单次请求下载全部数据（<= SMALL_DOWNLOAD_THRESHOLD 时使用）"""
         url = f"{self.api_url}/data-offline/"
@@ -438,23 +439,31 @@ class JHData:
                             progress.update(task_id, completed=len(all_data))
                         except json.JSONDecodeError:
                             raise Exception("获取数据失败[Json解码错误]")
-        return pd.DataFrame(all_data)
+        df = pd.DataFrame(all_data)
+        if write_cache and not df.empty:
+            self._cache.bulk_import(data_type, df)
+        return df
 
     def _download_incremental(
         self,
         data_type: DataTypes,
         total: int,
         payload: dict,
-    ) -> int:
-        """流式下载+增量写入，返回实际下载行数"""
+        write_cache: bool = True,
+    ) -> pd.DataFrame:
+        """流式下载，按需增量写入缓存，并返回下载结果。"""
         url = f"{self.api_url}/data-offline/"
         batch = []
         downloaded = 0
+        parts = []
 
         def flush_batch():
-            nonlocal batch, downloaded
+            nonlocal batch, downloaded, parts
             if batch:
-                self._cache.bulk_import(data_type, pd.DataFrame(batch))
+                df_batch = pd.DataFrame(batch)
+                if write_cache:
+                    self._cache.bulk_import(data_type, df_batch)
+                parts.append(df_batch)
                 downloaded += len(batch)
                 batch = []
 
@@ -482,13 +491,16 @@ class JHData:
                         except json.JSONDecodeError:
                             raise Exception("获取数据失败[Json解码错误]")
         flush_batch()
-        return downloaded
+        if not parts:
+            return pd.DataFrame()
+        return pd.concat(parts, ignore_index=True)
 
     def _fetch_recursive(
         self,
         data_type: DataTypes,
         payload: dict,
         total: int,
+        use_cache: bool = True,
     ) -> pd.DataFrame:
         """
         递归二分下载：
@@ -498,9 +510,12 @@ class JHData:
            - 不能二分 → 超过阈值则报错；未超阈值则直接下载
         """
         if total <= self.SMALL_DOWNLOAD_THRESHOLD:
-            df = self._download_single(data_type, total, payload)
-            self._cache.bulk_import(data_type, df)
-            return df
+            return self._download_single(
+                data_type,
+                total,
+                payload,
+                write_cache=use_cache,
+            )
 
         sub_payloads = self._bisect_payload(payload)
         if sub_payloads is None:
@@ -517,14 +532,22 @@ class JHData:
                 continue
 
             # 检查本地缓存数量，避免重复下载
-            cache_count = self._cache.get_data_total(data_type, **filter_kwargs)
-            if cache_count >= sub_total:
-                rprint(f"[green]    cache hit, skip: {sub}[/green]")
-                parts.append(self._cache.get_data(data_type, **filter_kwargs))
-                continue
+            if use_cache:
+                cache_count = self._cache.get_data_total(data_type, **filter_kwargs)
+                if cache_count >= sub_total:
+                    rprint(f"[green]    cache hit, skip: {sub}[/green]")
+                    parts.append(self._cache.get_data(data_type, **filter_kwargs))
+                    continue
 
             rprint(f"[dim]    sub range: {sub}[/dim]")
-            parts.append(self._fetch_recursive(data_type, sub, sub_total))
+            parts.append(
+                self._fetch_recursive(
+                    data_type,
+                    sub,
+                    sub_total,
+                    use_cache=use_cache,
+                )
+            )
 
         if not parts:
             return pd.DataFrame()
@@ -534,7 +557,7 @@ class JHData:
     def get_data(
         self,
         data_type: DataTypes,
-        remote: bool = False,
+        bypass_cache: bool = False,
         **kwargs,
     ):
         """
@@ -542,10 +565,10 @@ class JHData:
 
         Args:
             data_type: 数据类型
-            remote: 是否强制从远程获取
+            bypass_cache: 是否绕过缓存直接从远程获取
 
-        支持自动分片：当 remote 数据量超过阈值且存在 start/end 日期参数
-        或逗号分隔的列表参数时，会递归二分参数范围，渐进式下载并增量写入缓存。
+        支持自动分片：当远程数据量超过阈值且存在 start/end 日期参数
+        或逗号分隔的列表参数时，会递归二分参数范围；仅在 bypass_cache=False 时增量写入缓存。
         """
         remote_data_count = self.get_data_total(data_type=data_type, **kwargs)
         if remote_data_count == 0:
@@ -555,13 +578,12 @@ class JHData:
             return
 
         # 缓存命中检查
-        if not remote:
-            kw = {k: v for k, v in kwargs.items() if k != "remote"}
-            cached = self._cache.get_data(data_type, **kw)
+        if not bypass_cache:
+            cached = self._cache.get_data(data_type, **kwargs)
             if len(cached) == remote_data_count:
                 return cached
             if len(cached) > remote_data_count:
-                self.clear_cache(data_type)  # remote shold always be the root source
+                self.clear_cache(data_type)  # remote should always be the root source
 
         rprint(f"[cyan]Pulling data from JiuHuang API...[/cyan]")
 
@@ -575,10 +597,16 @@ class JHData:
                     f"且请求参数无法拆分。请提供 start/end 日期范围参数以启用分片下载。"
                 )
 
-        self._fetch_recursive(data_type, payload, remote_data_count)
+        fetched = self._fetch_recursive(
+            data_type,
+            payload,
+            remote_data_count,
+            use_cache=not bypass_cache,
+        )
 
-        kw = {k: v for k, v in kwargs.items() if k != "remote"}
-        return self._cache.get_data(data_type, **kw)
+        if bypass_cache:
+            return fetched
+        return self._cache.get_data(data_type, **kwargs)
 
     def clear_cache(self, data_type: DataTypes):
         """清除指定数据类型的本地缓存（truncate表）"""

@@ -107,6 +107,7 @@ class JHMarketDataProvider(MarketDataProvider):
         start_date: str,
         end_date: str,
         to_df: bool = True,
+        latest_only: bool = False, # shortcut for get_latest_prices
     ) -> pd.DataFrame:
         """
         to_df: 是否转为DataFrame(JHData原生返回的是JHDataType而不是DataFrame)

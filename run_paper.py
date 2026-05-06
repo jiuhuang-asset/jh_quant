@@ -87,7 +87,7 @@ def run_service() -> None:
         .with_session(
             session_id="semi-momentum-a",
             mode="paper",
-            price_slippage=0.001,  # 价格滑点
+            price_slippage=0.001,  # 设置滑点
             cron_expression="0 16 * * 1-5",
             enable_backfill=True,
             backfill_from="2025-10-01"
@@ -120,7 +120,7 @@ def run_service() -> None:
     )
 
     config_b = (
-        SessionServiceConfigBuilder(base_config=config)
+        SessionServiceConfigBuilder(base_config=config) # 沿用config
         .with_session(
             session_id="semi-dualthrust-b",  
         )
