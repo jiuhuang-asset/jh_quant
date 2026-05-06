@@ -186,7 +186,7 @@ class JHMarketDataProvider(MarketDataProvider):
         "获取交易日历"
         data = self.jhd.get_data(
            DataTypes.AK_TOOL_TRADE_DATE_HIST_SINA,
-           start=start_date
+           start=start_date,
         ).to_df()
         return set(data["trade_date"].tolist()) 
 

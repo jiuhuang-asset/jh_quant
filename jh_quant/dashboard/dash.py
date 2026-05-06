@@ -56,7 +56,7 @@ class BacktestingView:
 
 
 def display_backtesting(trading_hist: pd.DataFrame, perf_data: pd.DataFrame):
-    rprint("[cyan]  Starting backtesting visualization...")
+    rprint("[cyan]  Starting backtesting dashboard...")
     api = BacktestingView(trading_hist, perf_data)
 
     current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -89,7 +89,7 @@ class FactorsView:
 
 
 def display_factors(factor_returns: pd.DataFrame):
-    rprint("[cyan]  Starting factor analysis visualization...")
+    rprint("[cyan]  Starting factor analysis dashboard...")
     api = FactorsView(factor_returns)
 
     current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -99,13 +99,13 @@ def display_factors(factor_returns: pd.DataFrame):
     webview.start()
 
 
-class SignalGatewayView:
+class GatewayView:
     def __init__(
         self,
         host: str = "127.0.0.1",
         port: int = 8000,
         protocol: str = "http",
-        title: str = "SignalGateway 量化控制台",
+        title: str = "JH-QUANT 量化控制台",
         refresh_interval_ms: int = 15000,
     ):
         self.host = host
@@ -125,56 +125,27 @@ class SignalGatewayView:
         }
 
 
-def _resolve_signalgateway_dashboard_index(frontend_root: str | None = None) -> str:
-    if frontend_root:
-        html_path = Path(frontend_root) / "dist" / "index.html"
-    else:
-        front_src_html_path = (
-            Path(__file__).resolve().parent
-            / "front_src"
-            / "signalgateway-dashboard"
-            / "dist"
-            / "index.html"
-        )
-        if front_src_html_path.exists():
-            return str(front_src_html_path)
-
-        html_path = (
-            Path(__file__).resolve().parents[3]
-            / "dashboards"
-            / "signalgateway-dashboard"
-            / "dist"
-            / "index.html"
-        )
-
-    if not html_path.exists():
-        raise FileNotFoundError(
-            f"SignalGateway dashboard build not found: {html_path}. "
-            "Build the frontend first with `pnpm install` and `pnpm build`."
-        )
-
-    return str(html_path)
-
 
 def display_gateway(
     host: str = "127.0.0.1",
     port: int = 8000,
     protocol: str = "http",
-    title: str = "SignalGateway 量化控制台",
+    title: str = "JH-QUANT量化控制台",
     refresh_interval_ms: int = 15000,
-    frontend_root: str | None = None,
 ):
     rprint(
-        f"[cyan]  Starting SignalGateway dashboard on {protocol}://{host}:{port} ..."
+        f"[cyan]  Starting gateway dashboard..."
     )
-    api = SignalGatewayView(
+    api = GatewayView(
         host=host,
         port=port,
         protocol=protocol,
         title=title,
         refresh_interval_ms=refresh_interval_ms,
     )
-    html_path = _resolve_signalgateway_dashboard_index(frontend_root=frontend_root)
+
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    html_path = os.path.join(current_dir, "front_src", "gateway-dash", "index.html")
 
     webview.create_window(title, html_path, js_api=api, width=1540, height=980)
     webview.start()

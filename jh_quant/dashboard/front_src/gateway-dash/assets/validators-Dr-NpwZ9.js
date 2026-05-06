@@ -1,0 +1,1 @@
+function o(r){if(!r)return"启用 Cron 调度时必须填写表达式。";const t=r.trim().replace(/\s+/g," ").split(" ");if(t.length!==5)return"请使用标准 5 段 Cron 表达式，例如 `0 9 * * 1-5`。";const n=/^[\d*/,.\-]+$/;return t.some(e=>!n.test(e))?"Cron 含有不支持的字符，只允许数字、`*`、`/`、`,`、`-`。":""}function i(r){if(!r)return"URL 不能为空。";try{return new URL(r),""}catch{return"请输入合法的 URL。"}}export{i as a,o as v};
