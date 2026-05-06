@@ -146,9 +146,11 @@ class JHMarketDataProvider(MarketDataProvider):
         if to_df:
             data = data.to_df()
         data = data.copy()
-        if "symbol" not in data.columns:
+        if data.empty and len(data.columns) == 0:
+            return data
+        if "symbol" not in data.columns and code_col in data.columns:
             data["symbol"] = data[code_col]
-        if "date" not in data.columns:
+        if "date" not in data.columns and date_col in data.columns:
             data["date"] = data[date_col]
         if "price" not in data.columns and "close" in data.columns:
             data["price"] = data["close"]
@@ -183,8 +185,7 @@ class JHMarketDataProvider(MarketDataProvider):
         return combined
 
     def _fetch_today_spot_df(self, resolved_symbols: List[str]) -> pd.DataFrame:
-        end_ts = pd.Timestamp.now()
-        start_ts = end_ts - pd.Timedelta(minutes=10)
+        start_ts, end_ts = self._get_today_spot_window()
         try:
             spot_data = self.jhd.get_data(
                 DataTypes.AK_STOCK_ZH_A_SPOT,
@@ -232,6 +233,32 @@ class JHMarketDataProvider(MarketDataProvider):
             if column not in spot_df.columns:
                 spot_df[column] = pd.NA
         return spot_df[hist_columns].copy()
+
+    def _get_today_spot_window(self) -> tuple[pd.Timestamp, pd.Timestamp]:
+        now = pd.Timestamp.now()
+        day = now.normalize()
+        market_open = day + pd.Timedelta(hours=9, minutes=30)
+        morning_close = day + pd.Timedelta(hours=11, minutes=30)
+        afternoon_open = day + pd.Timedelta(hours=13)
+        market_close = day + pd.Timedelta(hours=15)
+
+        if now < market_open:
+            start = market_open - pd.Timedelta(minutes=10)
+            end = market_open
+        elif now <= morning_close:
+            start = max(market_open, now - pd.Timedelta(minutes=10))
+            end = now
+        elif now < afternoon_open:
+            start = morning_close - pd.Timedelta(minutes=10)
+            end = morning_close
+        elif now <= market_close:
+            start = max(afternoon_open, now - pd.Timedelta(minutes=10))
+            end = now
+        else:
+            start = market_close - pd.Timedelta(minutes=10)
+            end = market_close
+
+        return start, end
 
     def _normalize_api_datetime(self, value: str, *, is_end: bool) -> str:
         timestamp = pd.Timestamp(value)

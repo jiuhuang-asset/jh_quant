@@ -145,7 +145,7 @@ def display_trading(
     )
 
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    html_path = os.path.join(current_dir, "front_src", "gateway-dash", "index.html")
+    html_path = os.path.join(current_dir, "front_src", "trading-dash", "index.html")
 
     webview.create_window(title, html_path, js_api=api, width=1540, height=980)
     webview.start()

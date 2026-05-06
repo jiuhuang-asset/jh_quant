@@ -46,9 +46,6 @@ stock_price = jh.get_data(
 > `jh_quant` 的数据获取**并非**像 [akshare](https://github.com/akfamily/akshare) 那样需要实时抓取数据。  
 > `jh_quant` 仅做了对 [akshare](https://github.com/akfamily/akshare) 数据类型的兼容，数据真实来源为：[JiuHuang API](https://jiuhuang.xyz)
 
-> 兼容[akshare](https://github.com/akfamily/akshare)和[tushare](https://github.com/waditu/tushare)的数据类型和调用风格, 详细见文档: [数据兼容](docs/data/compatibility.md)  
-> 注意：请优先使用akshare数据源, tushare数据源的完整支持仍在进展中...
-
 ### 实时模拟交易
 
 **jh_quant**支持同时开启多个模拟交易会话，每个会话对应一个模拟账户, 下面是示例运行:
