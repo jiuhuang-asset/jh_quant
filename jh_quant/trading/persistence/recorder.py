@@ -184,6 +184,12 @@ class OrderRecorder(
     def load_earliest_session_config(self, session_id: str) -> Optional[Dict[str, Any]]:
         raise NotImplementedError
 
+    @abstractmethod
+    def query_session_configs(
+        self, session_id: str
+    ) -> list[Dict[str, Any]]:
+        raise NotImplementedError
+
     def close(self):
         return None
 
@@ -426,6 +432,40 @@ class TortoiseOrderRecorder(OrderRecorder):
             "session_id": row.session_id,
             "created_at": row.created_at.isoformat(),
         }
+
+    def query_session_configs(
+        self, session_id: str
+    ) -> list[Dict[str, Any]]:
+        return self._run(self._query_session_configs(session_id))
+
+    async def _query_session_configs(
+        self, session_id: str
+    ) -> list[Dict[str, Any]]:
+        rows = (
+            await SessionConfigRecord.filter(session_id=session_id)
+            .order_by("export_time")
+            .values()
+        )
+        result: list[Dict[str, Any]] = []
+        for row in rows:
+            result.append({
+                "id": row["id"],
+                "session_id": row["session_id"],
+                "config_md5": row["config_md5"],
+                "config_bundle": row["config_bundle"],
+                "source": row["source"],
+                "export_time": (
+                    row["export_time"].isoformat()
+                    if hasattr(row["export_time"], "isoformat")
+                    else str(row["export_time"])
+                ),
+                "created_at": (
+                    row["created_at"].isoformat()
+                    if hasattr(row["created_at"], "isoformat")
+                    else str(row["created_at"])
+                ),
+            })
+        return result
 
     def query_runtime_events(self, session_id: str) -> pd.DataFrame:
         return self._run(self._query_runtime_events(session_id))

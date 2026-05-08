@@ -59,6 +59,7 @@ from .schemas import (
     SelectionConfigUpdateRequest,
     SelectionConfigSnapshotResponse,
     SessionActionResponse,
+    SessionConfigHistoryResponse,
     SessionConfigResponse,
     SessionConfigUpdateRequest,
     SessionConfigUpdateResponse,
@@ -320,6 +321,14 @@ def _register_session_routes(app, manager: MultiSessionService):
                 "Content-Disposition": f"attachment; filename=session-config-{session_id}.json"
             },
         )
+
+    @app.get(
+        "/sessions/{session_id}/config/history",
+        response_model=SessionConfigHistoryResponse,
+        operation_id="get_session_config_history",
+    )
+    def get_session_config_history(session_id: str):
+        return manager.get_session(session_id).get_session_config_history()
 
     @app.get(
         "/sessions/{session_id}/events",

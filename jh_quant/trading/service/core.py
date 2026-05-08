@@ -50,12 +50,15 @@ from ..utils import rprint
 from .schemas import (
     AnalyticsSnapshotResponse,
     CloseAllPositionsResponse,
+    ConfigChangeItem,
     DEFAULT_TRENDS_LIMIT,
     PerformanceSnapshotResponse,
     RuntimeSnapshotResponse,
     SchedulerConfigSnapshotResponse,
     SchedulerConfigUpdateResponse,
     SchedulerStatus,
+    SessionConfigHistoryEntry,
+    SessionConfigHistoryResponse,
     SessionConfigResponse,
     SessionConfigUpdateResponse,
     SessionEventHistoryResponse,
@@ -850,6 +853,98 @@ class SessionService:
             config_source=self._config_source,
             persisted_session_config_available=self._persisted_session_config_available,
             persisted_session_config_updated_at=self._persisted_session_config_updated_at,
+        ).model_dump()
+
+    @staticmethod
+    def _diff_configs(
+        old: Optional[Dict[str, Any]],
+        new: Dict[str, Any],
+        *,
+        prefix: str = "",
+    ) -> List[ConfigChangeItem]:
+        if old is None:
+            return [
+                ConfigChangeItem(
+                    field_path=prefix or "(root)",
+                    old_value=None,
+                    new_value=new,
+                    change_type="added",
+                )
+            ]
+
+        changes: List[ConfigChangeItem] = []
+        all_keys = set(old.keys()) | set(new.keys())
+
+        for key in sorted(all_keys):
+            field_path = f"{prefix}.{key}" if prefix else key
+            old_val = old.get(key)
+            new_val = new.get(key)
+
+            if key not in old:
+                changes.append(
+                    ConfigChangeItem(
+                        field_path=field_path,
+                        old_value=None,
+                        new_value=new_val,
+                        change_type="added",
+                    )
+                )
+            elif key not in new:
+                changes.append(
+                    ConfigChangeItem(
+                        field_path=field_path,
+                        old_value=old_val,
+                        new_value=None,
+                        change_type="removed",
+                    )
+                )
+            elif isinstance(old_val, dict) and isinstance(new_val, dict):
+                changes.extend(
+                    SessionService._diff_configs(old_val, new_val, prefix=field_path)
+                )
+            elif old_val != new_val:
+                changes.append(
+                    ConfigChangeItem(
+                        field_path=field_path,
+                        old_value=old_val,
+                        new_value=new_val,
+                        change_type="modified",
+                    )
+                )
+
+        return changes
+
+    def get_session_config_history(self) -> Dict[str, Any]:
+        records = self.persistence.query_session_configs(self.config.session_id)
+        if not records:
+            return SessionConfigHistoryResponse(
+                session_id=self.config.session_id,
+                count=0,
+                versions=[],
+            ).model_dump()
+
+        versions: List[SessionConfigHistoryEntry] = []
+        previous_bundle: Optional[Dict[str, Any]] = None
+
+        for record in records:
+            current_bundle = record.get("config_bundle", {})
+            current_bundle.pop("export_time", None)
+
+            changes = self._diff_configs(previous_bundle, current_bundle)
+            versions.append(
+                SessionConfigHistoryEntry(
+                    export_time=record.get("export_time", ""),
+                    source=record.get("source", "unknown"),
+                    config_bundle=current_bundle,
+                    changes=changes,
+                )
+            )
+            previous_bundle = current_bundle
+
+        return SessionConfigHistoryResponse(
+            session_id=self.config.session_id,
+            count=len(versions),
+            versions=versions,
         ).model_dump()
 
     def get_strategy_config_snapshot(self) -> Dict[str, Any]:

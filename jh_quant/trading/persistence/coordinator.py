@@ -132,6 +132,11 @@ class PersistenceCoordinator:
             return None
         return self.recorder.load_earliest_session_config(session_id)
 
+    def query_session_configs(self, session_id: str) -> list[dict]:
+        if self.recorder is None:
+            return []
+        return self.recorder.query_session_configs(session_id)
+
     def query_runtime_events(self, session_id: str) -> "pd.DataFrame":
         import pandas as pd
 

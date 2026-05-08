@@ -167,6 +167,41 @@ class SessionConfigUpdateResponse(BaseModel):
     )
 
 
+class ConfigChangeItem(BaseModel):
+    """A single field-level change between two config versions."""
+
+    field_path: str = Field(
+        description="Dot-separated path to the changed field, e.g. 'session.mode'."
+    )
+    old_value: Any = Field(description="Previous value (None if field was added).")
+    new_value: Any = Field(description="Current value (None if field was removed).")
+    change_type: str = Field(description="Type of change: 'added', 'removed', or 'modified'.")
+
+
+class SessionConfigHistoryEntry(BaseModel):
+    """One config snapshot with its changes relative to the previous version."""
+
+    export_time: str = Field(description="When this config version was saved.")
+    source: str = Field(description="What triggered this config save.")
+    config_bundle: Dict[str, Any] = Field(
+        description="Full config bundle at this point in time."
+    )
+    changes: List[ConfigChangeItem] = Field(
+        default_factory=list,
+        description="Field-level changes from the previous config version. Empty for the first entry.",
+    )
+
+
+class SessionConfigHistoryResponse(BaseModel):
+    """Full config change history for a session."""
+
+    session_id: str = Field(description="Session ID.")
+    count: int = Field(description="Number of config versions in history.")
+    versions: List[SessionConfigHistoryEntry] = Field(
+        default_factory=list, description="Config versions ordered from earliest to latest."
+    )
+
+
 class ConfigurableComponentDefinition(BaseModel):
     name: str = Field(description="Registered component name.")
     params_schema: Dict[str, Any] = Field(
