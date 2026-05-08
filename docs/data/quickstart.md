@@ -31,9 +31,8 @@ JIUHUANG_API_KEY=your-api-key
 JIUHUANG_API_URL=https://data.jiuhuang.xyz
 ```
 
-### 缓存目录
-
-JHData 会在 `~/.jiuhuang/` 下创建 DuckDB 缓存数据库 `cache_data.db`。首次下载数据后会缓存到本地，后续相同查询直接从本地读取。
+### 数据缓存
+首次下载数据后会缓存到本地，后续相同查询直接从本地读取。
 
 ## 基本用法
 

@@ -1,12 +1,11 @@
 # jh_quant.data 用户文档
 
-`jh_quant.data` 是 jh_quant 的数据获取模块，基于 **JiuHuang Data API** 提供统一的金融数据访问接口，同时兼容 **akshare** 和 **tushare** 的调用风格。
+`jh_quant.data` 是 jh_quant 的数据获取模块，基于 **JiuHuang Data API** 提供统一的金融数据访问接口，同时兼容了 **akshare** 和 **tushare** 的调用风格， 支持无缝切换。
 
 ## 核心特性
 
 - **统一数据接口**：通过 `JHData` 类和 `DataTypes` 枚举统一访问 360+ 种金融数据类型
-- **本地缓存**：内置 DuckDB 缓存，相同查询不会重复请求 API，支持增量同步
-- **自动分片**：大数据量请求自动按时间/标的分片下载，避免内存溢出
+- **本地缓存**：内置 DuckDB 缓存，支持增量同步
 - **多源兼容**：无缝兼容 akshare 和 tushare 数据类型和调用风格，方便迁移
 
 ## 文档导航

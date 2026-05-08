@@ -26,3 +26,5 @@ specs
 .env
 
 *.log
+
+pypitoken

@@ -2318,9 +2318,17 @@ class MultiSessionService:
         )
         portfolio_enabled = bool(getattr(svc.portfolio_spec, "enabled", False))
 
-        daily_pnl = (
-            float(getattr(positions, "daily_profit", 0.0)) if positions else None
-        )
+        # Read from persisted daily_performance — the OMS daily_profit is
+        # reset to zero after every compute_daily_metrics call, so the live
+        # attribute is unusable as a public-facing "daily PnL" value.
+        daily_pnl = None
+        if self._shared_persistence is not None:
+            daily_perf_df = self._shared_persistence.query_daily_performance(session_id)
+            if not daily_perf_df.empty:
+                latest = daily_perf_df.sort_values("trade_date").iloc[-1]
+                raw = latest.get("daily_pnl")
+                if raw is not None and not pd.isna(raw):
+                    daily_pnl = float(raw)
         position_count = len(getattr(positions, "holds", []))
         strategy_names = [spec.alias or spec.name for spec in svc.strategy_specs]
 
