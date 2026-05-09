@@ -131,8 +131,8 @@ def run_service() -> None:
         )
         .build()
     ) 
-
-    _ = manager.create_session(config=config, initial_capital=100000)
+ 
+    _ = manager.create_session(config=config, initial_capital=100000)  # 返回session id
     _ = manager.create_session(config=config_b, initial_capital=100000)
 
 
