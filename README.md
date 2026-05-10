@@ -30,11 +30,9 @@ pip install jh_quant
 import os
 from jh_quant.data import JHData, DataTypes
 
-load_dotenv()   # 读取.env文件, 必须设置JIUHUANG_API_KEY变量
-
 jh = JHData(apt_key=os.getenv("JIUHUANG_API_KEY"))
 stock_price = jh.get_data(
-    DataTypes.AK_STOCK_ZH_A_HIST_QFQ,  #akshare日线前复盘数据
+    DataTypes.AK_STOCK_ZH_A_HIST_QFQ,  #akshare日线前复权数据
     symbol="000001",
     start="2025-01-01",
     end="2025-12-10",
