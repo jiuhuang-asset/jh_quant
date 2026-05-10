@@ -42,8 +42,6 @@ stock_price = jh.get_data(
 ```
 
 **重要**
-
-> `jh_quant` 的数据获取**并非**像 [akshare](https://github.com/akfamily/akshare) 那样需要实时抓取数据。  
 > `jh_quant` 仅做了对 [akshare](https://github.com/akfamily/akshare) 数据类型的兼容，数据真实来源为：[JiuHuang API](https://jiuhuang.xyz)
 
 ### 实时模拟交易

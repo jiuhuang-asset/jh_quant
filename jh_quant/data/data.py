@@ -264,7 +264,7 @@ def get_code_date_col(df: pd.DataFrame) -> Tuple[str, str]:
 
 
 class JHData:
-    SMALL_DOWNLOAD_THRESHOLD = 50_000  # warning: 不要改动,过大会影响下载效率
+    SMALL_DOWNLOAD_THRESHOLD = 100_000  # warning: 不要改动,过大会影响下载效率
     INCREMENTAL_BATCH_SIZE = 10_000
 
     def __init__(
