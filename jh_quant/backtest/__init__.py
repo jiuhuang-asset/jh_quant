@@ -19,7 +19,20 @@ from .rules import (
     apply_rules,
     maybe_compute_atr,
 )
-from .strategy import Strategy
+from .strategy import (
+    Strategy,
+    StrategyBollingerBands,
+    StrategyBreakout,
+    StrategyBuyAndHold,
+    StrategyDualThrust,
+    StrategyMeanReversion,
+    StrategyMomentum,
+    StrategyMovingAverageCrossover,
+    StrategyRSI,
+    StrategyTurtle,
+    StrategyVolumeDivergence,
+    StrategyVolumeTrend,
+)
 
 try:
     from .selectors import FactorSelector, SelectionResult, Selector
@@ -47,6 +60,17 @@ __all__ = [
     "Selector",
     "StopLossRule",
     "Strategy",
+    "StrategyBollingerBands",
+    "StrategyBreakout",
+    "StrategyBuyAndHold",
+    "StrategyDualThrust",
+    "StrategyMeanReversion",
+    "StrategyMomentum",
+    "StrategyMovingAverageCrossover",
+    "StrategyRSI",
+    "StrategyTurtle",
+    "StrategyVolumeDivergence",
+    "StrategyVolumeTrend",
     "TakeProfitRule",
     "TrailingStopRule",
     "apply_rules",
