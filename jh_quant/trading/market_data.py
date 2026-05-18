@@ -81,6 +81,7 @@ class MarketDataProvider(ABC):
 
 
 class JHMarketDataProvider(MarketDataProvider):
+    """ 使用 aksahre 数据源"""
     def __init__(
         self,
         jhd: Optional[JHData] = None,
@@ -214,6 +215,7 @@ class JHMarketDataProvider(MarketDataProvider):
         spot_df["date"] = spot_df["dt"].dt.normalize()
         spot_df["close"] = spot_df["latest"]
         spot_df["price"] = spot_df["close"]
+        spot_df["volume"] = spot_df["volume"] / 100  # 股转化成手
 
         hist_columns = [
             "date",
