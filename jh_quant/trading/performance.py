@@ -50,6 +50,15 @@ TRADE_ACTIVITY_COLUMNS = [
     "net_amount",
 ]
 
+PNL_SOURCE_COLUMNS = [
+    "symbol",
+    "realized_pnl",
+    "closed_trade_count",
+    "win_trade_count",
+    "loss_trade_count",
+    "contribution_ratio",
+]
+
 
 class PerformanceDataSource(Protocol):
     def query_trades(self, session_id: str) -> pd.DataFrame: ...
@@ -116,7 +125,16 @@ def calculate_holding_returns(
 
     snaps = snaps.copy()
     snaps["trade_date"] = _normalize_trade_dates(snaps, "trade_date")
-    latest = snaps.sort_values("trade_date").groupby("symbol").last().reset_index()
+    snaps = snaps.dropna(subset=["trade_date"])
+    if snaps.empty:
+        return _empty_frame(HOLDING_RETURN_COLUMNS)
+
+    latest_trade_date = snaps["trade_date"].max()
+    latest = (
+        snaps[snaps["trade_date"] == latest_trade_date]
+        .sort_values(["symbol", "trade_date"])
+        .copy()
+    )
     latest.rename(columns={"trade_date": "latest_date"}, inplace=True)
     return latest[
         [
@@ -346,9 +364,16 @@ def summarize_latest_portfolio(equity_curve: pd.DataFrame) -> Dict[str, Any]:
 
 
 def _realized_pnl_from_trades(trades: pd.DataFrame) -> list[float]:
+    realized_frame = _realized_pnl_frame_from_trades(trades)
+    if realized_frame.empty:
+        return []
+    return realized_frame["realized_pnl"].astype(float).tolist()
+
+
+def _realized_pnl_frame_from_trades(trades: pd.DataFrame) -> pd.DataFrame:
     costs: dict[str, float] = defaultdict(float)
     quantities: dict[str, int] = defaultdict(int)
-    realized: list[float] = []
+    realized: list[dict[str, Any]] = []
 
     ordered = trades.copy()
     ordered["trade_date"] = _normalize_trade_dates(ordered, "trade_date")
@@ -376,12 +401,98 @@ def _realized_pnl_from_trades(trades: pd.DataFrame) -> list[float]:
         avg_cost = costs[symbol]
         sell_qty = min(qty, quantities[symbol]) if quantities[symbol] > 0 else qty
         pnl = (price - avg_cost) * sell_qty
-        realized.append(float(pnl))
+        realized.append(
+            {
+                "trade_id": row.get("trade_id"),
+                "trade_date": row.get("trade_date"),
+                "symbol": symbol,
+                "quantity": int(sell_qty),
+                "price": price,
+                "avg_cost": float(avg_cost),
+                "realized_pnl": float(pnl),
+            }
+        )
         quantities[symbol] = max(0, quantities[symbol] - sell_qty)
         if quantities[symbol] == 0:
             costs[symbol] = 0.0
 
-    return realized
+    return pd.DataFrame(realized)
+
+
+def calculate_pnl_source_breakdown(
+    source: PerformanceDataSource,
+    session_id: str,
+    trades: Optional[pd.DataFrame] = None,
+) -> Dict[str, pd.DataFrame | float]:
+    trades = source.query_trades(session_id) if trades is None else trades
+    if trades.empty:
+        empty = _empty_frame(PNL_SOURCE_COLUMNS)
+        return {
+            "profit_sources": empty.copy(),
+            "loss_sources": empty.copy(),
+            "total_realized_pnl": 0.0,
+            "total_profit": 0.0,
+            "total_loss": 0.0,
+        }
+
+    realized = _realized_pnl_frame_from_trades(trades)
+    if realized.empty:
+        empty = _empty_frame(PNL_SOURCE_COLUMNS)
+        return {
+            "profit_sources": empty.copy(),
+            "loss_sources": empty.copy(),
+            "total_realized_pnl": 0.0,
+            "total_profit": 0.0,
+            "total_loss": 0.0,
+        }
+
+    summary = (
+        realized.groupby("symbol", as_index=False)
+        .agg(
+            realized_pnl=("realized_pnl", "sum"),
+            closed_trade_count=("trade_id", "count"),
+            win_trade_count=("realized_pnl", lambda values: int((values > 0).sum())),
+            loss_trade_count=("realized_pnl", lambda values: int((values < 0).sum())),
+        )
+        .sort_values(["realized_pnl", "symbol"], ascending=[False, True])
+        .reset_index(drop=True)
+    )
+
+    profit_sources = summary[summary["realized_pnl"] > 0].copy()
+    total_profit = float(profit_sources["realized_pnl"].sum()) if not profit_sources.empty else 0.0
+    if not profit_sources.empty:
+        profit_sources["contribution_ratio"] = (
+            profit_sources["realized_pnl"] / total_profit
+            if total_profit > 0
+            else 0.0
+        )
+        profit_sources = profit_sources[PNL_SOURCE_COLUMNS]
+    else:
+        profit_sources = _empty_frame(PNL_SOURCE_COLUMNS)
+
+    loss_sources = summary[summary["realized_pnl"] < 0].copy()
+    total_loss = float(loss_sources["realized_pnl"].sum()) if not loss_sources.empty else 0.0
+    if not loss_sources.empty:
+        gross_loss = abs(total_loss)
+        loss_sources["contribution_ratio"] = (
+            loss_sources["realized_pnl"].abs() / gross_loss
+            if gross_loss > 0
+            else 0.0
+        )
+        loss_sources = loss_sources.sort_values(
+            ["realized_pnl", "symbol"], ascending=[True, True]
+        ).reset_index(drop=True)
+        loss_sources = loss_sources[PNL_SOURCE_COLUMNS]
+    else:
+        loss_sources = _empty_frame(PNL_SOURCE_COLUMNS)
+
+    return {
+        "profit_sources": profit_sources,
+        "loss_sources": loss_sources,
+        "total_realized_pnl": float(summary["realized_pnl"].sum()),
+        "total_profit": total_profit,
+        "total_loss": total_loss,
+    }
 
 
 def get_performance_summary(

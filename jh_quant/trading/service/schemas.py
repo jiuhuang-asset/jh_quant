@@ -87,35 +87,67 @@ class SessionStatusResponse(BaseModel):
 class RuntimeSnapshotResponse(BaseModel):
     session_id: str = Field(description="Session ID for the runtime snapshot.")
     generated_at: str = Field(description="Snapshot generation time.")
-    positions: Dict[str, Any] = Field(
-        description="Current positions and runtime state."
-    )
-    oms_state: Optional[Dict[str, Any]] = Field(
-        default=None, description="Full OMS exported state."
-    )
+    portfolio_value: float = Field(description="Current portfolio total value.")
+    cash_balance: float = Field(description="Current available cash balance.")
+    position_value: float = Field(description="Current market value of holdings.")
+    position_count: int = Field(description="Number of current open positions.")
+    daily_pnl: float = Field(description="Current daily PnL.")
+    realized_pnl: float = Field(description="Current cumulative realized PnL.")
+    unrealized_pnl: float = Field(description="Current unrealized PnL.")
+    total_pnl: float = Field(description="Current total PnL.")
 
 
 class PerformanceSnapshotResponse(BaseModel):
     session_id: str = Field(description="Session ID for the performance snapshot.")
     generated_at: str = Field(description="Snapshot generation time.")
     summary: Dict[str, Any] = Field(description="Summary performance metrics.")
-    holding_returns: List[Dict[str, Any]] = Field(
-        default_factory=list, description="Latest holding return rows."
-    )
-    turnover: List[Dict[str, Any]] = Field(
-        default_factory=list, description="Turnover rows grouped by trade date."
+
+
+class PerformanceHistoryResponse(BaseModel):
+    session_id: str = Field(description="Session ID for the historical performance snapshot.")
+    generated_at: str = Field(description="Snapshot generation time.")
+    daily_performance: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Daily portfolio performance history.",
     )
     equity_curve: List[Dict[str, Any]] = Field(
-        default_factory=list, description="Equity curve rows grouped by trade date."
+        default_factory=list,
+        description="Historical equity curve grouped by trade date.",
+    )
+    turnover: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Historical turnover grouped by trade date.",
     )
     trade_activity: List[Dict[str, Any]] = Field(
-        default_factory=list, description="Trade activity rows grouped by trade date."
+        default_factory=list,
+        description="Historical trade activity grouped by trade date.",
     )
-    position_exposure: Dict[str, Any] = Field(
-        default_factory=dict, description="Position exposure analysis."
+
+
+class PnlSourceItem(BaseModel):
+    symbol: str = Field(description="Ticker symbol.")
+    realized_pnl: float = Field(description="Cumulative realized PnL for the symbol.")
+    closed_trade_count: int = Field(description="Number of closing sell trades included.")
+    win_trade_count: int = Field(description="Number of profitable closing trades.")
+    loss_trade_count: int = Field(description="Number of losing closing trades.")
+    contribution_ratio: float = Field(
+        description="Share of total profit or total loss contributed by the symbol."
     )
-    latest_portfolio: Dict[str, Any] = Field(
-        default_factory=dict, description="Latest portfolio snapshot."
+
+
+class PnlSourceHistoryResponse(BaseModel):
+    session_id: str = Field(description="Session ID for the PnL source history snapshot.")
+    generated_at: str = Field(description="Snapshot generation time.")
+    total_realized_pnl: float = Field(description="Total cumulative realized PnL across all symbols.")
+    total_profit: float = Field(description="Sum of positive realized PnL contributions.")
+    total_loss: float = Field(description="Sum of negative realized PnL contributions.")
+    profit_sources: List[PnlSourceItem] = Field(
+        default_factory=list,
+        description="Historical realized profit source distribution grouped by symbol.",
+    )
+    loss_sources: List[PnlSourceItem] = Field(
+        default_factory=list,
+        description="Historical realized loss source distribution grouped by symbol.",
     )
 
 
@@ -223,12 +255,22 @@ class PortfolioOptimizerDefinitionResponse(BaseModel):
 class AnalyticsSnapshotResponse(BaseModel):
     session_id: str = Field(description="Session ID for the analytics snapshot.")
     generated_at: str = Field(description="Snapshot generation time.")
-    status: SessionStatusResponse = Field(description="Service status snapshot.")
-    runtime: RuntimeSnapshotResponse = Field(description="Runtime snapshot.")
-    performance: PerformanceSnapshotResponse = Field(
-        description="Performance snapshot."
+    latest_portfolio: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Current portfolio composition snapshot.",
     )
-    config: SessionConfigResponse = Field(description="Config snapshot.")
+    position_exposure: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Current position exposure analysis.",
+    )
+    latest_trade_activity: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Latest historical trade activity aggregate.",
+    )
+    latest_turnover: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Latest historical turnover aggregate.",
+    )
 
 
 class SessionActionResponse(BaseModel):
@@ -721,7 +763,10 @@ class PositionDetail(BaseModel):
     symbol: str = Field(description="Ticker symbol.")
     quantity: int = Field(description="Number of shares held.")
     avg_cost: float = Field(description="Average cost per share.")
+    current_price: float = Field(description="Current marked price per share.")
     market_value: float = Field(description="Current market value.")
+    pnl: float = Field(description="Current unrealized PnL.")
+    pnl_pct: float = Field(description="Current unrealized PnL ratio.")
     entry_time: Optional[str] = Field(
         default=None, description="When this position was first established."
     )
@@ -731,8 +776,13 @@ class PositionsResponse(BaseModel):
     """Current positions for a session."""
 
     session_id: str = Field(description="Session ID.")
+    generated_at: str = Field(description="Snapshot generation time.")
     portfolio_value: float = Field(description="Total portfolio value.")
     cash_balance: float = Field(description="Available cash balance.")
+    position_value: float = Field(description="Total market value of holdings.")
+    realized_pnl: float = Field(description="Current cumulative realized PnL.")
+    unrealized_pnl: float = Field(description="Current unrealized PnL.")
+    total_pnl: float = Field(description="Current total PnL.")
     num_positions: int = Field(description="Number of current positions.")
     positions: List[PositionDetail] = Field(
         default_factory=list, description="Current holding details."

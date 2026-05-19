@@ -39,6 +39,8 @@ from .schemas import (
     CloseAllPositionsResponse,
     DataListResponse,
     HealthResponse,
+    PnlSourceHistoryResponse,
+    PerformanceHistoryResponse,
     PerformanceSnapshotResponse,
     PortfolioAnalysisResponse,
     PortfolioConfigSnapshotResponse,
@@ -270,6 +272,22 @@ def _register_session_routes(app, manager: MultiSessionService):
     )
     def session_performance(session_id: str):
         return manager.get_session(session_id).get_performance_snapshot()
+
+    @app.get(
+        "/sessions/{session_id}/performance/hist",
+        response_model=PerformanceHistoryResponse,
+        operation_id="get_session_performance_history",
+    )
+    def session_performance_history(session_id: str):
+        return manager.get_session(session_id).get_performance_history()
+
+    @app.get(
+        "/sessions/{session_id}/pnl-sources/hist",
+        response_model=PnlSourceHistoryResponse,
+        operation_id="get_session_pnl_source_history",
+    )
+    def session_pnl_source_history(session_id: str):
+        return manager.get_session(session_id).get_pnl_source_history()
 
     @app.get(
         "/sessions/{session_id}/analytics",
@@ -530,7 +548,7 @@ def _register_session_routes(app, manager: MultiSessionService):
         )
 
     @app.get(
-        "/sessions/{session_id}/trades",
+        "/sessions/{session_id}/trades/hist",
         response_model=TradeHistoryResponse,
         operation_id="get_trade_history",
     )
@@ -538,11 +556,10 @@ def _register_session_routes(app, manager: MultiSessionService):
         session_id: str,
         symbol: Optional[str] = None,
         limit: Optional[int] = None,
-    ):   
-        trades =  manager.get_session(session_id).get_trade_history(
+    ):
+        trades = manager.get_session(session_id).get_trade_history(
             symbol=symbol, limit=limit
         )
-        # print(trades)
         return trades
 
     @app.get(
@@ -554,7 +571,7 @@ def _register_session_routes(app, manager: MultiSessionService):
         return manager.get_session(session_id).get_positions()
 
     @app.get(
-        "/sessions/{session_id}/positions/history",
+        "/sessions/{session_id}/positions/hist",
         response_model=PositionHistoryResponse,
         operation_id="get_position_history",
     )
