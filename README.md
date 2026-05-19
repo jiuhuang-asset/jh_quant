@@ -1,23 +1,11 @@
-# JH_QUANT
+﻿# JH_QUANT
 
 ![banner](assets/banner_sm.png)
-量化交易研究与执行平台。支持：**免费数据获取**、**回测**、**因子计算**、 **模拟交易**、**组合优化**、**可视化仪表盘**
+
+量化交易研究与执行平台。支持：**免费数据获取**、**回测**、**因子计算**、**模拟交易**、**组合优化**、**可视化仪表盘**。
 
 - **官网**: https://jiuhuang.xyz
 - **文档**: https://doc.jiuhuang.xyz
-
-![JH_QUANT Dashboard Demo](assets/dash_video.gif)
-
-
-## 模块
-
-| 模块                           | 说明                                                 | 文档                              |
-| ------------------------------ | ---------------------------------------------------- | --------------------------------- |
-| [data](docs/data.md)           | 多种数据获取，兼容akshare和tushare数据类型及调用风格 | [README](docs/data/index.md)      |
-| [trading](docs/trading.md)     | 交易运行层，模拟(实时)交易与会话编排                 | [README](docs/trading/index.md)   |
-| [backtest](docs/backtest.md)   | 回测引擎，快速策略验证，多种内置策略                 | [README](docs/backtest/index.md)  |
-| [factors](docs/factors.md)     | 因子计算，内置多种因子模型                           | [README](docs/factors/index.md)   |
-| [dashboard](docs/dashboard.md) | PyWebView可视化仪表盘                                | [README](docs/dashboard/index.md) |
 
 ## 快速开始
 
@@ -35,15 +23,47 @@ from jh_quant.data import JHData, DataTypes
 
 jh = JHData(api_key=os.getenv("JIUHUANG_API_KEY"))
 stock_price = jh.get_data(
-    DataTypes.AK_STOCK_ZH_A_HIST_QFQ,  #akshare日线前复权数据
+    DataTypes.AK_STOCK_ZH_A_HIST_QFQ,  # akshare A 股日线前复权
     symbol="000001",
     start="2025-01-01",
     end="2025-12-10",
 )
 ```
 
-**重要**
-> `jh_quant` 仅做了对 [akshare](https://github.com/akfamily/akshare) 数据类型的兼容，数据真实来源为：[JiuHuang API](https://jiuhuang.xyz)
+#### 数据兼容
+兼容 `akshare` 调用风格：
+
+```python
+from jh_quant.data.data_providers import akshare as ak
+
+df = ak.stock_zh_a_hist(
+    symbol="000001",
+    period="daily",
+    start_date="20240101",
+    end_date="20241231",
+    adjust="qfq",
+)
+```
+
+兼容 `tushare` 调用风格：
+
+```python
+from jh_quant.data.data_providers import tushare as ts
+
+df = ts.daily(
+    ts_code="000001.SZ",
+    start_date="20240101",
+    end_date="20241231",
+)
+
+pro_df = ts.pro.pro_bar(
+    ts_code="000001.SZ",
+    start_date="20240101",
+    end_date="20241231",
+    asset="E",
+    freq="D",
+)
+```
 
 ### 策略回测
 
@@ -56,6 +76,7 @@ from jh_quant.backtest import (
     StrategyBuyAndHold,
 )
 from jh_quant.dashboard import display_backtesting
+
 # 1. 准备数据
 jh = JHData()
 stock_price = jh.get_data(
@@ -80,40 +101,55 @@ trading_hist, backtest_perf = backtest(
     stock_info=stock_info,
 )
 
-display_backtesting( trading_hist, backtest_perf)
+display_backtesting(trading_hist, backtest_perf)
 ```
 
 **回测仪表盘预览**
 
 | 策略对比 | 策略分布 |
 | -------- | -------- |
-| ![策略对比](./assets/strat_compare_resized.png) | ![策略分布](./assets/strat_dist_resized.png) |
+| ![策略对比](assets/strat_compare_resized.png) | ![策略分布](assets/strat_dist_resized.png) |
 
 | 交易历史 | 策略排名 |
 | -------- | -------- |
-| ![交易历史](./assets/trading_history_resized.png) | ![策略排名](./assets/strat_ranking_resized.png) |
+| ![交易历史](assets/trading_history_resized.png) | ![策略排名](assets/strat_ranking_resized.png) |
 
 ### 实时模拟交易
 
-**jh_quant**支持同时开启多个模拟交易会话，每个会话对应一个模拟账户, 下面是示例运行:
+**jh_quant** 支持同时开启多个模拟交易会话，每个会话对应一个模拟账户。下面是示例运行方式：
 
 ```bash
 python run_paper.py
 ```
-*run_paper.py*的完整代码参考本repo根目录的[run_paper.py](./run_paper.py)
 
-在回填模式下（可以通过`enable_backfill=False`关闭），会完成历史交易的重放(第一次运行通常需要10分钟左右的时间来完成对历史交易的重放)，并在本地开启服务(默认8000端口)
+`run_paper.py` 的完整代码见仓库根目录的 [run_paper.py](run_paper.py)。
 
-**开启控制台仪表盘**
-开启本地服务之后, 可以通过如下代码开启控制台仪表盘
+在回填模式下（可通过 `enable_backfill=False` 关闭），系统会先完成历史交易回放，并在本地启动服务，默认端口为 `8000`。
+
+**打开控制台仪表盘**
+
+本地服务启动后，可以通过如下代码打开控制台仪表盘：
+
 ```python
 from jh_quant.dashboard import display_trading
 
+# 如果你修改了 run_paper.py 中的端口，需要显式传入 port 参数
 display_trading()
 ```
-> 注意：如果你修改了*run_paper.py*中的端口，请同时修改display_trading(port=新的端口)中的端口号
 
+![JH_QUANT Dashboard Demo](assets/dash_video.gif)
+
+
+## 模块说明
+
+| 模块 | 说明 | 文档 |
+| ---- | ---- | ---- |
+| [data](docs/data/index.md) | 多种数据获取，兼容 `akshare` 和 `tushare` 的数据类型与调用风格 | [README](docs/data/index.md) |
+| [trading](docs/trading/index.md) | 交易运行层，支持模拟交易、交易会话编排和组合执行 | [README](docs/trading/index.md) |
+| [backtest](docs/backtest/index.md) | 回测引擎，支持快速策略验证和多种内置策略 | [README](docs/backtest/index.md) |
+| [factors](docs/factors/index.md) | 因子计算与暴露分析，内置多种因子模型 | [README](docs/factors/index.md) |
+| `dashboard` | PyWebView 可视化仪表盘 | - |
 
 ## License
 
-This project is licensed under the AGPL-3.0 License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the AGPL-3.0 License. See [LICENSE](LICENSE) for details.

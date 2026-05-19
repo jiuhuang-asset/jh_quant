@@ -28,3 +28,6 @@ specs
 *.log
 
 pypitoken
+
+
+tmp_jh_home
