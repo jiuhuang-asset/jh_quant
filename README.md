@@ -6,9 +6,8 @@
 - **官网**: https://jiuhuang.xyz
 - **文档**: https://doc.jiuhuang.xyz
 
-[![JH_QUANT Dashboard Demo](assets/screenshots/gateway_details_overview.png)](assets/dash_video.webm)
+![JH_QUANT Dashboard Demo](assets/dash_video.gif)
 
-> 点击上方预览图查看演示视频，或直接打开 [dash_video.webm](assets/dash_video.webm)
 
 ## 模块
 
