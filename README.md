@@ -6,6 +6,10 @@
 - **官网**: https://jiuhuang.xyz
 - **文档**: https://doc.jiuhuang.xyz
 
+[![JH_QUANT Dashboard Demo](assets/screenshots/gateway_details_overview.png)](assets/dash_video.webm)
+
+> 点击上方预览图查看演示视频，或直接打开 [dash_video.webm](assets/dash_video.webm)
+
 ## 模块
 
 | 模块                           | 说明                                                 | 文档                              |
@@ -99,7 +103,7 @@ python run_paper.py
 ```
 *run_paper.py*的完整代码参考本repo根目录的[run_paper.py](./run_paper.py)
 
-在回填模式下（可以通过`enable_backfill=False`关闭），会完成历史交易模拟，并在本地开启服务
+在回填模式下（可以通过`enable_backfill=False`关闭），会完成历史交易的重放(第一次运行通常需要10分钟左右的时间来完成对历史交易的重放)，并在本地开启服务(默认8000端口)
 
 **开启控制台仪表盘**
 开启本地服务之后, 可以通过如下代码开启控制台仪表盘
@@ -108,8 +112,8 @@ from jh_quant.dashboard import display_trading
 
 display_trading()
 ```
+> 注意：如果你修改了*run_paper.py*中的端口，请同时修改display_trading(port=新的端口)中的端口号
 
-![dashboard](assets/screenshots/gateway_sessions_sm.png)
 
 ## License
 
