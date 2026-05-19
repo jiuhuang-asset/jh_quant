@@ -148,4 +148,4 @@ def display_trading(
     html_path = os.path.join(current_dir, "front_src", "trading-dash", "index.html")
 
     webview.create_window(title, html_path, js_api=api, width=1540, height=980)
-    webview.start()
+    webview.start(http_server=True)
