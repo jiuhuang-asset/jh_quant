@@ -31,6 +31,11 @@ dependencies = [
     "riskfolio-lib>=7.0.1",
 ]
 
+[project.urls]
+Homepage = "https://github.com/jiuhuang-asset/jh_quant"
+Documentation = "https://doc.jiuhuang.xyz"
+Repository = "https://github.com/jiuhuang-asset/jh_quant"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
