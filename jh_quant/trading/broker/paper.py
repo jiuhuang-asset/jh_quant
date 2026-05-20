@@ -14,11 +14,11 @@ from ..models import (
     StockHoldRecord,
     Trade,
 )
-from .base import OMS
+from .base import Broker
 
 
-class MockOMS(OMS):
-    """模拟 OMS，支持交易记录。"""
+class PaperBroker(Broker):
+    """Paper broker for simulation and backfill workflows."""
 
     def __init__(
         self,
@@ -28,7 +28,7 @@ class MockOMS(OMS):
         restore_from: Optional[str] = None,
         state_dict: Optional[Dict[str, Any]] = None,
     ):
-        self.session_id = session_id or f"oms_{uuid.uuid4().hex}"
+        self.session_id = session_id or f"paper_broker_{uuid.uuid4().hex}"
         self.initial_capital = initial_capital
         self.total = initial_capital
         self.available_balance = initial_capital
@@ -156,10 +156,12 @@ class MockOMS(OMS):
             existing_hold.avg_cost = total_value / total_quantity
             existing_hold.volume = total_quantity
             existing_hold.market_value = existing_hold.avg_cost * existing_hold.volume
+            existing_hold.sellable_volume = int(existing_hold.sellable_volume or 0)
         else:
             hold = StockHoldRecord(
                 symbol=order.symbol,
                 volume=order.volume,
+                sellable_volume=0,
                 avg_cost=order.price,
                 market_value=order.price * order.volume,
                 entry_time=self._now(),
@@ -302,7 +304,7 @@ class MockOMS(OMS):
     def executable_holds(self) -> List[StockHoldRecord]:
         today = self._now().date()
         return [
-            hold
+            hold.model_copy(update={"sellable_volume": int(hold.volume)})
             for hold in self.holds
             if hold.volume > 0 and hold.entry_time.date() < today
         ]

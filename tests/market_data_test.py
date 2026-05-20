@@ -33,6 +33,8 @@ def test_fetch_today_spot_checks_freshness_after_query():
                 {
                     "symbol": "000001",
                     "latest": 10.5,
+                    "volume": 1000,
+                    "amount": 10500,
                     "dt": "2026-05-06 14:55:00",
                 }
             ]
@@ -47,7 +49,11 @@ def test_fetch_today_spot_checks_freshness_after_query():
 
     data_type, kwargs = fake_jhd.calls[0]
     assert data_type == DataTypes.AK_STOCK_ZH_A_SPOT
-    assert kwargs == {"symbol": "000001", "bypass_cache": True}
+    assert kwargs == {
+        "symbol": "000001",
+        "start": "2026-05-06 14:50:00",
+        "bypass_cache": True,
+    }
     assert result.loc[0, "symbol"] == "000001"
     assert result.loc[0, "close"] == 10.5
     assert result.loc[0, "date"] == pd.Timestamp("2026-05-06")

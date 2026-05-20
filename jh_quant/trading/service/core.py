@@ -45,7 +45,7 @@ from ..portfolio import (
     list_portfolio_optimizer_definitions,
     optimize_portfolio_preview,
 )
-from ..oms import MockOMS
+from ..broker import PaperBroker, create_broker
 from ..engine import TradingEngine
 from ..utils import rprint
 from .schemas import (
@@ -127,11 +127,11 @@ class SessionService:
         self._persisted_session_config_updated_at: Optional[str] = None
         self._suspend_session_config_persistence = True
 
-        oms_session_id = getattr(self.gateway.oms, "session_id", None)
+        broker_session_id = getattr(self.gateway.broker, "session_id", None)
         if self.config.session_id is None:
-            self.config.session_id = oms_session_id or str(uuid.uuid4())
-        elif not oms_session_id:
-            self.gateway.oms.session_id = self.config.session_id
+            self.config.session_id = broker_session_id or str(uuid.uuid4())
+        elif not broker_session_id:
+            self.gateway.broker.session_id = self.config.session_id
 
         self._lock = RLock()
         self._scheduler_stop_event = Event()
@@ -144,7 +144,8 @@ class SessionService:
         self._restore_session_config()
         self._restore_session_state()
         self._initialize_selection_provider(selection_provider)
-        self._restore_oms_state()
+        self._normalize_live_runtime_constraints()
+        self._restore_broker_state()
         if self.strategy_specs:
             self.configure_strategies(self.strategy_specs)
         if config.risk_rule_specs:
@@ -164,11 +165,18 @@ class SessionService:
         if self.config.auto_start:
             self.start_scheduler()
 
-    def _restore_oms_state(self):
+    def _normalize_live_runtime_constraints(self) -> None:
+        if self.config.mode == "live":
+            self.config.enable_backfill = False
+            self.session_config.session = self.config
+
+    def _restore_broker_state(self):
+        if self.config.mode != "paper":
+            return
         try:
             saved = self.persistence.load_latest_session_state(self.config.session_id)
             if saved:
-                self.gateway.oms.import_state(saved)
+                self.gateway.broker.import_state(saved)
         except Exception:
             pass
 
@@ -551,7 +559,7 @@ class SessionService:
 
         executable_map = {
             hold.symbol: int(hold.volume)
-            for hold in self.gateway.oms.executable_holds
+            for hold in self.gateway.broker.executable_holds
             if int(hold.volume) > 0
         }
         executable_rows: list[dict[str, int]] = []
@@ -809,8 +817,8 @@ class SessionService:
         if extra:
             payload["session"]["extra"] = extra
         self.persistence.save_runtime_state(payload)
-        if hasattr(self.gateway.oms, "export_state"):
-            self.persistence.save_session_state(self.gateway.oms.export_state())
+        if self.config.mode == "paper" and hasattr(self.gateway.broker, "export_state"):
+            self.persistence.save_session_state(self.gateway.broker.export_state())
 
     def _persist_session_config(self, *, source: str = "runtime_update") -> None:
         if self._suspend_session_config_persistence:
@@ -843,6 +851,7 @@ class SessionService:
             session_id=self.config.session_id,
             config_bundle=self.session_config.model_dump(mode="json"),
             session=self.config.model_dump(),
+            broker_spec=self.session_config.broker_spec,
             selection_spec=(
                 self.selection_specs.model_dump()
                 if self.selection_specs is not None
@@ -1077,7 +1086,7 @@ class SessionService:
         if mode == "every_cycle":
             return True, "rebalance policy is every_cycle"
         if mode == "initial_only":
-            has_positions = bool(self.gateway.oms.get_positions().holds)
+            has_positions = bool(self.gateway.broker.get_positions().holds)
             return (not has_positions), (
                 "initial allocation required"
                 if not has_positions
@@ -1137,11 +1146,11 @@ class SessionService:
 
             target_symbols = list(weights["symbol"].astype(str))
             current_symbols = [
-                hold.symbol for hold in self.gateway.oms.get_positions().holds
+                hold.symbol for hold in self.gateway.broker.get_positions().holds
             ]
             price_symbols = list(dict.fromkeys(target_symbols + current_symbols))
             latest_prices = self.gateway.get_latest_prices(price_symbols)
-            positions_snapshot = self.gateway.oms.get_positions().model_dump()
+            positions_snapshot = self.gateway.broker.get_positions().model_dump()
             plan = build_rebalance_plan(
                 target_weights=weights,
                 positions=positions_snapshot,
@@ -1355,7 +1364,7 @@ class SessionService:
             "projected_buy_cost": 0.0,
             "projected_sell_value": 0.0,
             "projected_cash_after": float(
-                self.gateway.oms.get_positions().available_balance
+                self.gateway.broker.get_positions().available_balance
             ),
             "drift": {"total_abs_drift": 0.0, "max_abs_drift": 0.0, "rows": []},
             "executed_buy_count": 0,
@@ -1375,11 +1384,12 @@ class SessionService:
         ).model_dump()
 
     def _build_current_position_rows(self, positions=None) -> List[Dict[str, Any]]:
-        positions = positions or self.gateway.oms.get_positions()
+        positions = positions or self.gateway.broker.get_positions()
         holds = getattr(positions, "holds", []) or []
         items: list[dict[str, Any]] = []
         for hold in holds:
             quantity = int(getattr(hold, "volume", 0))
+            sellable_volume = getattr(hold, "sellable_volume", None)
             avg_cost = float(getattr(hold, "avg_cost", 0.0))
             market_value = float(getattr(hold, "market_value", 0.0))
             cost_basis = avg_cost * quantity
@@ -1391,6 +1401,9 @@ class SessionService:
                 {
                     "symbol": hold.symbol,
                     "quantity": quantity,
+                    "sellable_volume": int(sellable_volume)
+                    if sellable_volume is not None
+                    else quantity,
                     "avg_cost": avg_cost,
                     "current_price": current_price,
                     "market_value": market_value,
@@ -1407,7 +1420,7 @@ class SessionService:
         generated_at: Optional[str] = None,
         positions=None,
     ) -> Dict[str, Any]:
-        positions = positions or self.gateway.oms.get_positions()
+        positions = positions or self.gateway.broker.get_positions()
         generated_at = generated_at or datetime.now().isoformat()
         position_rows = self._build_current_position_rows(positions)
         position_value = float(sum(item["market_value"] for item in position_rows))
@@ -1415,7 +1428,7 @@ class SessionService:
         portfolio_value = float(
             getattr(positions, "total", cash_balance + position_value)
         )
-        realized_pnl = float(getattr(self.gateway.oms, "total_profit", 0.0) or 0.0)
+        realized_pnl = float(getattr(self.gateway.broker, "total_profit", 0.0) or 0.0)
         unrealized_pnl = float(sum(item["pnl"] for item in position_rows))
         return {
             "session_id": self.config.session_id,
@@ -1512,7 +1525,7 @@ class SessionService:
         runtime_bundle = runtime_bundle or self._build_current_runtime_bundle()
         initial_capital = float(
             summary.get("initial_capital")
-            or getattr(self.gateway.oms, "initial_capital", 0.0)
+            or getattr(self.gateway.broker, "initial_capital", 0.0)
             or 0.0
         )
         portfolio_value = float(runtime_bundle["portfolio_value"])
@@ -1714,10 +1727,10 @@ class SessionService:
                 executed_buy_count = len(executed_buys)
                 executed_sell_count = len(executed_sells)
 
-            if hasattr(self.gateway.oms, "compute_daily_metrics"):
+            if hasattr(self.gateway.broker, "compute_daily_metrics"):
                 cycle_dt = datetime.strptime(cycle_date, "%Y-%m-%d")
                 latest_price_symbols = list(top_selections)
-                current_holds = getattr(self.gateway.oms.get_positions(), "holds", [])
+                current_holds = getattr(self.gateway.broker.get_positions(), "holds", [])
                 latest_price_symbols.extend(
                     hold.symbol
                     for hold in current_holds
@@ -1732,7 +1745,7 @@ class SessionService:
                 close_prices = (
                     latest_prices.to_dict() if not latest_prices.empty else None
                 )
-                perf, snapshots = self.gateway.oms.compute_daily_metrics(
+                perf, snapshots = self.gateway.broker.compute_daily_metrics(
                     trade_date=cycle_dt,
                     close_prices=close_prices,
                 )
@@ -1838,7 +1851,7 @@ class SessionService:
 
                 if last_dt >= config_from:
                     # 从最后持久化日期的下一天开始，避免覆盖已有数据。
-                    # OMS 已通过 _restore_oms_state() 恢复到上次运行结束时的状态，
+                    # PaperBroker 已通过 _restore_broker_state() 恢复到上次运行结束时的状态，
                     # 因此无需重置，直接继续回填缺失的日期即可。
                     backfill_start = last_dt + timedelta(days=1)
                     self._log_execution_branch(
@@ -1851,21 +1864,21 @@ class SessionService:
         except Exception as exc:
             self._log_execution_branch(
                 "backfill",
-                f"查询 daily_performances 异常（将尝试从 OMS 交易历史恢复）: {exc}",
+                f"查询 daily_performances 异常（将尝试从 broker 交易历史恢复）: {exc}",
             )
         else:
             if existing is None or existing.empty:
                 self._log_execution_branch(
                     "backfill",
-                    "daily_performances 无历史记录，尝试从 OMS 交易历史恢复",
+                    "daily_performances 无历史记录，尝试从 broker 交易历史恢复",
                 )
 
-        # 如果 daily_performances 无记录，尝试从 OMS 已恢复的历史交易中推断最新日期
-        oms = getattr(self.gateway, "oms", None)
-        oms_trades = getattr(oms, "trades", None) if oms is not None else None
-        if oms_trades:
-            oms_last_trade_dt: Optional[datetime] = None
-            for trade in oms_trades:
+        # 如果 daily_performances 无记录，尝试从 PaperBroker 已恢复的历史交易中推断最新日期
+        broker = getattr(self.gateway, "broker", None)
+        broker_trades = getattr(broker, "trades", None) if broker is not None else None
+        if broker_trades:
+            broker_last_trade_dt: Optional[datetime] = None
+            for trade in broker_trades:
                 td = getattr(trade, "trade_date", None)
                 if td is None:
                     continue
@@ -1876,23 +1889,23 @@ class SessionService:
                 else:
                     dt = datetime.strptime(str(td)[:10], "%Y-%m-%d")
                 dt = dt.replace(hour=0, minute=0, second=0, microsecond=0)
-                if oms_last_trade_dt is None or dt > oms_last_trade_dt:
-                    oms_last_trade_dt = dt
-            if oms_last_trade_dt is not None and oms_last_trade_dt >= backfill_start:
-                oms_next = oms_last_trade_dt + timedelta(days=1)
+                if broker_last_trade_dt is None or dt > broker_last_trade_dt:
+                    broker_last_trade_dt = dt
+            if broker_last_trade_dt is not None and broker_last_trade_dt >= backfill_start:
+                broker_next = broker_last_trade_dt + timedelta(days=1)
                 self._log_execution_branch(
                     "backfill",
                     (
-                        f"从 OMS 历史交易恢复，最新交易日期="
-                        f"{oms_last_trade_dt.strftime('%Y-%m-%d')}，"
-                        f"从 {oms_next.strftime('%Y-%m-%d')} 继续回填"
+                        f"从 PaperBroker 历史交易恢复，最新交易日期="
+                        f"{broker_last_trade_dt.strftime('%Y-%m-%d')}，"
+                        f"从 {broker_next.strftime('%Y-%m-%d')} 继续回填"
                     ),
                 )
-                backfill_start = oms_next
+                backfill_start = broker_next
         else:
             self._log_execution_branch(
                 "backfill",
-                "OMS 中也没有历史交易记录，将从头开始回填",
+                "broker 中也没有历史交易记录，将从头开始回填",
             )
 
         md_provider = getattr(self.gateway, "market_data_provider", None)
@@ -1944,7 +1957,7 @@ class SessionService:
 
             try:
                 md_provider.set_backfill_from(current_str)
-                self.gateway.oms.set_simulation_date(current)
+                self.gateway.broker.set_simulation_date(current)
                 last_result = self.run_once(as_of_date=current_str)
 
                 day_count += 1
@@ -1968,7 +1981,7 @@ class SessionService:
                 current += timedelta(days=1)
 
         md_provider.set_backfill_from(None)
-        self.gateway.oms.set_simulation_date(None)
+        self.gateway.broker.set_simulation_date(None)
 
         self._log_execution_branch(
             "backfill",
@@ -2045,7 +2058,7 @@ class SessionService:
 
     def close_all_positions(self, slippage: float = 0.0) -> CloseAllPositionsResponse:
         with self._lock:
-            holdings = self.gateway.oms.executable_holds
+            holdings = self.gateway.broker.executable_holds
             if not holdings:
                 return CloseAllPositionsResponse(
                     status="no_holdings",
@@ -2083,7 +2096,7 @@ class SessionService:
             exec_price = self._apply_slippage(price, "BUY") if slippage > 0 else price
 
             if target_qty is None:
-                positions = self.gateway.oms.get_positions()
+                positions = self.gateway.broker.get_positions()
                 available_balance = positions.available_balance
                 if available_balance <= 0:
                     return SingleSymbolTradeResponse(
@@ -2110,7 +2123,7 @@ class SessionService:
                     volume=target_qty,
                     trade_type="BUY",
                 )
-                trade = self.gateway.oms.signal_buy(order)
+                trade = self.gateway.broker.signal_buy(order)
                 self._persist_trades([trade])
 
                 return SingleSymbolTradeResponse(
@@ -2137,7 +2150,7 @@ class SessionService:
         slippage: float = 0.0,
     ) -> SingleSymbolTradeResponse:
         with self._lock:
-            positions = self.gateway.oms.get_positions()
+            positions = self.gateway.broker.get_positions()
             holdings_map = {h.symbol: h for h in positions.holds}
 
             if symbol not in holdings_map:
@@ -2174,7 +2187,7 @@ class SessionService:
                     volume=sell_qty,
                     trade_type="SELL",
                 )
-                trade = self.gateway.oms.signal_sell(order)
+                trade = self.gateway.broker.signal_sell(order)
                 self._persist_trades([trade])
 
                 pnl = (exec_price - holding.avg_cost) * sell_qty
@@ -2205,7 +2218,7 @@ class SessionService:
 class MultiSessionService:
     """Manages multiple SessionService instances in a single process.
 
-    Each service gets its own MockOMS (isolated by session_id) and scheduler
+    Each service gets its own broker instance (isolated by session_id) and scheduler
     thread, while sharing a common PersistenceCoordinator and
     MarketDataProvider.
 
@@ -2241,6 +2254,21 @@ class MultiSessionService:
 
     # ── service lifecycle ──────────────────────────────────────
 
+    def _build_broker(
+        self,
+        *,
+        config: SessionServiceConfig,
+        session_id: str,
+        initial_capital: float,
+    ):
+        if config.session.mode == "paper":
+            return PaperBroker(session_id=session_id, initial_capital=initial_capital)
+
+        if config.broker_spec is None:
+            raise ValueError("live mode requires an explicit broker_spec")
+
+        return create_broker(config.broker_spec, session_id=session_id)
+
     def create_session(
         self,
         config: SessionServiceConfig,
@@ -2264,9 +2292,13 @@ class MultiSessionService:
                 )
 
             config.session.session_id = session_id
-            oms = MockOMS(session_id=session_id, initial_capital=initial_capital)
+            broker = self._build_broker(
+                config=config,
+                session_id=session_id,
+                initial_capital=initial_capital,
+            )
             gateway = TradingEngine(
-                oms=oms,
+                broker=broker,
                 market_data_provider=self._shared_md_provider,
             )
             service = SessionService(
@@ -2464,7 +2496,7 @@ class MultiSessionService:
         selection_name = getattr(svc.selection_specs, "alias", None) or getattr(
             svc.selection_specs, "name", None
         )
-        initial_capital = float(getattr(svc.gateway.oms, "initial_capital", 0.0))
+        initial_capital = float(getattr(svc.gateway.broker, "initial_capital", 0.0))
 
         report = self._shared_persistence.get_performance_report(session_id)
         equity_curve = report.get("equity_curve")
@@ -2510,14 +2542,14 @@ class MultiSessionService:
     def _build_session_info(
         self, session_id: str, svc: SessionService
     ) -> SessionInfoResponse:
-        positions = svc.gateway.oms.get_positions()
+        positions = svc.gateway.broker.get_positions()
         current_value = float(positions.total) if positions else None
         selection_name = getattr(svc.selection_specs, "alias", None) or getattr(
             svc.selection_specs, "name", None
         )
         portfolio_enabled = bool(getattr(svc.portfolio_spec, "enabled", False))
 
-        # Read from persisted daily_performance — the OMS daily_profit is
+        # Read from persisted daily_performance — the broker daily_profit is
         # reset to zero after every compute_daily_metrics call, so the live
         # attribute is unusable as a public-facing "daily PnL" value.
         daily_pnl = None

@@ -6,11 +6,11 @@ from typing import List
 from ..models import Order, Positions, StockHoldRecord, Trade
 
 
-class OMS(ABC):
-    """Order Management System - core trading interface only.
+class Broker(ABC):
+    """Broker gateway - execution and account query boundary.
 
-    Persistence is handled by the service layer via PersistenceCoordinator,
-    not by OMS itself. Use compute_* methods to get data for persistence.
+    Persistence is handled by upper layers. A broker implementation is
+    responsible for account/position reads and order execution only.
     """
 
     @property

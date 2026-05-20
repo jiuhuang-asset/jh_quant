@@ -8,7 +8,13 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
-from ..config import PortfolioSpec, SelectionSpec, SessionServiceConfig, StrategySpec
+from ..config import (
+    BrokerSpec,
+    PortfolioSpec,
+    SelectionSpec,
+    SessionServiceConfig,
+    StrategySpec,
+)
 
 
 class HealthResponse(BaseModel):
@@ -159,6 +165,9 @@ class SessionConfigResponse(BaseModel):
         description="Unified session configuration bundle."
     )
     session: Dict[str, Any] = Field(description="Session-level configuration.")
+    broker_spec: Optional[BrokerSpec] = Field(
+        default=None, description="Configured broker spec for live sessions."
+    )
     selection_spec: Optional[Dict[str, Any]] = Field(
         default=None, description="Current selection spec."
     )
@@ -762,6 +771,9 @@ class PositionDetail(BaseModel):
 
     symbol: str = Field(description="Ticker symbol.")
     quantity: int = Field(description="Number of shares held.")
+    sellable_volume: int = Field(
+        description="Shares currently sellable according to the broker / T+1 constraints."
+    )
     avg_cost: float = Field(description="Average cost per share.")
     current_price: float = Field(description="Current marked price per share.")
     market_value: float = Field(description="Current market value.")

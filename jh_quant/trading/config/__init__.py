@@ -1,3 +1,4 @@
+from .broker import BrokerSpec
 from .enums import Frequency
 from .risk_rules import (
     ATRTrailingStopRuleConfig,
@@ -81,6 +82,7 @@ from .strategy import (
 
 __all__ = [
     "ATRTrailingStopRuleConfig",
+    "BrokerSpec",
     "Frequency",
     "MaxConsecutiveFallingBarsRuleConfig",
     "MaxConsecutiveRisingBarsRuleConfig",

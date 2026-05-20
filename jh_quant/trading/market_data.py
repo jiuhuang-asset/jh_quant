@@ -5,6 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
+import importlib
 from typing import Dict, List, Optional, Set
 
 import pandas as pd
@@ -191,6 +192,7 @@ class JHMarketDataProvider(MarketDataProvider):
             spot_data = self.jhd.get_data(
                 DataTypes.AK_STOCK_ZH_A_SPOT,
                 symbol=",".join(resolved_symbols),
+                start=fresh_after.strftime("%Y-%m-%d %H:%M:%S"),
                 bypass_cache=True,
             )
         except Exception:
@@ -316,3 +318,167 @@ class JHMarketDataProvider(MarketDataProvider):
             start=start_date,
         ).to_df()
         return set(data["trade_date"].tolist())
+
+
+class XtQuantJHMarketDataProvider(JHMarketDataProvider):
+    """JH historical data + xtquant full-tick spot overlay for today's prices."""
+
+    def __init__(
+        self,
+        jhd: Optional[JHData] = None,
+        frequency: Frequency = Frequency.DAILY,
+        default_symbols: Optional[List[str]] = None,
+        *,
+        xtdata_module=None,
+        auto_connect: bool = True,
+    ):
+        super().__init__(
+            jhd=jhd,
+            frequency=frequency,
+            default_symbols=default_symbols,
+        )
+        self._xtdata = xtdata_module or self._load_xtdata_module()
+        self._xtdata_connected = False
+        if auto_connect:
+            self._ensure_xtdata_connected()
+
+    @staticmethod
+    def _load_xtdata_module():
+        try:
+            return importlib.import_module("xtquant.xtdata")
+        except ModuleNotFoundError as exc:
+            raise RuntimeError(
+                "xtquant.xtdata is not installed or not available in the current "
+                "Python environment. Install xtquant and make sure MiniQMT is "
+                "running before using XtQuantJHMarketDataProvider."
+            ) from exc
+
+    def _ensure_xtdata_connected(self) -> None:
+        if self._xtdata_connected:
+            return
+        connect = getattr(self._xtdata, "connect", None)
+        if callable(connect):
+            connect()
+        self._xtdata_connected = True
+
+    @staticmethod
+    def _normalize_symbol_for_xtquant(symbol: str) -> str:
+        symbol = str(symbol).upper()
+        if "." in symbol:
+            return symbol
+        if symbol.startswith(("5", "6", "9")):
+            return f"{symbol}.SH"
+        if symbol.startswith(("0", "1", "2", "3")):
+            return f"{symbol}.SZ"
+        if symbol.startswith(("4", "8")):
+            return f"{symbol}.BJ"
+        raise ValueError(
+            f"Unable to infer exchange suffix for symbol '{symbol}'. "
+            "Use a full xtquant code such as 600519.SH or 000001.SZ."
+        )
+
+    @staticmethod
+    def _strip_market_suffix(stock_code: str) -> str:
+        return str(stock_code).upper().split(".", 1)[0]
+
+    @staticmethod
+    def _parse_xtquant_timestamp(raw: dict) -> pd.Timestamp:
+        if raw.get("time") is not None:
+            return pd.to_datetime(raw["time"], unit="ms", errors="coerce")
+        if raw.get("stime"):
+            return pd.to_datetime(
+                raw["stime"], format="%Y%m%d%H%M%S.%f", errors="coerce"
+            )
+        if raw.get("timetag"):
+            return pd.to_datetime(raw["timetag"], errors="coerce")
+        return pd.NaT
+
+    def _fetch_today_spot_df(self, resolved_symbols: List[str]) -> pd.DataFrame:
+        fresh_after = self._get_today_spot_fresh_after()
+        try:
+            self._ensure_xtdata_connected()
+            xt_symbols = [
+                self._normalize_symbol_for_xtquant(symbol)
+                for symbol in resolved_symbols
+            ]
+            tick_map = self._xtdata.get_full_tick(xt_symbols) or {}
+        except Exception:
+            return pd.DataFrame()
+
+        rows = []
+        for xt_symbol, raw in tick_map.items():
+            if not isinstance(raw, dict):
+                continue
+            dt = self._parse_xtquant_timestamp(raw)
+            if pd.isna(dt):
+                continue
+            if getattr(dt, "tzinfo", None) is not None:
+                dt = dt.tz_localize(None)
+
+            last_price = raw.get("lastPrice")
+            if last_price in (None, 0):
+                continue
+
+            last_close = raw.get("lastClose")
+            high = raw.get("high")
+            low = raw.get("low")
+            chg = None
+            pct_chg = None
+            amplitude = None
+            if last_close not in (None, 0):
+                chg = float(last_price) - float(last_close)
+                pct_chg = chg / float(last_close) * 100
+                if high is not None and low is not None:
+                    amplitude = (float(high) - float(low)) / float(last_close) * 100
+
+            rows.append(
+                {
+                    "symbol": self._strip_market_suffix(xt_symbol),
+                    "dt": dt,
+                    "date": dt.normalize(),
+                    "open": raw.get("open"),
+                    "close": float(last_price),
+                    "high": high,
+                    "low": low,
+                    # get_full_tick volume for QMT行情已是手, so do not divide by 100.
+                    "volume": int(raw.get("volume", 0) or 0),
+                    "amount": float(raw.get("amount", 0.0) or 0.0),
+                    "amplitude": amplitude,
+                    "pct_chg": pct_chg,
+                    "chg": chg,
+                    "turnover_rate": pd.NA,
+                    "price": float(last_price),
+                }
+            )
+
+        if not rows:
+            return pd.DataFrame()
+
+        spot_df = pd.DataFrame(rows)
+        spot_df = spot_df.dropna(subset=["symbol", "dt"])
+        spot_df = spot_df[spot_df["dt"] >= fresh_after]
+        if spot_df.empty:
+            return pd.DataFrame()
+
+        spot_df = spot_df.sort_values(["symbol", "dt"]).drop_duplicates(
+            subset=["symbol"], keep="last"
+        )
+        hist_columns = [
+            "date",
+            "symbol",
+            "open",
+            "close",
+            "high",
+            "low",
+            "volume",
+            "amount",
+            "amplitude",
+            "pct_chg",
+            "chg",
+            "turnover_rate",
+            "price",
+        ]
+        for column in hist_columns:
+            if column not in spot_df.columns:
+                spot_df[column] = pd.NA
+        return spot_df[hist_columns].copy()

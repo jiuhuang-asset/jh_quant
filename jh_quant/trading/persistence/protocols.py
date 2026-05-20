@@ -55,7 +55,7 @@ class PositionPersistence(Protocol):
 
 @runtime_checkable
 class SessionStatePersistence(Protocol):
-    """Protocol for OMS session state persistence."""
+    """Protocol for broker session state persistence."""
 
     def save_session_state(self, state: dict) -> None:
         """Save a session state snapshot."""

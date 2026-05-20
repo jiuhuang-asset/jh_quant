@@ -1,5 +1,5 @@
 """
-PersistenceCoordinator - bridges OMS runtime data to persistence layer.
+PersistenceCoordinator - bridges broker/session runtime data to persistence layer.
 
 Acts as a facade implementing all five persistence protocols,
 delegating to an underlying OrderRecorder (or doing nothing if None).
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
 class PersistenceCoordinator:
     """
-    Coordinates persistence of OMS and service runtime data.
+    Coordinates persistence of broker and service runtime data.
 
     Implements all five persistence protocols, delegating to an
     underlying OrderRecorder. If no recorder is configured, all

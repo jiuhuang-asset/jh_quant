@@ -3,6 +3,7 @@ from .config import (
     PORTFOLIO_OPTIMIZER_REGISTRY,
     RISK_RULE_REGISTRY,
     RiskRuleSpec,
+    BrokerSpec,
     SELECTION_PROVIDER_CONFIG_MODELS,
     SELECTION_PROVIDER_REGISTRY,
     SELECTION_PROVIDER_RUNTIME_DEPENDENCIES,
@@ -55,7 +56,11 @@ from .config import (
     validate_selection_params,
     validate_strategy_params,
 )
-from .market_data import JHMarketDataProvider, MarketDataProvider
+from .market_data import (
+    JHMarketDataProvider,
+    MarketDataProvider,
+    XtQuantJHMarketDataProvider,
+)
 from .models import (
     DailyPerformance,
     Order,
@@ -65,7 +70,7 @@ from .models import (
     StockHoldRecord,
     Trade,
 )
-from .oms import MockOMS, OMS, XtQuantOMS
+from .broker import Broker, PaperBroker, XtQuantBroker
 from .portfolio import (
     RiskfolioPortfolioOptimizer,
     build_current_portfolio_snapshot,
@@ -157,13 +162,14 @@ __all__ = [
     "HealthResponse",
     "JHMarketDataProvider",
     "MarketDataProvider",
+    "XtQuantJHMarketDataProvider",
     "MeanReversionStrategyConfig",
     "MomentumStrategyConfig",
     "MovingAverageCrossoverStrategyConfig",
-    "MockOMS",
+    "Broker",
+    "BrokerSpec",
     "MultiSessionService",
     "OHLCVRecord",
-    "OMS",
     "Order",
     "OrderRecorder",
     "PORTFOLIO_OPTIMIZER_REGISTRY",
@@ -229,7 +235,7 @@ __all__ = [
     "SessionStatusResponse",
     "SessionStatePersistence",
     "TradingEngine",
-    "XtQuantOMS",
+    "PaperBroker",
     "SessionService",
     "SingleSymbolTradeRequest",
     "SingleSymbolTradeResponse",
@@ -244,6 +250,7 @@ __all__ = [
     "TradingCycleResult",
     "TradingCycleResultResponse",
     "TurtleStrategyConfig",
+    "XtQuantBroker",
     "VolumeDivergenceStrategyConfig",
     "VolumeTrendStrategyConfig",
     "build_current_portfolio_snapshot",

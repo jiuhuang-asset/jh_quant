@@ -18,7 +18,7 @@ import pandas as pd
 
 from .market_data import Frequency, MarketDataProvider
 from .models import Order, Trade
-from .oms import OMS
+from .broker import Broker
 from .position_sizer import ATRPositionSizer, PositionSizer
 from .utils import rprint
 from .config import Frequency
@@ -35,13 +35,13 @@ class TradingEngine:
     """
     通用信号网关：负责聚合多策略信号，并执行交易。
 
-    数据通过 MarketDataProvider 获取，交易状态由OMS管理。
+    数据通过 MarketDataProvider 获取，交易状态由 Broker 管理。
     头寸计算通过 PositionSizer 插件化。
     """
 
     def __init__(
         self,
-        oms: OMS,
+        broker: Broker,
         market_data_provider: MarketDataProvider = None,
         position_sizer: PositionSizer = None,
         strict_mode: bool = True,
@@ -51,15 +51,15 @@ class TradingEngine:
         初始化信号网关
 
         Args:
-            oms: 订单管理系统实例，必须提供
+            broker: Broker 实例，必须提供
             market_data_provider: 市场数据提供者（用于获取K线数据）
             position_sizer: 头寸计算器（默认使用 ATR 方式）
             risk_rules: 风险规则列表（StopLoss、TrailingStop 等），用于实盘/模拟盘风控
         """
-        if oms is None:
-            raise ValueError("TradingEngine requires an OMS instance")
+        if broker is None:
+            raise ValueError("TradingEngine requires a broker instance")
 
-        self.oms = oms
+        self.broker = broker
         self.market_data_provider = market_data_provider
         self.position_sizer = position_sizer or ATRPositionSizer()
         self.strict_mode = strict_mode
@@ -127,7 +127,7 @@ class TradingEngine:
             raise ValueError("MarketDataProvider not configured")
 
         if symbols is None:
-            positions = self.oms.get_positions()
+            positions = self.broker.get_positions()
             position_symbols = [h.symbol for h in positions.holds]
             symbols = position_symbols or None
 
@@ -435,7 +435,7 @@ class TradingEngine:
             pd.Series {symbol: price}
         """
         if symbols is None:
-            positions = self.oms.get_positions()
+            positions = self.broker.get_positions()
             symbols = [h.symbol for h in positions.holds]
 
         if not symbols:
@@ -461,7 +461,7 @@ class TradingEngine:
             price_df: 价格数据
             latest_prices: 最新价格
         """
-        positions = self.oms.get_positions()
+        positions = self.broker.get_positions()
         total_equity = positions.total
         available_balance = positions.available_balance
 
@@ -496,7 +496,7 @@ class TradingEngine:
         Returns:
             包含 symbol 和 target_qty 的 DataFrame
         """
-        positions = self.oms.get_positions()
+        positions = self.broker.get_positions()
         rprint(
             label="Info:",
             content=f"总权益: {positions.total:.2f}, 可用资金: {positions.available_balance:.2f}",
@@ -530,7 +530,7 @@ class TradingEngine:
         )
         final_list["reason"] = "strategy"
 
-        current_hold_symbols = {h.symbol for h in self.oms.get_positions().holds}
+        current_hold_symbols = {h.symbol for h in self.broker.get_positions().holds}
         if current_hold_symbols:
             final_list = final_list[~final_list["symbol"].isin(current_hold_symbols)]
 
@@ -563,17 +563,17 @@ class TradingEngine:
         """
         获取卖出候选持仓
         """
-        positions = self.oms.get_positions()
+        positions = self.broker.get_positions()
         rprint(
             label="Info:",
             content=f"总权益: {positions.total:.2f}, 持仓数: {len(positions.holds)}",
         )
 
-        if not self.oms.executable_holds:
+        if not self.broker.executable_holds:
             rprint(label="Info:", content="没有[可卖]持仓，无法执行卖出")
             return pd.DataFrame()
 
-        hold_symbols = [h.symbol for h in self.oms.executable_holds]
+        hold_symbols = [h.symbol for h in self.broker.executable_holds]
 
         if price is None:
             price = self.get_price_data(
@@ -596,7 +596,7 @@ class TradingEngine:
 
         sell_signals = self.aggregate_sell_signals(price=price, frequency=frequency)
 
-        holdings_map = {h.symbol: h for h in self.oms.executable_holds}
+        holdings_map = {h.symbol: h for h in self.broker.executable_holds}
 
         strategy_sell_symbols: set = set()
         sell_candidate_rows: list[dict] = []
@@ -671,7 +671,7 @@ class TradingEngine:
                     volume=target_qty,
                     trade_type="BUY",
                 )
-                trade = self.oms.signal_buy(order)
+                trade = self.broker.signal_buy(order)
                 executed_trades.append(trade)
             except Exception as e:
                 rprint(label="Error:", content=f"买入 {symbol} 失败: {e}")
@@ -693,7 +693,7 @@ class TradingEngine:
         symbols = orders["symbol"].tolist() if not orders.empty else []
         latest_prices = self.get_latest_prices(symbols)
 
-        executable_holdings_map = {h.symbol: h for h in self.oms.executable_holds}
+        executable_holdings_map = {h.symbol: h for h in self.broker.executable_holds}
 
         executed_trades = []
         for _, row in orders.iterrows():
@@ -735,7 +735,7 @@ class TradingEngine:
                     volume=target_qty,
                     trade_type="SELL",
                 )
-                trade = self.oms.signal_sell(order)
+                trade = self.broker.signal_sell(order)
                 executed_trades.append(trade)
 
                 pnl = (exec_price - holding_info.avg_cost) * target_qty
@@ -769,11 +769,11 @@ class TradingEngine:
         Returns:
             执行的交易列表
         """
-        if not self.oms.executable_holds:
+        if not self.broker.executable_holds:
             rprint(label="Info:", content="没有可执行持仓")
             return []
 
-        holdings = self.oms.executable_holds
+        holdings = self.broker.executable_holds
         close_orders = pd.DataFrame(
             [
                 {"symbol": h.symbol, "target_qty": h.volume, "reason": "manual_close"}
@@ -826,8 +826,8 @@ class TradingEngine:
         latest_prices = self.get_latest_prices(symbols=top_selections)
         if not latest_prices.empty:
             prices_dict = latest_prices.to_dict()
-            if hasattr(self.oms, "update_position_market_value"):
-                self.oms.update_position_market_value(prices_dict)
+            if hasattr(self.broker, "update_position_market_value"):
+                self.broker.update_position_market_value(prices_dict)
 
         short_candidates = self.get_short_candidates(
             start_date=price_start,

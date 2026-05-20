@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field, field_serializer, field_validator
+from pydantic import BaseModel, Field, field_serializer, field_validator, model_validator
 
+from .broker import BrokerSpec
 from .enums import Frequency
 from .portfolio import PortfolioAnalysisSpec, PortfolioSpec, RebalancePolicySpec
 from .risk_rules import RiskRuleSpec
@@ -85,6 +86,10 @@ class SessionServiceConfig(BaseModel):
     session: SessionConfig = Field(
         default_factory=SessionConfig, description="Session 运行参数。"
     )
+    broker_spec: Optional[BrokerSpec] = Field(
+        default=None,
+        description="Broker configuration. Required for live mode; optional for paper mode.",
+    )
     selection_spec: Optional[SelectionSpec] = Field(
         default=None, description="当前使用的选股器配置。"
     )
@@ -102,6 +107,21 @@ class SessionServiceConfig(BaseModel):
     @classmethod
     def defaults(cls) -> "SessionServiceConfig":
         return cls()
+
+    @model_validator(mode="after")
+    def _validate_broker_mode_consistency(self) -> "SessionServiceConfig":
+        if self.session.mode == "live" and self.broker_spec is None:
+            raise ValueError("live mode requires an explicit broker_spec")
+        if (
+            self.session.mode == "paper"
+            and self.broker_spec is not None
+            and self.broker_spec.name.lower() != "paper"
+        ):
+            raise ValueError(
+                "paper mode does not accept a live broker_spec. "
+                "Leave broker_spec empty to auto-select PaperBroker."
+            )
+        return self
 
 
 class SessionServiceConfigBuilder:
@@ -201,6 +221,27 @@ class SessionServiceConfigBuilder:
             params=params or {},
             alias=alias,
         )
+        return self
+
+    def with_broker(
+        self,
+        *,
+        name: str,
+        params: Optional[Dict[str, Any]] = None,
+        alias: Optional[str] = None,
+    ) -> "SessionServiceConfigBuilder":
+        self._config.broker_spec = BrokerSpec(
+            name=name,
+            params=params or {},
+            alias=alias,
+        )
+        return self
+
+    def with_broker_spec(
+        self,
+        broker_spec: Optional[BrokerSpec],
+    ) -> "SessionServiceConfigBuilder":
+        self._config.broker_spec = broker_spec
         return self
 
     def with_selection_spec(
@@ -420,7 +461,9 @@ class SessionServiceConfigBuilder:
 
     def build(self) -> SessionServiceConfig:
         """生成最终配置对象。"""
-        return self._config.model_copy(deep=True)
+        return SessionServiceConfig.model_validate(
+            self._config.model_dump(exclude_none=False)
+        )
 
 
 def default_session_config() -> SessionServiceConfig:

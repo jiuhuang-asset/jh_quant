@@ -11,16 +11,16 @@ from typing import Any, Dict, Optional
 import pandas as pd
 
 from ..models import Order, Positions, StockHoldRecord, Trade
-from .mock import MockOMS
+from .paper import PaperBroker
 
 
-class XtQuantOMS(MockOMS):
-    """OMS adapter backed by xtquant / MiniQMT.
+class XtQuantBroker(PaperBroker):
+    """Broker adapter backed by xtquant / MiniQMT.
 
     The current trading engine expects synchronous ``Trade`` objects from
     ``signal_buy`` / ``signal_sell``. xtquant natively returns an order ID
-    first and the real fill lifecycle via callbacks. To keep the current OMS
-    contract stable, this adapter records an optimistic trade object once the
+    first and the real fill lifecycle via callbacks. To keep the current
+    broker contract stable, this adapter records an optimistic trade object once the
     broker accepts the order request, attaching the xtquant order ID to
     ``Trade.order_id``.
     """
@@ -64,19 +64,19 @@ class XtQuantOMS(MockOMS):
     def _validate_platform() -> None:
         if sys.platform == "darwin":
             raise RuntimeError(
-                "XtQuantOMS requires a Windows MiniQMT runtime. macOS is not an "
+                "XtQuantBroker requires a Windows MiniQMT runtime. macOS is not an "
                 "officially supported xtquant trading platform. Recommended setup: "
-                "run the OMS on Windows and keep the strategy / API layer remote."
+                "run the broker on Windows and keep the strategy / API layer remote."
             )
         if sys.platform.startswith("linux"):
             raise RuntimeError(
-                "XtQuantOMS requires Windows MiniQMT for trading. The official "
+                "XtQuantBroker requires Windows MiniQMT for trading. The official "
                 "xtquant Linux package supports xtdata only and does not support "
                 "xttrade."
             )
         if not sys.platform.startswith("win"):
             raise RuntimeError(
-                f"XtQuantOMS requires Windows MiniQMT. Current platform: {sys.platform}."
+                f"XtQuantBroker requires Windows MiniQMT. Current platform: {sys.platform}."
             )
 
     @staticmethod
@@ -126,7 +126,7 @@ class XtQuantOMS(MockOMS):
         subscribe_result = self._trader.subscribe(self._account)
         if subscribe_result not in (None, 0):
             raise RuntimeError(
-                "XtQuantOMS connected to MiniQMT but failed to subscribe the stock "
+                "XtQuantBroker connected to MiniQMT but failed to subscribe the stock "
                 f"account {self.stock_account}. subscribe() returned {subscribe_result}."
             )
         self._connected = True
@@ -143,7 +143,7 @@ class XtQuantOMS(MockOMS):
     def _assert_path_hint(self) -> None:
         if self.miniqmt_path.name.lower() != "userdata_mini":
             raise RuntimeError(
-                "XtQuantOMS expects the MiniQMT 'userdata_mini' directory. "
+                "XtQuantBroker expects the MiniQMT 'userdata_mini' directory. "
                 f"Current path: {self.miniqmt_path}"
             )
 
@@ -155,7 +155,7 @@ class XtQuantOMS(MockOMS):
 
     def _build_connect_failure_message(self, connect_result: int) -> str:
         hints = [
-            f"XtQuantOMS failed to connect to MiniQMT, connect() returned {connect_result}.",
+            f"XtQuantBroker failed to connect to MiniQMT, connect() returned {connect_result}.",
             f"MiniQMT path: {self.miniqmt_path}",
             "Check that MiniQMT is already started and logged in with 'extreme simple mode' / 'MiniQMT mode'.",
             "Check that the path points to the 'userdata_mini' directory rather than the install root.",
@@ -174,7 +174,7 @@ class XtQuantOMS(MockOMS):
     def _ensure_connected(self) -> None:
         if not self._connected or self._trader is None or self._account is None:
             raise RuntimeError(
-                "XtQuantOMS is not connected. Call connect() after MiniQMT has been "
+                "XtQuantBroker is not connected. Call connect() after MiniQMT has been "
                 "started and logged in."
             )
 
@@ -201,6 +201,7 @@ class XtQuantOMS(MockOMS):
                 StockHoldRecord(
                     symbol=symbol,
                     volume=volume,
+                    sellable_volume=can_use_volume,
                     avg_cost=avg_cost,
                     market_value=market_value,
                     entry_time=entry_time.entry_time if entry_time else self._now(),
@@ -274,6 +275,7 @@ class XtQuantOMS(MockOMS):
                 StockHoldRecord(
                     symbol=hold.symbol,
                     volume=can_use,
+                    sellable_volume=can_use,
                     avg_cost=hold.avg_cost,
                     market_value=(hold.market_value / hold.volume * can_use)
                     if hold.volume > 0

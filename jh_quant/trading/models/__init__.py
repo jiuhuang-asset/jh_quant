@@ -6,16 +6,16 @@ Model overview
 ``SelectionSnapshot`` — dataclass, carries a universe of symbols selected for a cycle.
     Returned by ``SelectionProvider.select()``. Lightweight, no persistence.
 
-``StockHoldRecord`` — in-memory holding kept inside OMS (Pydantic BaseModel).
+``StockHoldRecord`` — in-memory holding kept inside the broker/account layer (Pydantic BaseModel).
     Tracks symbol / volume / avg_cost / market_value / entry_time for one position.
     ``entry_time`` is a ``datetime`` with second-level precision so that (a) T+1 gates
     can operate on the date component, and (b) risk-rule replay can use the full
     timestamp when filtering price bars.
 
 ``Positions`` — portfolio snapshot (BaseModel). Aggregates total equity, available
-    balance, profit fields, and the current ``holds`` list. Built on-demand by OMS.
+    balance, profit fields, and the current ``holds`` list. Built on-demand by the broker.
 
-``Order`` — transient request sent to OMS (BaseModel). Contains symbol, price,
+``Order`` — transient request sent to the broker (BaseModel). Contains symbol, price,
     volume, trade_type (BUY / SELL), and an optional signal_reason. Never persisted
     directly — the resulting ``Trade`` is the persisted artifact.
 
@@ -132,6 +132,7 @@ class StockHoldRecord(BaseModel):
 
     symbol: str
     volume: int
+    sellable_volume: Optional[int] = None
     avg_cost: float = 0.0
     market_value: float = 0.0
     entry_time: datetime = Field(default_factory=datetime.now)
