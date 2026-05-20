@@ -65,7 +65,7 @@ from .models import (
     StockHoldRecord,
     Trade,
 )
-from .oms import MockOMS, OMS
+from .oms import MockOMS, OMS, XtQuantOMS
 from .portfolio import (
     RiskfolioPortfolioOptimizer,
     build_current_portfolio_snapshot,
@@ -229,6 +229,7 @@ __all__ = [
     "SessionStatusResponse",
     "SessionStatePersistence",
     "TradingEngine",
+    "XtQuantOMS",
     "SessionService",
     "SingleSymbolTradeRequest",
     "SingleSymbolTradeResponse",
