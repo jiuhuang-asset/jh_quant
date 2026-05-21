@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 
 from jh_quant.data import DataTypes
-from jh_quant.trading.market_data import JHMarketDataProvider
+from jh_quant.trading.market_data import AkShareJHMarketDataService
 
 
 class FakeJHDataResult:
@@ -40,7 +40,7 @@ def test_fetch_today_spot_checks_freshness_after_query():
             ]
         )
     )
-    provider = JHMarketDataProvider(jhd=fake_jhd)
+    provider = AkShareJHMarketDataService(jhd=fake_jhd)
     provider._get_today_spot_fresh_after = lambda: pd.Timestamp(
         "2026-05-06 14:50:00"
     )
@@ -51,7 +51,6 @@ def test_fetch_today_spot_checks_freshness_after_query():
     assert data_type == DataTypes.AK_STOCK_ZH_A_SPOT
     assert kwargs == {
         "symbol": "000001",
-        "start": "2026-05-06 14:50:00",
         "bypass_cache": True,
     }
     assert result.loc[0, "symbol"] == "000001"
@@ -71,7 +70,7 @@ def test_fetch_today_spot_drops_stale_rows_by_dt():
             ]
         )
     )
-    provider = JHMarketDataProvider(jhd=fake_jhd)
+    provider = AkShareJHMarketDataService(jhd=fake_jhd)
     provider._get_today_spot_fresh_after = lambda: pd.Timestamp(
         "2026-05-06 14:50:00"
     )

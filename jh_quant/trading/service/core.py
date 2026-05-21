@@ -3,13 +3,11 @@ from __future__ import annotations
 import atexit
 import os
 import signal
-import traceback
 import uuid
 from dataclasses import asdict
 from datetime import datetime, timedelta
 from threading import Event, RLock, Thread
 from typing import Any, Callable, Dict, List, Optional
-from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -18,7 +16,8 @@ from jh_quant.backtest.backtest import (
 )
 
 from ..config import (
-    Frequency,
+    ClockMode,
+    ExecutionMode,
     PortfolioSpec,
     RiskRuleSpec,
     SELECTION_PROVIDER_REGISTRY,
@@ -36,27 +35,27 @@ from ..config import (
     normalize_strategy_spec,
 )
 from ..models import Order
-from ..performance import calculate_pnl_source_breakdown
 from ..persistence import PersistenceCoordinator
 from ..portfolio import (
-    build_rebalance_plan,
     build_current_portfolio_snapshot,
     build_portfolio_history,
     list_portfolio_optimizer_definitions,
-    optimize_portfolio_preview,
+    PortfolioRuntimeCoordinator,
 )
 from ..broker import PaperBroker, create_broker
 from ..engine import TradingEngine
+from ..session import (
+    SessionAnalyticsCoordinator,
+    SessionCycleCoordinator,
+    SessionLifecycleCoordinator,
+    SessionRuntimeProfile,
+    build_session_runner,
+)
 from ..utils import rprint
 from .schemas import (
-    AnalyticsSnapshotResponse,
     CloseAllPositionsResponse,
     ConfigChangeItem,
     DEFAULT_TRENDS_LIMIT,
-    PnlSourceHistoryResponse,
-    PerformanceHistoryResponse,
-    PerformanceSnapshotResponse,
-    RuntimeSnapshotResponse,
     SchedulerConfigSnapshotResponse,
     SchedulerConfigUpdateResponse,
     SchedulerStatus,
@@ -75,33 +74,6 @@ from .schemas import (
     TradingCycleResult,
     TradingCycleResultResponse,
 )
-
-
-class CronScheduler:
-    """Simple cron-based scheduler backed by croniter."""
-
-    def __init__(self, cron_expression: str, timezone: str = "Asia/Shanghai"):
-        from croniter import croniter
-
-        self.cron_expr = cron_expression
-        self.timezone = timezone
-        self._tzinfo = ZoneInfo(timezone)
-        self._iter = croniter(cron_expression, datetime.now(self._tzinfo))
-
-    def get_next_timeout(self) -> float:
-        next_tick = self._iter.get_next(datetime)
-        return max(0.0, (next_tick - datetime.now(self._tzinfo)).total_seconds())
-
-    def peek_next_ticks(self, count: int = 3) -> List[datetime]:
-        from croniter import croniter
-
-        preview_iter = croniter(self.cron_expr, datetime.now(self._tzinfo))
-        return [preview_iter.get_next(datetime) for _ in range(max(0, count))]
-
-    def wait(self, stop_event: Event) -> bool:
-        timeout = self.get_next_timeout()
-        return not stop_event.wait(timeout=timeout)
-
 
 class SessionService:
     def __init__(
@@ -140,11 +112,15 @@ class SessionService:
         self._last_result: Optional[TradingCycleResult] = None
         self._last_error: Optional[str] = None
         self._trade_calendar: Optional[set] = None
+        self.runtime_profile: Optional[SessionRuntimeProfile] = None
+        self.session_runner = None
 
         self._restore_session_config()
         self._restore_session_state()
         self._initialize_selection_provider(selection_provider)
         self._normalize_live_runtime_constraints()
+        self.runtime_profile = SessionRuntimeProfile.from_session(self.config)
+        self.session_runner = build_session_runner(self.config)
         self._restore_broker_state()
         if self.strategy_specs:
             self.configure_strategies(self.strategy_specs)
@@ -154,24 +130,24 @@ class SessionService:
         self._suspend_session_config_persistence = False
         self._persist_session_config(source="bootstrap")
 
-        if self.config.enable_backfill:
-            if self.config.mode == "paper":
-                self.run_backfill()
-            else:
-                self._log_execution_branch(
-                    "backfill", "非模拟盘, 跳过backfill"
-                )
+        if self.session_runner is not None:
+            self.session_runner.bootstrap(self)
 
         if self.config.auto_start:
             self.start_scheduler()
 
     def _normalize_live_runtime_constraints(self) -> None:
-        if self.config.mode == "live":
-            self.config.enable_backfill = False
+        if self.config.execution_mode == ExecutionMode.LIVE:
+            self.config.clock_mode = ClockMode.REALTIME
             self.session_config.session = self.config
 
+    def _runtime_mode_key(self) -> str:
+        if self.runtime_profile is not None:
+            return self.runtime_profile.key
+        return SessionRuntimeProfile.from_session(self.config).key
+
     def _restore_broker_state(self):
-        if self.config.mode != "paper":
+        if self.config.execution_mode != ExecutionMode.PAPER:
             return
         try:
             saved = self.persistence.load_latest_session_state(self.config.session_id)
@@ -194,14 +170,21 @@ class SessionService:
         restored_session_id = self.config.session_id
         restored_restore_flag = self.config.restore_persisted_state
         restored_auto_start = self.config.auto_start
-        restored_enable_backfill = self.config.enable_backfill
+        restored_execution_mode = self.config.execution_mode
+        restored_clock_mode = self.config.clock_mode
+        restored_backfill_start = self.config.backfill_start
         self.session_config = restored_bundle
         self.config = self.session_config.session
         self.config.session_id = restored_session_id or self.config.session_id
         self.config.restore_persisted_state = restored_restore_flag
         self.config.auto_start = restored_auto_start
-        self.config.enable_backfill = restored_enable_backfill
+        self.config.execution_mode = restored_execution_mode
+        self.config.clock_mode = restored_clock_mode
+        self.config.backfill_start = restored_backfill_start
         self.session_config.session = self.config
+        self._normalize_live_runtime_constraints()
+        self.runtime_profile = SessionRuntimeProfile.from_session(self.config)
+        self.session_runner = build_session_runner(self.config)
         self.selection_specs = self.session_config.selection_spec
         self.strategy_specs = list(self.session_config.strategy_specs)
         self.portfolio_spec = self.session_config.portfolio_spec
@@ -346,55 +329,13 @@ class SessionService:
         cron_expression: Optional[str] = None,
         timezone: Optional[str] = None,
     ) -> None:
-        if timezone is not None:
-            ZoneInfo(timezone)
-
-        if cron_expression:
-            from croniter import croniter
-
-            tzinfo = ZoneInfo(timezone or self.config.timezone)
-            croniter(cron_expression, datetime.now(tzinfo))
+        self._build_session_lifecycle_coordinator().validate_scheduler_inputs(
+            cron_expression=cron_expression,
+            timezone=timezone,
+        )
 
     def _build_scheduler_status(self) -> SchedulerStatus:
-        schedule_type = "cron" if self.config.cron_expression else "none"
-        next_run_at: Optional[str] = None
-        next_run_in_seconds: Optional[float] = None
-        next_runs: List[str] = []
-
-        if self.config.cron_expression:
-            try:
-                scheduler = CronScheduler(
-                    cron_expression=self.config.cron_expression,
-                    timezone=self.config.timezone,
-                )
-                next_ticks = scheduler.peek_next_ticks(count=3)
-                next_tick = next_ticks[0] if next_ticks else None
-                next_runs = [tick.isoformat() for tick in next_ticks]
-                if next_tick is None:
-                    raise ValueError("cron preview returned no next tick")
-                next_run_at = next_tick.isoformat()
-                next_run_in_seconds = round(
-                    max(
-                        0.0,
-                        (
-                            next_tick - datetime.now(ZoneInfo(self.config.timezone))
-                        ).total_seconds(),
-                    ),
-                    2,
-                )
-            except Exception:
-                next_run_at = None
-                next_run_in_seconds = None
-                next_runs = []
-
-        return SchedulerStatus(
-            cron_expression=self.config.cron_expression,
-            timezone=self.config.timezone,
-            schedule_type=schedule_type,
-            next_run_at=next_run_at,
-            next_run_in_seconds=next_run_in_seconds,
-            next_runs=next_runs,
-        )
+        return self._build_session_lifecycle_coordinator().build_scheduler_status()
 
     def update_scheduler_config(
         self,
@@ -502,6 +443,13 @@ class SessionService:
             self._trade_calendar = set()
         return self._trade_calendar
 
+    def _get_jhdata(self):
+        md_service = getattr(self.gateway, "market_data_provider", None)
+        jhd = getattr(md_service, "jhd", None)
+        if jhd is None:
+            raise RuntimeError("Current session has no JH-backed market-data service")
+        return jhd
+
     def _as_of_date(self, as_of_date: Optional[str] = None) -> str:
         return as_of_date or datetime.now().strftime("%Y-%m-%d")
 
@@ -549,65 +497,35 @@ class SessionService:
     def _log_execution_branch(self, branch: str, message: str) -> None:
         rprint(label=f"Session:{branch}", content=message)
 
+    def _build_session_analytics_coordinator(self) -> SessionAnalyticsCoordinator:
+        return SessionAnalyticsCoordinator(self)
+
+    def _build_session_cycle_coordinator(self) -> SessionCycleCoordinator:
+        return SessionCycleCoordinator(self)
+
+    def _build_session_lifecycle_coordinator(self) -> SessionLifecycleCoordinator:
+        return SessionLifecycleCoordinator(self)
+
+    def _build_portfolio_runtime(self) -> PortfolioRuntimeCoordinator:
+        return PortfolioRuntimeCoordinator(
+            gateway=self.gateway,
+            selection_provider=self.selection_provider,
+            session_config=self.config,
+            portfolio_spec=self.portfolio_spec,
+            log=self._log_execution_branch,
+            strategy_registered=lambda: bool(getattr(self.gateway, "strategy_pool", [])),
+            last_rebalance_at=lambda: self._last_portfolio_rebalance_at,
+        )
+
     def _filter_sell_orders_by_executable_holdings(
         self,
         sell_orders: pd.DataFrame,
         latest_prices: pd.Series,
     ) -> tuple[pd.DataFrame, list[dict[str, Any]], float]:
-        if sell_orders is None or sell_orders.empty:
-            return pd.DataFrame(columns=["symbol", "target_qty"]), [], 0.0
-
-        executable_map = {
-            hold.symbol: int(hold.volume)
-            for hold in self.gateway.broker.executable_holds
-            if int(hold.volume) > 0
-        }
-        executable_rows: list[dict[str, int]] = []
-        blocked_rows: list[dict[str, Any]] = []
-        projected_sell_value = 0.0
-
-        for _, row in sell_orders.iterrows():
-            symbol = str(row["symbol"])
-            requested_qty = int(row["target_qty"])
-            executable_qty = int(executable_map.get(symbol, 0))
-            allowed_qty = min(requested_qty, executable_qty)
-
-            if allowed_qty <= 0:
-                blocked_rows.append(
-                    {
-                        "symbol": symbol,
-                        "requested_qty": requested_qty,
-                        "executable_qty": executable_qty,
-                        "reason": "not_in_executable_holds",
-                    }
-                )
-                continue
-
-            if allowed_qty < requested_qty:
-                blocked_rows.append(
-                    {
-                        "symbol": symbol,
-                        "requested_qty": requested_qty,
-                        "executable_qty": executable_qty,
-                        "reason": "capped_by_executable_holds",
-                    }
-                )
-
-            executable_rows.append(
-                {
-                    "symbol": symbol,
-                    "target_qty": allowed_qty,
-                }
-            )
-            if symbol in latest_prices.index:
-                projected_sell_value += float(latest_prices[symbol]) * float(
-                    allowed_qty
-                )
-
-        filtered_orders = pd.DataFrame(
-            executable_rows, columns=["symbol", "target_qty"]
+        return self._build_portfolio_runtime().filter_sell_orders_by_executable_holdings(
+            sell_orders,
+            latest_prices,
         )
-        return filtered_orders, blocked_rows, projected_sell_value
 
     def _cap_buy_orders_to_cash_budget(
         self,
@@ -615,88 +533,11 @@ class SessionService:
         latest_prices: pd.Series,
         cash_budget: float,
     ) -> tuple[pd.DataFrame, list[dict[str, Any]], float]:
-        if buy_orders is None or buy_orders.empty:
-            return pd.DataFrame(columns=["symbol", "target_qty"]), [], 0.0
-
-        lot_size = max(1, int(self.portfolio_spec.lot_size))
-        remaining_cash = max(0.0, float(cash_budget))
-        executable_rows: list[dict[str, int]] = []
-        blocked_rows: list[dict[str, Any]] = []
-        projected_buy_cost = 0.0
-
-        for _, row in buy_orders.iterrows():
-            symbol = str(row["symbol"])
-            requested_qty = int(row["target_qty"])
-            if requested_qty <= 0:
-                continue
-            if symbol not in latest_prices.index:
-                blocked_rows.append(
-                    {
-                        "symbol": symbol,
-                        "requested_qty": requested_qty,
-                        "allowed_qty": 0,
-                        "reason": "missing_latest_price",
-                    }
-                )
-                continue
-
-            latest_price = float(latest_prices[symbol])
-            if latest_price <= 0:
-                blocked_rows.append(
-                    {
-                        "symbol": symbol,
-                        "requested_qty": requested_qty,
-                        "allowed_qty": 0,
-                        "reason": "invalid_latest_price",
-                    }
-                )
-                continue
-
-            requested_cost = latest_price * requested_qty
-            if requested_cost <= remaining_cash + 1e-9:
-                allowed_qty = requested_qty
-            elif not self.portfolio_spec.allow_partial_rebalance:
-                allowed_qty = 0
-            else:
-                affordable_lots = int(remaining_cash // (latest_price * lot_size))
-                allowed_qty = affordable_lots * lot_size
-                allowed_qty = min(allowed_qty, requested_qty)
-
-            if allowed_qty <= 0:
-                blocked_rows.append(
-                    {
-                        "symbol": symbol,
-                        "requested_qty": requested_qty,
-                        "allowed_qty": 0,
-                        "reason": "insufficient_cash_after_t1_filter",
-                    }
-                )
-                continue
-
-            if allowed_qty < requested_qty:
-                blocked_rows.append(
-                    {
-                        "symbol": symbol,
-                        "requested_qty": requested_qty,
-                        "allowed_qty": allowed_qty,
-                        "reason": "partially_capped_by_cash_budget",
-                    }
-                )
-
-            cost = latest_price * allowed_qty
-            executable_rows.append(
-                {
-                    "symbol": symbol,
-                    "target_qty": allowed_qty,
-                }
-            )
-            projected_buy_cost += cost
-            remaining_cash -= cost
-
-        filtered_orders = pd.DataFrame(
-            executable_rows, columns=["symbol", "target_qty"]
+        return self._build_portfolio_runtime().cap_buy_orders_to_cash_budget(
+            buy_orders,
+            latest_prices,
+            cash_budget,
         )
-        return filtered_orders, blocked_rows, projected_buy_cost
 
     def _build_portfolio_strategy_context(
         self,
@@ -704,91 +545,10 @@ class SessionService:
         cycle_date: str,
         symbols: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
-        base_date = datetime.strptime(cycle_date, "%Y-%m-%d")
-        lookback_days = max(
-            self.config.price_lookback_days,
-            self.portfolio_spec.historical_lookback_days,
+        return self._build_portfolio_runtime().build_strategy_context(
+            cycle_date=cycle_date,
+            symbols=symbols,
         )
-        price_start = (base_date - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
-
-        if symbols is None:
-            selection = self.selection_provider.select(as_of_date=cycle_date)
-            selected_symbols = list(selection.top_selections)
-        else:
-            selected_symbols = list(symbols)
-        selected_symbols = list(
-            dict.fromkeys(str(symbol) for symbol in selected_symbols if symbol)
-        )
-        if not selected_symbols:
-            raise ValueError("No symbols available for portfolio optimization")
-
-        price = self.gateway.get_price_data(
-            symbols=selected_symbols,
-            start_date=price_start,
-            end_date=cycle_date,
-            frequency=self.config.frequency,
-        )
-        buy_signals = self.gateway.aggregate_buy_signals(
-            price=price,
-            frequency=self.config.frequency,
-        )
-
-        signal_frame = pd.DataFrame({"symbol": selected_symbols})
-        if buy_signals is not None and not buy_signals.empty:
-            signal_frame = signal_frame.merge(
-                buy_signals[["symbol", "score"]],
-                on="symbol",
-                how="left",
-            ).fillna({"score": 0.0})
-        else:
-            signal_frame["score"] = 0.0
-
-        signal_frame["score"] = signal_frame["score"].astype(float)
-        positive_signals = signal_frame.loc[signal_frame["score"] > 0].copy()
-        strategy_registered = bool(getattr(self.gateway, "strategy_pool", []))
-        used_strategy_filter = strategy_registered and not positive_signals.empty
-        fallback_reason: Optional[str] = None
-
-        if used_strategy_filter:
-            optimization_signals = positive_signals.sort_values(
-                by=["score", "symbol"],
-                ascending=[False, True],
-            ).reset_index(drop=True)
-        else:
-            optimization_signals = signal_frame.copy()
-            if strategy_registered:
-                fallback_reason = "no_positive_buy_scores"
-            else:
-                fallback_reason = "no_strategy_registered"
-
-        if optimization_signals.empty:
-            raise ValueError(
-                "No symbols available after applying strategy-aware portfolio filters"
-            )
-
-        if float(optimization_signals["score"].clip(lower=0.0).sum()) <= 0:
-            optimization_signals["score"] = 1.0
-
-        optimization_symbols = optimization_signals["symbol"].astype(str).tolist()
-        filtered_price = (
-            price[price["symbol"].isin(optimization_symbols)].copy()
-            if not price.empty
-            else price
-        )
-
-        return {
-            "cycle_date": cycle_date,
-            "price_start": price_start,
-            "selected_symbols": selected_symbols,
-            "price": filtered_price,
-            "signals": optimization_signals[["symbol", "score"]].copy(),
-            "optimization_symbols": optimization_symbols,
-            "strategy_registered": strategy_registered,
-            "used_strategy_filter": used_strategy_filter,
-            "fallback_reason": fallback_reason,
-            "positive_signal_count": int(len(positive_signals)),
-            "selection_count": int(len(selected_symbols)),
-        }
 
     def _persist_runtime_state(self, extra: Optional[Dict[str, Any]] = None):
         payload = {
@@ -817,7 +577,10 @@ class SessionService:
         if extra:
             payload["session"]["extra"] = extra
         self.persistence.save_runtime_state(payload)
-        if self.config.mode == "paper" and hasattr(self.gateway.broker, "export_state"):
+        if (
+            self.config.execution_mode == ExecutionMode.PAPER
+            and hasattr(self.gateway.broker, "export_state")
+        ):
             self.persistence.save_session_state(self.gateway.broker.export_state())
 
     def _persist_session_config(self, *, source: str = "runtime_update") -> None:
@@ -1005,62 +768,11 @@ class SessionService:
             )
 
         cycle_date = self._as_of_date(as_of_date)
-        context = self._build_portfolio_strategy_context(
+        payload = self._build_portfolio_runtime().optimize(
             cycle_date=cycle_date,
             symbols=symbols,
+            preview_only=preview_only,
         )
-        optimization_symbols = context["optimization_symbols"]
-        price = context["price"]
-        returns = self.gateway.build_return_matrix(
-            symbols=optimization_symbols,
-            start_date=context["price_start"],
-            end_date=cycle_date,
-            frequency=self.config.frequency,
-            price=price,
-        )
-        result = optimize_portfolio_preview(
-            returns,
-            self.portfolio_spec,
-            signals=context["signals"],
-        )
-        diagnostics = {
-            **result.diagnostics,
-            "selection_count": context["selection_count"],
-            "positive_signal_count": context["positive_signal_count"],
-            "selected_symbols": context["selected_symbols"],
-            "optimization_symbols": optimization_symbols,
-            "strategy_registered": context["strategy_registered"],
-            "used_strategy_filter": context["used_strategy_filter"],
-            "fallback_reason": context["fallback_reason"],
-        }
-        payload = {
-            "status": "optimized",
-            "optimizer": result.optimizer,
-            "as_of_date": cycle_date,
-            "symbols": result.symbols,
-            "weights": result.weights.to_dict(orient="records"),
-            "diagnostics": diagnostics,
-            "preview_only": preview_only,
-        }
-        if context["used_strategy_filter"]:
-            self._log_execution_branch(
-                "portfolio",
-                (
-                    "组合优化使用 Strategy 过滤后的目标池，"
-                    f"selected={context['selection_count']}, "
-                    f"positive_signals={context['positive_signal_count']}, "
-                    f"optimized={len(optimization_symbols)}"
-                ),
-            )
-        else:
-            self._log_execution_branch(
-                "portfolio",
-                (
-                    "组合优化未拿到可用的正向 Strategy 信号，回退到 Selection universe，"
-                    f"fallback_reason={context['fallback_reason']}, "
-                    f"selected={context['selection_count']}"
-                ),
-            )
         self._latest_portfolio_optimization = payload
         self._persist_runtime_state(extra={"event": "portfolio_optimized"})
         return payload
@@ -1072,49 +784,11 @@ class SessionService:
         force: bool = False,
         as_of_time: Optional[datetime] = None,
     ) -> tuple[bool, str]:
-        if force:
-            return True, "forced"
-
-        policy = self.portfolio_spec.rebalance_policy
-        mode = policy.mode.value
-        now = as_of_time or datetime.now()
-
-        if mode == "disabled":
-            return False, "rebalance policy disabled"
-        if mode == "manual_only":
-            return False, "rebalance policy is manual_only"
-        if mode == "every_cycle":
-            return True, "rebalance policy is every_cycle"
-        if mode == "initial_only":
-            has_positions = bool(self.gateway.broker.get_positions().holds)
-            return (not has_positions), (
-                "initial allocation required"
-                if not has_positions
-                else "positions already exist"
-            )
-        if mode == "drift_threshold":
-            threshold = policy.drift_threshold
-            if threshold is None:
-                return False, "drift_threshold mode requires drift_threshold"
-            total_abs_drift = float(drift.get("total_abs_drift") or 0.0)
-            max_abs_drift = float(drift.get("max_abs_drift") or 0.0)
-            triggered = max(total_abs_drift, max_abs_drift) >= float(threshold)
-            if not triggered:
-                return False, f"drift below threshold {threshold}"
-            if (
-                policy.min_rebalance_interval_seconds is not None
-                and self._last_portfolio_rebalance_at is not None
-            ):
-                elapsed = (now - self._last_portfolio_rebalance_at).total_seconds()
-                if elapsed < policy.min_rebalance_interval_seconds:
-                    return False, "minimum rebalance interval not reached"
-            return (
-                True,
-                f"drift threshold reached ({max(total_abs_drift, max_abs_drift):.4f})",
-            )
-        if mode == "schedule":
-            return False, "schedule mode is not implemented yet"
-        return False, f"unsupported rebalance mode: {mode}"
+        return self._build_portfolio_runtime().should_rebalance(
+            drift,
+            force=force,
+            as_of_time=as_of_time,
+        )
 
     def rebalance_portfolio(
         self,
@@ -1133,100 +807,33 @@ class SessionService:
             cycle_date = self._as_of_date(as_of_date)
             self._log_execution_branch(
                 "portfolio",
-                f"组合调仓分支开始执行，cycle_date={cycle_date}, force={force}, preview_only={preview_only}",
+                (
+                    f"Portfolio rebalance started, cycle_date={cycle_date}, "
+                    f"force={force}, preview_only={preview_only}"
+                ),
             )
             optimization = self.optimize_portfolio(
                 as_of_date=cycle_date,
                 symbols=symbols,
                 preview_only=True,
             )
-            weights = pd.DataFrame(optimization["weights"])
-            if weights.empty:
-                raise ValueError("No optimized weights available for rebalance")
-
-            target_symbols = list(weights["symbol"].astype(str))
-            current_symbols = [
-                hold.symbol for hold in self.gateway.broker.get_positions().holds
-            ]
-            price_symbols = list(dict.fromkeys(target_symbols + current_symbols))
-            latest_prices = self.gateway.get_latest_prices(price_symbols)
-            positions_snapshot = self.gateway.broker.get_positions().model_dump()
-            plan = build_rebalance_plan(
-                target_weights=weights,
-                positions=positions_snapshot,
-                latest_prices=latest_prices,
-                portfolio_spec=self.portfolio_spec,
-            )
-            planned_sell_orders = pd.DataFrame(plan["sell_orders"])
-            executable_sell_orders, blocked_sell_orders, executable_sell_value = (
-                self._filter_sell_orders_by_executable_holdings(
-                    planned_sell_orders,
-                    latest_prices,
-                )
-            )
-            planned_buy_orders = pd.DataFrame(plan["buy_orders"])
-            cash_budget = (
-                float(positions_snapshot.get("available_balance") or 0.0)
-                + executable_sell_value
-            )
-            executable_buy_orders, blocked_buy_orders, executable_buy_cost = (
-                self._cap_buy_orders_to_cash_budget(
-                    planned_buy_orders,
-                    latest_prices,
-                    cash_budget,
-                )
-            )
-            projected_cash_after = cash_budget - executable_buy_cost
-            should_rebalance, reason = self.should_rebalance_portfolio(
-                plan["drift"],
+            payload = self._build_portfolio_runtime().build_rebalance_preview(
+                cycle_date=cycle_date,
+                optimization_payload=optimization,
                 force=force,
-                as_of_time=datetime.now(),
             )
-            payload = {
-                "status": "preview" if preview_only else "pending",
-                "as_of_date": cycle_date,
-                "preview_only": preview_only,
-                "should_rebalance": should_rebalance,
-                "reason": reason,
-                "target_allocations": plan["target_allocations"],
-                "buy_orders": executable_buy_orders.to_dict(orient="records"),
-                "sell_orders": executable_sell_orders.to_dict(orient="records"),
-                "projected_buy_cost": executable_buy_cost,
-                "projected_sell_value": executable_sell_value,
-                "projected_cash_after": projected_cash_after,
-                "drift": plan["drift"],
-                "executed_buy_count": 0,
-                "executed_sell_count": 0,
-                "execution_path": "strategy_driven_portfolio_overlay",
-                "blocked_sell_orders": blocked_sell_orders,
-                "blocked_buy_orders": blocked_buy_orders,
-            }
+            payload["status"] = "preview" if preview_only else "pending"
+            payload["preview_only"] = preview_only
 
-            self._log_execution_branch(
-                "portfolio",
-                (
-                    "组合调仓计划已生成，"
-                    f"sell_orders={len(payload['sell_orders'])}, "
-                    f"buy_orders={len(payload['buy_orders'])}, "
-                    f"blocked_sells={len(blocked_sell_orders)}, "
-                    f"blocked_buys={len(blocked_buy_orders)}"
-                ),
-            )
-            if blocked_sell_orders:
-                self._log_execution_branch(
-                    "portfolio",
-                    f"检测到 {len(blocked_sell_orders)} 笔卖单受 executable_holds / A股T+1 约束影响。",
-                )
-
-            if preview_only or not should_rebalance:
+            if preview_only or not payload["should_rebalance"]:
                 self._latest_portfolio_rebalance = payload
                 self._persist_runtime_state(
                     extra={"event": "portfolio_rebalance_preview"}
                 )
                 return payload
 
-            sell_orders = executable_sell_orders
-            buy_orders = executable_buy_orders
+            sell_orders = pd.DataFrame(payload["sell_orders"])
+            buy_orders = pd.DataFrame(payload["buy_orders"])
             executed_sells = (
                 self.gateway.execute_short(sell_orders, self.config.price_slippage)
                 if not sell_orders.empty
@@ -1249,7 +856,11 @@ class SessionService:
             self._persist_runtime_state(extra={"event": "portfolio_rebalanced"})
             self._log_execution_branch(
                 "portfolio",
-                f"组合调仓执行完成，executed_sells={len(executed_sells)}, executed_buys={len(executed_buys)}",
+                (
+                    "Portfolio rebalance completed, "
+                    f"executed_sells={len(executed_sells)}, "
+                    f"executed_buys={len(executed_buys)}"
+                ),
             )
             return payload
 
@@ -1304,41 +915,14 @@ class SessionService:
         }
 
     def get_positions(self) -> Dict[str, Any]:
-        generated_at = datetime.now().isoformat()
-        runtime_bundle = self._build_current_runtime_bundle(generated_at=generated_at)
-        return {
-            "session_id": self.config.session_id,
-            "generated_at": generated_at,
-            "portfolio_value": runtime_bundle["portfolio_value"],
-            "cash_balance": runtime_bundle["cash_balance"],
-            "position_value": runtime_bundle["position_value"],
-            "realized_pnl": runtime_bundle["realized_pnl"],
-            "unrealized_pnl": runtime_bundle["unrealized_pnl"],
-            "total_pnl": runtime_bundle["total_pnl"],
-            "num_positions": runtime_bundle["position_count"],
-            "positions": runtime_bundle["positions"],
-        }
+        return self._build_session_analytics_coordinator().get_positions()
 
     def get_position_history(
         self, symbol: Optional[str] = None
     ) -> Dict[str, Any]:
-        df = self.persistence.query_position_snapshots(self.config.session_id)
-        if df is None or df.empty:
-            return {
-                "session_id": self.config.session_id,
-                "symbol": symbol,
-                "count": 0,
-                "snapshots": [],
-            }
-        if symbol:
-            df = df[df["symbol"] == symbol]
-        records = self._records_from_frame(df)
-        return {
-            "session_id": self.config.session_id,
-            "symbol": symbol,
-            "count": len(records),
-            "snapshots": records,
-        }
+        return self._build_session_analytics_coordinator().get_position_history(
+            symbol=symbol
+        )
 
     def get_session_event_history(self) -> Dict[str, Any]:
         records = self.persistence.query_runtime_events(self.config.session_id)
@@ -1376,7 +960,7 @@ class SessionService:
     def get_status(self) -> Dict[str, Any]:
         return SessionStatusResponse(
             session_id=self.config.session_id,
-            mode=self.config.mode,
+            mode=self._runtime_mode_key(),
             running=self._scheduler_running,
             scheduler=self._build_scheduler_status(),
             last_error=self._last_error,
@@ -1384,35 +968,9 @@ class SessionService:
         ).model_dump()
 
     def _build_current_position_rows(self, positions=None) -> List[Dict[str, Any]]:
-        positions = positions or self.gateway.broker.get_positions()
-        holds = getattr(positions, "holds", []) or []
-        items: list[dict[str, Any]] = []
-        for hold in holds:
-            quantity = int(getattr(hold, "volume", 0))
-            sellable_volume = getattr(hold, "sellable_volume", None)
-            avg_cost = float(getattr(hold, "avg_cost", 0.0))
-            market_value = float(getattr(hold, "market_value", 0.0))
-            cost_basis = avg_cost * quantity
-            pnl = market_value - cost_basis
-            pnl_pct = (pnl / cost_basis) if cost_basis > 0 else 0.0
-            current_price = (market_value / quantity) if quantity > 0 else 0.0
-            entry_time = getattr(hold, "entry_time", None)
-            items.append(
-                {
-                    "symbol": hold.symbol,
-                    "quantity": quantity,
-                    "sellable_volume": int(sellable_volume)
-                    if sellable_volume is not None
-                    else quantity,
-                    "avg_cost": avg_cost,
-                    "current_price": current_price,
-                    "market_value": market_value,
-                    "pnl": pnl,
-                    "pnl_pct": pnl_pct,
-                    "entry_time": entry_time.isoformat() if entry_time else None,
-                }
-            )
-        return sorted(items, key=lambda item: item["market_value"], reverse=True)
+        return self._build_session_analytics_coordinator().build_current_position_rows(
+            positions
+        )
 
     def _build_current_runtime_bundle(
         self,
@@ -1420,99 +978,26 @@ class SessionService:
         generated_at: Optional[str] = None,
         positions=None,
     ) -> Dict[str, Any]:
-        positions = positions or self.gateway.broker.get_positions()
-        generated_at = generated_at or datetime.now().isoformat()
-        position_rows = self._build_current_position_rows(positions)
-        position_value = float(sum(item["market_value"] for item in position_rows))
-        cash_balance = float(getattr(positions, "available_balance", 0.0))
-        portfolio_value = float(
-            getattr(positions, "total", cash_balance + position_value)
+        return self._build_session_analytics_coordinator().build_current_runtime_bundle(
+            generated_at=generated_at,
+            positions=positions,
         )
-        realized_pnl = float(getattr(self.gateway.broker, "total_profit", 0.0) or 0.0)
-        unrealized_pnl = float(sum(item["pnl"] for item in position_rows))
-        return {
-            "session_id": self.config.session_id,
-            "generated_at": generated_at,
-            "portfolio_value": portfolio_value,
-            "cash_balance": cash_balance,
-            "position_value": position_value,
-            "position_count": len(position_rows),
-            "daily_pnl": float(getattr(positions, "daily_profit", 0.0) or 0.0),
-            "realized_pnl": realized_pnl,
-            "unrealized_pnl": unrealized_pnl,
-            "total_pnl": realized_pnl + unrealized_pnl,
-            "positions": position_rows,
-        }
 
     def _build_current_portfolio_snapshot(
         self,
         runtime_bundle: Dict[str, Any],
     ) -> Dict[str, Any]:
-        portfolio_value = float(runtime_bundle.get("portfolio_value", 0.0) or 0.0)
-        cash_balance = float(runtime_bundle.get("cash_balance", 0.0) or 0.0)
-        position_value = float(runtime_bundle.get("position_value", 0.0) or 0.0)
-        return {
-            "as_of": runtime_bundle.get("generated_at"),
-            "portfolio_value": portfolio_value,
-            "cash_balance": cash_balance,
-            "position_value": position_value,
-            "cash_ratio": (cash_balance / portfolio_value) if portfolio_value > 0 else 1.0,
-            "invested_ratio": (
-                (position_value / portfolio_value) if portfolio_value > 0 else 0.0
-            ),
-        }
+        return self._build_session_analytics_coordinator().build_current_portfolio_snapshot(
+            runtime_bundle
+        )
 
     def _build_current_position_exposure(
         self,
         runtime_bundle: Dict[str, Any],
     ) -> Dict[str, Any]:
-        positions = runtime_bundle.get("positions", [])
-        if not positions:
-            return {
-                "position_count": 0,
-                "gross_market_value": 0.0,
-                "cash_ratio": 1.0,
-                "invested_ratio": 0.0,
-                "max_position_weight": 0.0,
-                "top3_concentration": 0.0,
-                "top_positions": [],
-            }
-
-        portfolio_value = float(runtime_bundle.get("portfolio_value", 0.0) or 0.0)
-        position_value = float(runtime_bundle.get("position_value", 0.0) or 0.0)
-        denominator = portfolio_value if portfolio_value > 0 else position_value
-        weighted_positions = []
-        for item in positions:
-            weight = (
-                float(item["market_value"]) / denominator if denominator > 0 else 0.0
-            )
-            weighted_positions.append({**item, "weight": weight})
-
-        top_positions = [
-            {
-                "symbol": item["symbol"],
-                "market_value": item["market_value"],
-                "pnl": item["pnl"],
-                "pnl_pct": item["pnl_pct"],
-                "weight": item["weight"],
-            }
-            for item in weighted_positions[:5]
-        ]
-        return {
-            "position_count": int(runtime_bundle.get("position_count", 0)),
-            "gross_market_value": position_value,
-            "cash_ratio": (
-                float(runtime_bundle.get("cash_balance", 0.0)) / portfolio_value
-                if portfolio_value > 0
-                else 1.0
-            ),
-            "invested_ratio": (position_value / portfolio_value) if portfolio_value > 0 else 0.0,
-            "max_position_weight": max((item["weight"] for item in weighted_positions), default=0.0),
-            "top3_concentration": sum(
-                item["weight"] for item in weighted_positions[:3]
-            ),
-            "top_positions": top_positions,
-        }
+        return self._build_session_analytics_coordinator().build_current_position_exposure(
+            runtime_bundle
+        )
 
     def _build_current_performance_summary(
         self,
@@ -1520,541 +1005,46 @@ class SessionService:
         report: Optional[Dict[str, Any]] = None,
         runtime_bundle: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        report = report or self.persistence.get_performance_report(self.config.session_id)
-        summary = dict(report.get("summary", {}))
-        runtime_bundle = runtime_bundle or self._build_current_runtime_bundle()
-        initial_capital = float(
-            summary.get("initial_capital")
-            or getattr(self.gateway.broker, "initial_capital", 0.0)
-            or 0.0
+        return self._build_session_analytics_coordinator().build_current_performance_summary(
+            report=report,
+            runtime_bundle=runtime_bundle,
         )
-        portfolio_value = float(runtime_bundle["portfolio_value"])
-        cash_balance = float(runtime_bundle["cash_balance"])
-        position_value = float(runtime_bundle["position_value"])
-        summary.setdefault("total_trades", 0)
-        summary.setdefault("buy_count", 0)
-        summary.setdefault("sell_count", 0)
-        summary.setdefault("win_count", 0)
-        summary.setdefault("loss_count", 0)
-        summary.setdefault("win_rate", None)
-        summary.setdefault("avg_win", None)
-        summary.setdefault("avg_loss", None)
-        summary.setdefault("max_drawdown", 0.0)
-        summary.update(
-            {
-                "initial_capital": initial_capital,
-                "portfolio_value": portfolio_value,
-                "cash_balance": cash_balance,
-                "position_value": position_value,
-                "daily_pnl": float(runtime_bundle["daily_pnl"]),
-                "realized_pnl": float(runtime_bundle["realized_pnl"]),
-                "unrealized_pnl": float(runtime_bundle["unrealized_pnl"]),
-                "total_pnl": float(runtime_bundle["total_pnl"]),
-                "cash_ratio": (cash_balance / portfolio_value) if portfolio_value > 0 else 1.0,
-                "invested_ratio": (
-                    (position_value / portfolio_value) if portfolio_value > 0 else 0.0
-                ),
-                "total_return": (
-                    (portfolio_value - initial_capital) / initial_capital
-                    if initial_capital > 0
-                    else 0.0
-                ),
-            }
-        )
-        return summary
 
     def get_runtime_state(self) -> Dict[str, Any]:
-        return RuntimeSnapshotResponse(
-            **self._build_current_runtime_bundle()
-        ).model_dump()
+        return self._build_session_analytics_coordinator().get_runtime_state()
 
     def get_performance_snapshot(self) -> Dict[str, Any]:
-        report = self.persistence.get_performance_report(self.config.session_id)
-        runtime_bundle = self._build_current_runtime_bundle()
-        return PerformanceSnapshotResponse(
-            session_id=self.config.session_id,
-            generated_at=datetime.now().isoformat(),
-            summary=self._normalize_jsonable(
-                self._build_current_performance_summary(
-                    report=report,
-                    runtime_bundle=runtime_bundle,
-                )
-            ),
-        ).model_dump()
+        return self._build_session_analytics_coordinator().get_performance_snapshot()
 
     def get_performance_history(self) -> Dict[str, Any]:
-        report = self.persistence.get_performance_report(self.config.session_id)
-        daily_performance = self.persistence.query_daily_performance(self.config.session_id)
-        return PerformanceHistoryResponse(
-            session_id=self.config.session_id,
-            generated_at=datetime.now().isoformat(),
-            daily_performance=self._records_from_frame(daily_performance),
-            equity_curve=self._records_from_frame(report["equity_curve"]),
-            turnover=self._records_from_frame(report["turnover"]),
-            trade_activity=self._records_from_frame(report["trade_activity"]),
-        ).model_dump()
+        return self._build_session_analytics_coordinator().get_performance_history()
 
     def get_pnl_source_history(self) -> Dict[str, Any]:
-        trades = self.persistence.query_trades(self.config.session_id)
-        breakdown = calculate_pnl_source_breakdown(
-            self.persistence,
-            self.config.session_id,
-            trades=trades,
-        )
-        return PnlSourceHistoryResponse(
-            session_id=self.config.session_id,
-            generated_at=datetime.now().isoformat(),
-            total_realized_pnl=float(breakdown["total_realized_pnl"]),
-            total_profit=float(breakdown["total_profit"]),
-            total_loss=float(breakdown["total_loss"]),
-            profit_sources=self._records_from_frame(breakdown["profit_sources"]),
-            loss_sources=self._records_from_frame(breakdown["loss_sources"]),
-        ).model_dump()
+        return self._build_session_analytics_coordinator().get_pnl_source_history()
 
     def get_analysis_snapshot(self) -> Dict[str, Any]:
-        report = self.persistence.get_performance_report(self.config.session_id)
-        runtime_bundle = self._build_current_runtime_bundle()
-        trade_activity = self._records_from_frame(report["trade_activity"])
-        turnover = self._records_from_frame(report["turnover"])
-        return AnalyticsSnapshotResponse(
-            session_id=self.config.session_id,
-            generated_at=datetime.now().isoformat(),
-            latest_portfolio=self._normalize_jsonable(
-                self._build_current_portfolio_snapshot(runtime_bundle)
-            ),
-            position_exposure=self._normalize_jsonable(
-                self._build_current_position_exposure(runtime_bundle)
-            ),
-            latest_trade_activity=(trade_activity[-1] if trade_activity else None),
-            latest_turnover=(turnover[-1] if turnover else None),
-        ).model_dump()
+        return self._build_session_analytics_coordinator().get_analysis_snapshot()
 
     def get_runtime_snapshot(self) -> Dict[str, Any]:
         return self.get_runtime_state()
 
     def run_once(self, as_of_date: Optional[str] = None) -> TradingCycleResult:
-        if self._scheduler_stop_event.is_set():
-            raise RuntimeError("Session is shutting down, run_once rejected")
-
-        with self._lock:
-            cycle_date = self._as_of_date(as_of_date)
-            trade_calendar = self._get_trade_calendar()
-            if trade_calendar and cycle_date not in trade_calendar:
-                self._log_execution_branch(
-                    "run_once", f"{cycle_date} 不是交易日，跳过执行"
-                )
-                return TradingCycleResult(
-                    session_id=self.config.session_id,
-                    mode=self.config.mode,
-                    cycle_time=datetime.now().isoformat(),
-                    selection_count=0,
-                    long_candidate_count=0,
-                    short_candidate_count=0,
-                    executed_buy_count=0,
-                    executed_sell_count=0,
-                    status="skipped",
-                    error=f"non-trading day: {cycle_date}",
-                )
-            price_start = self._price_start_date(cycle_date)
-            selection = self.selection_provider.select(as_of_date=cycle_date)
-            top_selections = selection.top_selections
-
-            if hasattr(selection, "metadata") and selection.metadata:
-                selection_meta = selection.metadata
-            else:
-                selection_meta = {"as_of_date": cycle_date}
-                known = {"top_selections", "bottom_selections", "metadata"}
-                for key in dir(selection):
-                    if not key.startswith("_") and key not in known:
-                        value = getattr(selection, key, None)
-                        if not callable(value):
-                            selection_meta[key] = value
-
-            executed_buy_count = 0
-            executed_sell_count = 0
-            long_candidates = pd.DataFrame()
-            short_candidates = pd.DataFrame()
-            portfolio_cycle_payload: Optional[Dict[str, Any]] = None
-
-            if self.portfolio_spec.enabled:
-                self._log_execution_branch(
-                    "portfolio",
-                    "run_once 命中 portfolio_spec.enabled=True，使用 Strategy 驱动的 portfolio overlay 分支：Selection/Strategy 决定目标池，Portfolio 负责配权与调仓。",
-                )
-                if top_selections:
-                    portfolio_cycle_payload = self.rebalance_portfolio(
-                        as_of_date=cycle_date,
-                        symbols=top_selections,
-                        preview_only=False,
-                        force=False,
-                    )
-                else:
-                    portfolio_cycle_payload = self._empty_portfolio_cycle_payload(
-                        cycle_date,
-                        "no selected symbols for portfolio rebalance",
-                    )
-
-                long_candidates = pd.DataFrame(
-                    portfolio_cycle_payload.get("buy_orders", [])
-                )
-                short_candidates = pd.DataFrame(
-                    portfolio_cycle_payload.get("sell_orders", [])
-                )
-                executed_buy_count = int(
-                    portfolio_cycle_payload.get("executed_buy_count", 0)
-                )
-                executed_sell_count = int(
-                    portfolio_cycle_payload.get("executed_sell_count", 0)
-                )
-            else:
-                self._log_execution_branch(
-                    "signals",
-                    "run_once 命中 portfolio_spec.enabled=False，使用标准信号分支 gateway.execute_cycle。",
-                )
-                executed_buys, executed_sells, long_candidates, short_candidates = (
-                    self.gateway.execute_cycle(
-                        top_selections=top_selections,
-                        price_start=price_start,
-                        cycle_date=cycle_date,
-                        frequency=self.config.frequency,
-                        max_candidates=self.config.max_candidates,
-                        price_slippage=self.config.price_slippage,
-                    )
-                )
-
-                self._persist_trades(executed_sells)
-                self._persist_trades(executed_buys)
-                executed_buy_count = len(executed_buys)
-                executed_sell_count = len(executed_sells)
-
-            if hasattr(self.gateway.broker, "compute_daily_metrics"):
-                cycle_dt = datetime.strptime(cycle_date, "%Y-%m-%d")
-                latest_price_symbols = list(top_selections)
-                current_holds = getattr(self.gateway.broker.get_positions(), "holds", [])
-                latest_price_symbols.extend(
-                    hold.symbol
-                    for hold in current_holds
-                    if getattr(hold, "symbol", None)
-                )
-                latest_price_symbols = list(dict.fromkeys(latest_price_symbols))
-                latest_prices = (
-                    self.gateway.get_latest_prices(latest_price_symbols)
-                    if hasattr(self.gateway, "get_latest_prices")
-                    else pd.Series(dtype=float)
-                )
-                close_prices = (
-                    latest_prices.to_dict() if not latest_prices.empty else None
-                )
-                perf, snapshots = self.gateway.broker.compute_daily_metrics(
-                    trade_date=cycle_dt,
-                    close_prices=close_prices,
-                )
-                self.persistence.persist_daily_metrics(perf, snapshots)
-
-            result = TradingCycleResult(
-                session_id=self.config.session_id,
-                mode=self.config.mode,
-                cycle_time=datetime.now().isoformat(),
-                selection_count=len(top_selections),
-                long_candidate_count=len(long_candidates),
-                short_candidate_count=len(short_candidates),
-                executed_buy_count=executed_buy_count,
-                executed_sell_count=executed_sell_count,
-                selected_symbols=top_selections,
-                long_symbols=(
-                    []
-                    if long_candidates.empty or "symbol" not in long_candidates.columns
-                    else long_candidates["symbol"].tolist()
-                ),
-                short_symbols=(
-                    []
-                    if short_candidates.empty
-                    or "symbol" not in short_candidates.columns
-                    else short_candidates["symbol"].tolist()
-                ),
-            )
-            self._last_result = result
-            self._last_error = None
-            extra = {"selection_metadata": selection_meta}
-            if portfolio_cycle_payload is not None:
-                extra["portfolio_rebalance"] = portfolio_cycle_payload
-            self._persist_runtime_state(extra=extra)
-            return result
-
-    def _is_frequency_suitable_for_backfill(self) -> bool:
-        """回填仅支持 Daily 或更粗的时间频率，防止在分钟内频率下使用过时价格。"""
-        coarse_frequencies = {Frequency.DAILY}
-        return self.config.frequency in coarse_frequencies
+        return self.session_runner.run_cycle(self, as_of_date=as_of_date)
 
     def run_backfill(self) -> TradingCycleResult:
-        """从 ``backfill_from`` 开始逐日模拟交易。
-
-        仅当 ``enable_backfill=True`` 且 ``frequency`` 为 Daily（或更粗）时可用。
-        通过设置 ``MarketDataProvider._backfill_from`` 将最新价格限制在当日收盘价，
-        从而消除前视偏差（look-ahead bias）。
-
-        若当前 session 已有历史记录，会自动从最后一天恢复，覆盖可能的
-        不完整数据，避免从头重复运行。在多 session 模式下，
-        ``MultiSessionService._lock`` 保证同一时间只有一个 session 执行回填。
-        """
-        if not self.config.enable_backfill:
-            raise ValueError("enable_backfill is not enabled")
-
-        if self.config.backfill_from is None:
-            raise ValueError("backfill_from must be set when enable_backfill=True")
-
-        if not self._is_frequency_suitable_for_backfill():
-            raise ValueError(
-                f"Backfill only supports Daily or coarser frequencies, "
-                f"got {self.config.frequency.value}"
-            )
-
-        config_from = datetime.strptime(self.config.backfill_from, "%Y-%m-%d")
-        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-        # backfill 仅回填到昨天为止，今天留给调度器正常执行，
-        # 避免今天已有交易记录导致 resume 逻辑误判为"全部已回填"。
-        backfill_end = today - timedelta(days=1)
-
-        if config_from >= today:
-            raise ValueError(
-                f"backfill_from ({self.config.backfill_from}) must be before today"
-            )
-
-        # 检查历史记录，避免不必要的重复运行
-        backfill_start = config_from
-        try:
-            existing = self.persistence.query_daily_performance(
-                self.config.session_id
-            )
-            if existing is not None and not existing.empty:
-                last_date_val = existing["trade_date"].max()
-                if hasattr(last_date_val, "strftime"):
-                    last_date_str = last_date_val.strftime("%Y-%m-%d")
-                else:
-                    last_date_str = str(last_date_val)[:10]
-                last_dt = datetime.strptime(last_date_str, "%Y-%m-%d")
-
-                config_count = self.persistence.count_session_configs(
-                    self.config.session_id
-                )
-                if config_count >= 2:
-                    self._log_execution_branch(
-                        "backfill",
-                        (
-                            f"[警告] 当前 session 存在 {config_count} 条配置变更记录，"
-                            f"已持久化的回填数据可能由不同的配置版本生成。"
-                            f"已有数据最晚日期={last_date_str}，"
-                            f"本次将使用最新配置从 {last_dt.strftime('%Y-%m-%d') if last_dt >= config_from else config_from.strftime('%Y-%m-%d')} 继续回填，"
-                            f"可能导致前后数据口径不一致。建议使用新的 session_id 重新回填。"
-                        ),
-                    )
-
-                if last_dt >= config_from:
-                    # 从最后持久化日期的下一天开始，避免覆盖已有数据。
-                    # PaperBroker 已通过 _restore_broker_state() 恢复到上次运行结束时的状态，
-                    # 因此无需重置，直接继续回填缺失的日期即可。
-                    backfill_start = last_dt + timedelta(days=1)
-                    self._log_execution_branch(
-                        "backfill",
-                        (
-                            f"检测到已有历史记录 (最新={last_date_str})，"
-                            f"从 {backfill_start.strftime('%Y-%m-%d')} 继续回填"
-                        ),
-                    )
-        except Exception as exc:
-            self._log_execution_branch(
-                "backfill",
-                f"查询 daily_performances 异常（将尝试从 broker 交易历史恢复）: {exc}",
-            )
-        else:
-            if existing is None or existing.empty:
-                self._log_execution_branch(
-                    "backfill",
-                    "daily_performances 无历史记录，尝试从 broker 交易历史恢复",
-                )
-
-        # 如果 daily_performances 无记录，尝试从 PaperBroker 已恢复的历史交易中推断最新日期
-        broker = getattr(self.gateway, "broker", None)
-        broker_trades = getattr(broker, "trades", None) if broker is not None else None
-        if broker_trades:
-            broker_last_trade_dt: Optional[datetime] = None
-            for trade in broker_trades:
-                td = getattr(trade, "trade_date", None)
-                if td is None:
-                    continue
-                if hasattr(td, "to_pydatetime"):
-                    dt = td.to_pydatetime()
-                elif hasattr(td, "strftime"):
-                    dt = datetime.strptime(td.strftime("%Y-%m-%d"), "%Y-%m-%d")
-                else:
-                    dt = datetime.strptime(str(td)[:10], "%Y-%m-%d")
-                dt = dt.replace(hour=0, minute=0, second=0, microsecond=0)
-                if broker_last_trade_dt is None or dt > broker_last_trade_dt:
-                    broker_last_trade_dt = dt
-            if broker_last_trade_dt is not None and broker_last_trade_dt >= backfill_start:
-                broker_next = broker_last_trade_dt + timedelta(days=1)
-                self._log_execution_branch(
-                    "backfill",
-                    (
-                        f"从 PaperBroker 历史交易恢复，最新交易日期="
-                        f"{broker_last_trade_dt.strftime('%Y-%m-%d')}，"
-                        f"从 {broker_next.strftime('%Y-%m-%d')} 继续回填"
-                    ),
-                )
-                backfill_start = broker_next
-        else:
-            self._log_execution_branch(
-                "backfill",
-                "broker 中也没有历史交易记录，将从头开始回填",
-            )
-
-        md_provider = getattr(self.gateway, "market_data_provider", None)
-        if md_provider is None:
-            raise RuntimeError("No market_data_provider available for backfill")
-
-        if not hasattr(md_provider, "set_backfill_from"):
-            raise RuntimeError(
-                "market_data_provider does not support set_backfill_from"
-            )
-
-        total_days = (backfill_end - backfill_start).days + 1
-        if total_days <= 0:
-            self._log_execution_branch(
-                "backfill",
-                f"回填{self.config.session_id}已是最新，无需执行",
-            )
-            return None
-        self._log_execution_branch(
-            "backfill",
-            f"开始回填{self.config.session_id}，起始日期={backfill_start.strftime('%Y-%m-%d')}，结束日期={backfill_end.strftime('%Y-%m-%d')}，预计 {total_days} 天",
-        )
-
-        # 预取全量价格数据，避免逐日触发 JhData 重复下载
-        try:
-            pre_selection = self.selection_provider.select(
-                as_of_date=backfill_start.strftime("%Y-%m-%d")
-            )
-            pre_symbols = pre_selection.top_selections
-            if pre_symbols:
-                self._log_execution_branch(
-                    "backfill",
-                    f"预取全量价格数据，日期={backfill_start.strftime('%Y-%m-%d')}~{backfill_end.strftime('%Y-%m-%d')}，标的数={len(pre_symbols)}",
-                )
-                _ = self.gateway.get_price_data(
-                    symbols=pre_symbols,
-                    start_date=backfill_start.strftime("%Y-%m-%d"),
-                    end_date=backfill_end.strftime("%Y-%m-%d"),
-                )
-        except Exception:
-            pass
-
-        last_result: Optional[TradingCycleResult] = None
-        current = backfill_start
-        day_count = 0
-
-        while current <= backfill_end:
-            current_str = current.strftime("%Y-%m-%d")
-
-            try:
-                md_provider.set_backfill_from(current_str)
-                self.gateway.broker.set_simulation_date(current)
-                last_result = self.run_once(as_of_date=current_str)
-
-                day_count += 1
-                if day_count % 30 == 0 or day_count == 1:
-                    self._log_execution_branch(
-                        "backfill",
-                        (
-                            f"进度 {day_count}/{total_days}，"
-                            f"当前={current_str}，"
-                            f"已执行买入={last_result.executed_buy_count}，"
-                            f"卖出={last_result.executed_sell_count}"
-                        ),
-                    )
-            except Exception:
-                self._log_execution_branch(
-                    "backfill",
-                    f"回填 {current_str} 失败: {traceback.format_exc()}",
-                )
-                day_count += 1
-            finally:
-                current += timedelta(days=1)
-
-        md_provider.set_backfill_from(None)
-        self.gateway.broker.set_simulation_date(None)
-
-        self._log_execution_branch(
-            "backfill",
-            f"回填完成，共处理 {day_count} 天，起始日期={self.config.backfill_from}",
-        )
-
-        return last_result
+        return self.session_runner.run_backfill(self)
 
     def _run_scheduler_loop(self):
-        if not self.config.cron_expression:
-            self._log_execution_branch(
-                "scheduler", "未配置 cron_expression，调度线程退出"
-            )
-            self._scheduler_running = False
-            return
-
-        scheduler = CronScheduler(
-            self.config.cron_expression,
-            self.config.timezone,
-        )
-
-        while not self._scheduler_stop_event.is_set():
-            if not scheduler.wait(self._scheduler_stop_event):
-                break
-
-            try:
-                self.run_once()
-            except BaseException as exc:
-                self._last_error = f"{type(exc).__name__}: {exc}"
-                self._last_result = TradingCycleResult(
-                    session_id=self.config.session_id,
-                    mode=self.config.mode,
-                    cycle_time=datetime.now().isoformat(),
-                    selection_count=0,
-                    long_candidate_count=0,
-                    short_candidate_count=0,
-                    executed_buy_count=0,
-                    executed_sell_count=0,
-                    status="error",
-                    error=traceback.format_exc(),
-                )
-                try:
-                    self._persist_runtime_state(extra={"event": "cycle_error"})
-                except Exception:
-                    pass
+        return self._build_session_lifecycle_coordinator().run_scheduler_loop()
 
     def start_scheduler(self):
-        if self._scheduler_running:
-            return
-        if not self.config.cron_expression:
-            self._log_execution_branch(
-                "scheduler", "未配置 cron_expression，无法启动调度"
-            )
-            return
-        self._scheduler_stop_event.clear()
-        self._scheduler_running = True
-        self._scheduler_thread = Thread(target=self._run_scheduler_loop, daemon=True)
-        self._scheduler_thread.start()
-        self._persist_runtime_state(extra={"event": "scheduler_started"})
+        return self._build_session_lifecycle_coordinator().start_scheduler()
 
     def stop_scheduler(self):
-        if not self._scheduler_running:
-            return
-        self._scheduler_stop_event.set()
-        if self._scheduler_thread is not None:
-            self._scheduler_thread.join(timeout=5)
-        self._scheduler_running = False
-        self._persist_runtime_state(extra={"event": "scheduler_stopped"})
+        return self._build_session_lifecycle_coordinator().stop_scheduler()
 
     def shutdown_session(self) -> None:
-        if self._scheduler_running:
-            self.stop_scheduler()
-        self._persist_runtime_state(extra={"event": "service_shutdown"})
+        return self._build_session_lifecycle_coordinator().shutdown_session()
 
     def close_all_positions(self, slippage: float = 0.0) -> CloseAllPositionsResponse:
         with self._lock:
@@ -2220,7 +1210,7 @@ class MultiSessionService:
 
     Each service gets its own broker instance (isolated by session_id) and scheduler
     thread, while sharing a common PersistenceCoordinator and
-    MarketDataProvider.
+    MarketDataService.
 
     Registers ``atexit`` and ``SIGINT``/``SIGTERM`` handlers so that all
     scheduler threads are stopped and persistence connections are closed
@@ -2261,7 +1251,7 @@ class MultiSessionService:
         session_id: str,
         initial_capital: float,
     ):
-        if config.session.mode == "paper":
+        if config.session.execution_mode == ExecutionMode.PAPER:
             return PaperBroker(session_id=session_id, initial_capital=initial_capital)
 
         if config.broker_spec is None:
@@ -2412,11 +1402,9 @@ class MultiSessionService:
     # ── data access ────────────────────────────────────────────
 
     def _resolve_jhdata(self):
-        """Resolve JHData from shared market_data_provider or first service."""
-        from ..market_data import JHMarketDataProvider
-
-        if self._shared_md_provider is not None and isinstance(
-            self._shared_md_provider, JHMarketDataProvider
+        """Resolve JHData from the shared market-data service or first session."""
+        if self._shared_md_provider is not None and hasattr(
+            self._shared_md_provider, "jhd"
         ):
             return self._shared_md_provider.jhd
 
@@ -2426,7 +1414,7 @@ class MultiSessionService:
                     return svc._get_jhdata()
                 except Exception:
                     continue
-        raise RuntimeError("No JHMarketDataProvider available in any managed service")
+        raise RuntimeError("No JH-backed market-data service available in any managed session")
 
     # ── query ──────────────────────────────────────────────────
 
@@ -2530,7 +1518,7 @@ class MultiSessionService:
 
         return SessionTrendItem(
             session_id=session_id,
-            mode=svc.config.mode,
+            mode=svc._runtime_mode_key(),
             initial_capital=initial_capital,
             strategy_names=[spec.alias or spec.name for spec in svc.strategy_specs],
             selection_name=str(selection_name) if selection_name else None,
@@ -2578,7 +1566,7 @@ class MultiSessionService:
 
         return SessionInfoResponse(
             session_id=session_id,
-            mode=svc.config.mode,
+            mode=svc._runtime_mode_key(),
             running=svc._scheduler_running,
             strategy_count=len(svc.strategy_specs),
             strategy_names=strategy_names,

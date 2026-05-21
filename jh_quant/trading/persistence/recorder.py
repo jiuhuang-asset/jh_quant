@@ -202,6 +202,7 @@ class TortoiseOrderRecorder(OrderRecorder):
         self.db_url = db_url
         self.app_label = app_label
         self._runner = _AsyncLoopRunner()
+        self._closed = False
         self._run(self._init_orm())
 
     def _run(self, coro: Awaitable[Any]) -> Any:
@@ -496,6 +497,9 @@ class TortoiseOrderRecorder(OrderRecorder):
         return await self._query_session_records(PositionSnapshotRecord, session_id)
 
     def close(self):
+        if self._closed:
+            return
+        self._closed = True
         try:
             self._run(self._close_orm())
         finally:

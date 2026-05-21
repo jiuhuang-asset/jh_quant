@@ -1,27 +1,10 @@
-"""
-信号网关 - 聚合多策略信号，执行交易
-
-核心职责：
-- 策略信号聚合
-- 头寸计算
-- 订单执行
-
-设计：使用 MarketDataProvider 统一获取市场数据，支持回测和实盘
-"""
-
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, List, Optional, Union
+from typing import List, Optional, Union
 
 import pandas as pd
 
-from .market_data import Frequency, MarketDataProvider
-from .models import Order, Trade
-from .broker import Broker
-from .position_sizer import ATRPositionSizer, PositionSizer
-from .utils import rprint
-from .config import Frequency
 from jh_quant.backtest.rules import (
     ATRTrailingStopRule,
     PositionState,
@@ -30,44 +13,106 @@ from jh_quant.backtest.rules import (
 )
 from jh_quant.backtest.strategy import Strategy
 
+from .broker import Broker
+from .config import Frequency
+from .execution import OrderExecutor, PositionValuator
+from .market_data import (
+    HistoricalBarProvider,
+    InstrumentProvider,
+    LatestQuoteProvider,
+    MarketDataService,
+    MarketStatusProvider,
+    RealtimeQuoteProvider,
+    TradingCalendarProvider,
+)
+from .market_data.models import QuoteSnapshot
+from .models import Trade
+from .position_sizer import ATRPositionSizer, PositionSizer
+from .signal import SignalAggregator, SignalCandidateSelector
+from .utils import rprint
+
 
 class TradingEngine:
-    """
-    通用信号网关：负责聚合多策略信号，并执行交易。
-
-    数据通过 MarketDataProvider 获取，交易状态由 Broker 管理。
-    头寸计算通过 PositionSizer 插件化。
-    """
+    """Coordinate market data, signals, sizing, valuation, and execution."""
 
     def __init__(
         self,
         broker: Broker,
-        market_data_provider: MarketDataProvider = None,
+        market_data_provider: MarketDataService = None,
+        historical_data_provider: HistoricalBarProvider | None = None,
+        realtime_quote_provider: RealtimeQuoteProvider | None = None,
+        calendar_provider: TradingCalendarProvider | None = None,
+        instrument_provider: InstrumentProvider | None = None,
+        market_status_provider: MarketStatusProvider | None = None,
         position_sizer: PositionSizer = None,
         strict_mode: bool = True,
         risk_rules: List[RiskRule] | None = None,
     ):
-        """
-        初始化信号网关
-
-        Args:
-            broker: Broker 实例，必须提供
-            market_data_provider: 市场数据提供者（用于获取K线数据）
-            position_sizer: 头寸计算器（默认使用 ATR 方式）
-            risk_rules: 风险规则列表（StopLoss、TrailingStop 等），用于实盘/模拟盘风控
-        """
         if broker is None:
             raise ValueError("TradingEngine requires a broker instance")
 
         self.broker = broker
         self.market_data_provider = market_data_provider
+        self.historical_data_provider = historical_data_provider or getattr(
+            market_data_provider, "historical_data", None
+        )
+        self.realtime_quote_provider = realtime_quote_provider or getattr(
+            market_data_provider, "realtime_quote_provider", None
+        )
+        self.calendar_provider = calendar_provider or getattr(
+            market_data_provider, "calendar_provider", None
+        )
+        self.instrument_provider = instrument_provider or getattr(
+            market_data_provider, "instrument_provider", None
+        )
+        self.market_status_provider = market_status_provider or getattr(
+            market_data_provider, "market_status_provider", None
+        )
         self.position_sizer = position_sizer or ATRPositionSizer()
         self.strict_mode = strict_mode
         self.strategy_pool: List[dict] = []
         self.risk_rules: List[RiskRule] = list(risk_rules or [])
+        self._reference_time: Optional[pd.Timestamp] = None
+
+        self.position_valuator = PositionValuator(
+            broker=self.broker,
+            quote_loader=lambda symbols=None: self.get_latest_quotes(symbols),
+        )
+        self.order_executor = OrderExecutor(
+            broker=self.broker,
+            quote_loader=lambda symbols=None: self.get_latest_quotes(symbols),
+            volume_normalizer=self._normalize_order_volume,
+        )
+        self.signal_aggregator = SignalAggregator(
+            strategy_pool_getter=lambda: list(self.strategy_pool),
+            frequency_max_age=self._frequency_max_age,
+        )
+        self.signal_candidate_selector = SignalCandidateSelector(
+            broker=self.broker,
+            position_sizer=self.position_sizer,
+            get_price_data=self.get_price_data,
+            validate_price_freshness=self.validate_price_freshness,
+            aggregate_buy_signals=self.signal_aggregator.aggregate_buy_signals,
+            aggregate_sell_signals=self.signal_aggregator.aggregate_sell_signals,
+            get_latest_prices=self.get_latest_prices,
+            evaluate_risk_exit=self._evaluate_risk_exit,
+            market_data_enabled=lambda: self.market_data_provider is not None,
+        )
+
+    def set_reference_time(
+        self,
+        value: Optional[Union[str, datetime, pd.Timestamp]],
+    ) -> None:
+        self._reference_time = (
+            None if value is None else self._normalize_reference_time(value)
+        )
+        if hasattr(self.market_data_provider, "set_reference_time"):
+            self.market_data_provider.set_reference_time(self._reference_time)
+
+    def clear_reference_time(self) -> None:
+        self.set_reference_time(None)
 
     def add_strategy(self, strategy: Strategy, name: str, weight: float = 1.0):
-        """添加策略到信号池"""
         self.strategy_pool.append(
             {
                 "name": name,
@@ -77,7 +122,6 @@ class TradingEngine:
         )
 
     def replace_strategies(self, strategies: List[dict]):
-        """Replace the registered strategy pool in one call."""
         self.strategy_pool = []
         for item in strategies:
             self.add_strategy(
@@ -90,20 +134,11 @@ class TradingEngine:
         self,
         risk_rules: List[RiskRule] | None = None,
     ) -> None:
-        """Replace the current risk rule configuration.
-
-        Args:
-            risk_rules: 风险规则实例列表，传 None 等价于清空
-        """
         self.risk_rules = list(risk_rules or [])
 
     def configure_position_sizer(self, sizer: PositionSizer) -> None:
-        """动态更换头寸计算器
-
-        Args:
-            sizer: 实现 PositionSizer 协议的头寸计算器实例
-        """
         self.position_sizer = sizer
+        self.signal_candidate_selector.position_sizer = sizer
 
     def get_price_data(
         self,
@@ -112,34 +147,21 @@ class TradingEngine:
         end_date: str = None,
         frequency: Frequency | str = Frequency.DAILY,
     ) -> pd.DataFrame:
-        """
-        从数据提供者获取股票价格数据
-
-        Args:
-            symbols: 股票代码列表，None表示获取全部
-            start_date: 开始日期
-            end_date: 结束日期
-
-        Returns:
-            股票价格DataFrame
-        """
         if self.market_data_provider is None:
-            raise ValueError("MarketDataProvider not configured")
+            raise ValueError("MarketDataService not configured")
 
         if symbols is None:
             positions = self.broker.get_positions()
-            position_symbols = [h.symbol for h in positions.holds]
-            symbols = position_symbols or None
+            symbols = [h.symbol for h in positions.holds] or None
 
         price_df = self.market_data_provider.get_price_data(
             symbols=symbols,
             start_date=start_date or "1900-01-01",
             end_date=end_date or "2099-12-31",
+            frequency=frequency,
         )
-
         if price_df is None or price_df.empty:
             return pd.DataFrame()
-
         return price_df.sort_values(["symbol", "date"]).reset_index(drop=True)
 
     def build_price_matrix(
@@ -210,7 +232,8 @@ class TradingEngine:
         return mapping.get(frequency, timedelta(hours=24))
 
     def _normalize_reference_time(
-        self, value: Optional[Union[str, datetime, pd.Timestamp]]
+        self,
+        value: Optional[Union[str, datetime, pd.Timestamp]],
     ) -> pd.Timestamp:
         if value is None:
             return pd.Timestamp(datetime.now())
@@ -241,13 +264,12 @@ class TradingEngine:
             latest_timeindex = latest_timeindex.tz_localize(None)
 
         reference_ts = self._normalize_reference_time(reference_time)
-        frequency = self._normalize_frequency(frequency)
         max_age = self._frequency_max_age(frequency)
         if reference_ts - latest_timeindex > max_age:
             rprint(
                 label="Warning:",
                 content=(
-                    f"Latest market data is stale for frequency={frequency.value}. "
+                    f"Latest market data is stale for frequency={Frequency.from_value(frequency).value}. "
                     f"latest={latest_timeindex}, reference={reference_ts}, max_age={max_age}. "
                     "Skip current execution."
                 ),
@@ -256,41 +278,20 @@ class TradingEngine:
         return True
 
     def _filter_to_symbol_latest_window(
-        self, signal_df: pd.DataFrame, frequency: Frequency | str
+        self,
+        signal_df: pd.DataFrame,
+        frequency: Frequency | str,
     ) -> pd.DataFrame:
-        if (
-            signal_df.empty
-            or "symbol" not in signal_df.columns
-            or "date" not in signal_df.columns
-        ):
-            return signal_df
-
-        normalized = signal_df.copy()
-        normalized["date"] = pd.to_datetime(normalized["date"])
-        latest_by_symbol = normalized.groupby("symbol")["date"].transform("max")
-        max_age = self._frequency_max_age(frequency)
-        return normalized.loc[normalized["date"] >= (latest_by_symbol - max_age)].copy()
+        return self.signal_aggregator.filter_to_symbol_latest_window(
+            signal_df, frequency
+        )
 
     def _evaluate_risk_exit(
         self,
         symbol: str,
         hold,
         price_df: pd.DataFrame,
-    ) -> bool:
-        """对单个持仓评估所有风险规则，判断是否应该卖出。
-
-        从 hold.entry_time 开始回放所有 bar，在每个 bar 上更新
-        PositionState 并调用规则的 on_tick/should_sell。
-        仅对最后一个 bar 检查 should_sell，若任一规则触发则返回 True。
-
-        Args:
-            symbol: 股票代码
-            hold: StockHoldRecord，需包含 entry_time 和 avg_cost
-            price_df: 包含该 symbol 的价格数据
-
-        Returns:
-            是否应该因风险规则而强制卖出
-        """
+    ) -> str | None:
         if not self.risk_rules:
             return None
 
@@ -308,12 +309,10 @@ class TradingEngine:
 
         state = PositionState()
         state.enter(hold.avg_cost)
-
         for rule in self.risk_rules:
             rule.on_enter(state, hold.avg_cost)
 
         atr_series = maybe_compute_atr(symbol_price, self.risk_rules)
-
         if atr_series is not None:
             first_idx = symbol_price.index[0]
             atr_val = float(atr_series.loc[first_idx])
@@ -326,10 +325,10 @@ class TradingEngine:
 
         for idx in all_indices[1:]:
             current_price = float(symbol_price.loc[idx, "close"])
-
             state.holding_bars += 1
             state.highest_price = max(
-                state.highest_price or current_price, current_price
+                state.highest_price or current_price,
+                current_price,
             )
 
             if atr_series is not None:
@@ -342,22 +341,20 @@ class TradingEngine:
                 rule.on_tick(state, current_price, prev_price)
 
             if idx == all_indices[-1]:
-                force_sell = any(
-                    rule.should_sell(state, current_price, prev_price)
+                triggered_rules = [
+                    type(rule).__name__
                     for rule in self.risk_rules
-                )
-                if force_sell:
-                    rule_names = [
-                        type(r).__name__
-                        for r in self.risk_rules
-                        if r.should_sell(state, current_price, prev_price)
-                    ]
+                    if rule.should_sell(state, current_price, prev_price)
+                ]
+                if triggered_rules:
                     rprint(
                         label="RiskRule:",
-                        content=f"{symbol} 触发风控卖出: {', '.join(rule_names)} "
-                        f"(持仓成本: {hold.avg_cost:.2f}, 当前价: {current_price:.2f})",
+                        content=(
+                            f"{symbol} triggered risk exits: {', '.join(triggered_rules)} "
+                            f"(cost={hold.avg_cost:.2f}, price={current_price:.2f})"
+                        ),
                     )
-                    return "risk_rule:" + ",".join(rule_names)
+                    return "risk_rule:" + ",".join(triggered_rules)
 
             prev_price = current_price
 
@@ -369,83 +366,92 @@ class TradingEngine:
         frequency: Frequency | str = Frequency.DAILY,
         signal_type: str = "buy",
     ) -> pd.DataFrame:
-        """
-        聚合策略信号
-
-        Args:
-            price: 股票价格数据
-            frequency: 用于按每个symbol自己的最新时间窗口过滤信号的频率
-            signal_type: 信号类型 "buy" 或 "sell"
-
-        Returns:
-            包含 'symbol'、'score' 和 'reasons' 的DataFrame
-        """
-        if not self.strategy_pool:
-            rprint(
-                label="Warning:", content="No strategies registered in the trading module"
-            )
-            return pd.DataFrame()
-
-        signal_column = f"{signal_type}_signal"
-        weighted_column = f"{signal_type}_signal_w"
-
-        all_signals = []
-        for strat in self.strategy_pool:
-            signal_df = strat["strategy"](price)
-            signal_df = self._filter_to_symbol_latest_window(signal_df, frequency)
-            signal_df[weighted_column] = signal_df[signal_column] * strat["weight"]
-            signal_df["_strategy_name"] = strat["name"]
-            all_signals.append(
-                signal_df[["symbol", weighted_column, "_strategy_name"]]
-            )
-
-        if not all_signals:
-            return pd.DataFrame(columns=["symbol", "score"])
-
-        concat_all = pd.concat(all_signals)
-
-        combined = (
-            concat_all.groupby("symbol")[weighted_column]
-            .sum()
-            .reset_index()
-        )
-        combined.rename(columns={weighted_column: "score"}, inplace=True)
-        return combined
+        return self.signal_aggregator.aggregate_signals(price, frequency, signal_type)
 
     def aggregate_buy_signals(
-        self, price: pd.DataFrame, frequency: Frequency | str = Frequency.DAILY
+        self,
+        price: pd.DataFrame,
+        frequency: Frequency | str = Frequency.DAILY,
     ) -> pd.DataFrame:
-        """聚合买入信号"""
-        return self.aggregate_signals(price, frequency, "buy")
+        return self.signal_aggregator.aggregate_buy_signals(price, frequency)
 
     def aggregate_sell_signals(
-        self, price: pd.DataFrame, frequency: Frequency | str = Frequency.DAILY
+        self,
+        price: pd.DataFrame,
+        frequency: Frequency | str = Frequency.DAILY,
     ) -> pd.DataFrame:
-        """聚合卖出信号"""
-        return self.aggregate_signals(price, frequency, "sell")
+        return self.signal_aggregator.aggregate_sell_signals(price, frequency)
 
-    def get_latest_prices(self, symbols: List[str] = None) -> pd.Series:
-        """
-        获取最新价格
-
-        Args:
-            symbols: 股票代码列表，None表示所有持仓
-
-        Returns:
-            pd.Series {symbol: price}
-        """
+    def get_latest_quotes(self, symbols: List[str] = None) -> dict[str, QuoteSnapshot]:
         if symbols is None:
             positions = self.broker.get_positions()
             symbols = [h.symbol for h in positions.holds]
 
-        if not symbols:
+        if not symbols or self.market_data_provider is None:
+            return {}
+
+        if isinstance(self.market_data_provider, LatestQuoteProvider):
+            return self.market_data_provider.get_latest_quotes(
+                symbols,
+                as_of_date=self._reference_time,
+            )
+
+        prices = self.market_data_provider.get_latest_prices(
+            symbols,
+            as_of_date=self._reference_time,
+        )
+        timestamp = (
+            self._reference_time.to_pydatetime()
+            if isinstance(self._reference_time, pd.Timestamp)
+            else datetime.now()
+        )
+        return {
+            symbol: QuoteSnapshot(
+                symbol=symbol,
+                last_price=float(price),
+                timestamp=timestamp,
+            )
+            for symbol, price in prices.items()
+        }
+
+    def get_latest_prices(self, symbols: List[str] = None) -> pd.Series:
+        quotes = self.get_latest_quotes(symbols)
+        if not quotes:
             return pd.Series(dtype=float)
+        return pd.Series(
+            {symbol: quote.last_price for symbol, quote in quotes.items()},
+            dtype=float,
+        )
 
-        if self.market_data_provider:
-            prices = self.market_data_provider.get_latest_prices(symbols)
-            return pd.Series(prices)
+    def get_market_status(self):
+        if self.market_status_provider is None:
+            return None
+        reference_time = (
+            self._reference_time.to_pydatetime()
+            if isinstance(self._reference_time, pd.Timestamp)
+            else None
+        )
+        return self.market_status_provider.get_market_status(now=reference_time)
 
-        return pd.Series(dtype=float)
+    def refresh_position_market_value(
+        self,
+        symbols: Optional[List[str]] = None,
+    ) -> dict[str, float]:
+        return self.position_valuator.refresh(symbols)
+
+    def _normalize_order_volume(self, symbol: str, volume: int) -> int:
+        if volume <= 0:
+            return 0
+        if self.instrument_provider is None:
+            return int(volume)
+        normalize = getattr(self.instrument_provider, "normalize_order_volume", None)
+        if callable(normalize):
+            return int(normalize(symbol, int(volume)))
+        instruments = self.instrument_provider.get_instruments([symbol])
+        meta = instruments.get(symbol)
+        lot_size = getattr(meta, "lot_size", 1) if meta is not None else 1
+        lot_size = max(1, int(lot_size))
+        return max(0, int(volume) // lot_size * lot_size)
 
     def calculate_position_size(
         self,
@@ -453,21 +459,11 @@ class TradingEngine:
         price_df: pd.DataFrame,
         latest_prices: pd.Series = None,
     ) -> pd.DataFrame:
-        """
-        计算头寸（委托给 PositionSizer）
-
-        Args:
-            candidates: 候选股票
-            price_df: 价格数据
-            latest_prices: 最新价格
-        """
         positions = self.broker.get_positions()
         total_equity = positions.total
         available_balance = positions.available_balance
-
         if latest_prices is None:
             latest_prices = price_df.groupby("symbol")["close"].last()
-
         return self.position_sizer.calculate(
             candidates=candidates,
             price_df=price_df,
@@ -485,72 +481,14 @@ class TradingEngine:
         frequency: Frequency | str = Frequency.DAILY,
         reference_time: Optional[Union[str, datetime, pd.Timestamp]] = None,
     ) -> pd.DataFrame:
-        """
-        获取买入候选股票（直接从provider获取数据）
-
-        Args:
-            start_date: 数据开始日期
-            end_date: 数据结束日期
-            max_candidates: 最大候选数量
-
-        Returns:
-            包含 symbol 和 target_qty 的 DataFrame
-        """
-        positions = self.broker.get_positions()
-        rprint(
-            label="Info:",
-            content=f"总权益: {positions.total:.2f}, 可用资金: {positions.available_balance:.2f}",
-        )
-
-        if price is None:
-            price = self.get_price_data(
-                start_date=start_date,
-                end_date=end_date,
-            )
-
-        if price.empty:
-            rprint(label="Warning:", content="无法获取价格数据")
-            return pd.DataFrame()
-
-        if not self.validate_price_freshness(
+        return self.signal_candidate_selector.get_long_candidates(
+            start_date=start_date,
+            end_date=end_date,
+            max_candidates=max_candidates,
             price=price,
             frequency=frequency,
-            reference_time=reference_time or end_date,
-        ):
-            return pd.DataFrame()
-
-        raw_signals = self.aggregate_buy_signals(price=price, frequency=frequency)
-
-        if raw_signals.empty:
-            rprint(label="Info:", content="没有买入信号")
-            return pd.DataFrame()
-
-        final_list = raw_signals.sort_values(by="score", ascending=False).head(
-            max_candidates
+            reference_time=reference_time,
         )
-        final_list["reason"] = "strategy"
-
-        current_hold_symbols = {h.symbol for h in self.broker.get_positions().holds}
-        if current_hold_symbols:
-            final_list = final_list[~final_list["symbol"].isin(current_hold_symbols)]
-
-        if final_list.empty:
-            rprint(label="Info:", content="所有买入候选已在持仓中，跳过买入")
-            return pd.DataFrame()
-
-        if self.market_data_provider is not None:
-            latest_prices = self.get_latest_prices(final_list["symbol"].tolist())
-        else:
-            latest_prices = (
-                price[price["symbol"].isin(final_list["symbol"])]
-                .sort_values(["symbol", "date"])
-                .groupby("symbol")["close"]
-                .last()
-            )
-
-        orders_df = self.calculate_position_size(final_list, price, latest_prices)
-
-        return orders_df
 
     def get_short_candidates(
         self,
@@ -560,238 +498,33 @@ class TradingEngine:
         frequency: Frequency | str = Frequency.DAILY,
         reference_time: Optional[Union[str, datetime, pd.Timestamp]] = None,
     ) -> pd.DataFrame:
-        """
-        获取卖出候选持仓
-        """
-        positions = self.broker.get_positions()
-        rprint(
-            label="Info:",
-            content=f"总权益: {positions.total:.2f}, 持仓数: {len(positions.holds)}",
-        )
-
-        if not self.broker.executable_holds:
-            rprint(label="Info:", content="没有[可卖]持仓，无法执行卖出")
-            return pd.DataFrame()
-
-        hold_symbols = [h.symbol for h in self.broker.executable_holds]
-
-        if price is None:
-            price = self.get_price_data(
-                symbols=hold_symbols,
-                start_date=start_date,
-                end_date=end_date,
-            )
-        else:
-            price = price[price["symbol"].isin(hold_symbols)].copy()
-
-        if price.empty:
-            return pd.DataFrame()
-
-        if not self.validate_price_freshness(
+        return self.signal_candidate_selector.get_short_candidates(
+            start_date=start_date,
+            end_date=end_date,
             price=price,
             frequency=frequency,
-            reference_time=reference_time or end_date,
-        ):
-            return pd.DataFrame()
-
-        sell_signals = self.aggregate_sell_signals(price=price, frequency=frequency)
-
-        holdings_map = {h.symbol: h for h in self.broker.executable_holds}
-
-        strategy_sell_symbols: set = set()
-        sell_candidate_rows: list[dict] = []
-
-        if not sell_signals.empty:
-            strategy_sells = sell_signals[
-                (sell_signals["symbol"].isin(holdings_map.keys()))
-                & (sell_signals["score"] > 1)
-            ]
-            if not strategy_sells.empty:
-                strategy_sell_symbols = set(strategy_sells["symbol"].tolist())
-                sell_candidate_rows.extend(
-                    {"symbol": row["symbol"], "score": row["score"], "reason": "strategy"}
-                    for _, row in strategy_sells.iterrows()
-                )
-
-        if self.risk_rules:
-            for symbol, hold in holdings_map.items():
-                if symbol in strategy_sell_symbols:
-                    continue
-                risk_reason = self._evaluate_risk_exit(symbol, hold, price)
-                if risk_reason is not None:
-                    sell_candidate_rows.append(
-                        {"symbol": symbol, "score": float("inf"), "reason": risk_reason}
-                    )
-
-        if not sell_candidate_rows:
-            return pd.DataFrame()
-
-        sell_candidates = pd.DataFrame(sell_candidate_rows)
-
-        sell_orders = []
-        for _, row in sell_candidates.iterrows():
-            symbol = row["symbol"]
-            qty = holdings_map[symbol].volume
-            sell_orders.append(
-                {"symbol": symbol, "target_qty": qty, "reason": row.get("reason", "strategy")}
-            )
-
-        return pd.DataFrame(sell_orders)
+            reference_time=reference_time,
+        )
 
     def execute_long(
         self,
         orders: pd.DataFrame,
         slippage: float = 0.0,
     ) -> List[Trade]:
-        """执行买入订单
-
-        Args:
-            orders: 订单 DataFrame
-            slippage: 滑点比例（买入时价格上涨 slippage，A股建议0.001-0.003）
-        """
-        symbols = orders["symbol"].tolist() if not orders.empty else []
-        latest_prices = self.get_latest_prices(symbols)
-
-        executed_trades = []
-        for _, row in orders.iterrows():
-            symbol = row["symbol"]
-            target_qty = row["target_qty"]
-
-            if symbol not in latest_prices.index:
-                rprint(label="Warning:", content=f"无法获取 {symbol} 的最新价格")
-                continue
-
-            price_val = latest_prices[symbol]
-            exec_price = price_val * (1 + slippage) if slippage > 0 else price_val
-
-            try:
-                order = Order(
-                    symbol=symbol,
-                    price=exec_price,
-                    volume=target_qty,
-                    trade_type="BUY",
-                )
-                trade = self.broker.signal_buy(order)
-                executed_trades.append(trade)
-            except Exception as e:
-                rprint(label="Error:", content=f"买入 {symbol} 失败: {e}")
-                continue
-
-        return executed_trades
+        return self.order_executor.execute_buy_orders(orders, slippage)
 
     def execute_short(
         self,
         orders: pd.DataFrame,
         slippage: float = 0.0,
     ) -> List[Trade]:
-        """执行卖出订单
-
-        Args:
-            orders: 订单 DataFrame
-            slippage: 滑点比例（卖出时价格下跌 slippage，A股建议0.001-0.003）
-        """
-        symbols = orders["symbol"].tolist() if not orders.empty else []
-        latest_prices = self.get_latest_prices(symbols)
-
-        executable_holdings_map = {h.symbol: h for h in self.broker.executable_holds}
-
-        executed_trades = []
-        for _, row in orders.iterrows():
-            symbol = row["symbol"]
-            target_qty = row["target_qty"]
-
-            if symbol not in latest_prices.index:
-                rprint(label="Warning:", content=f"无法获取 {symbol} 的最新价格")
-                continue
-
-            price_val = latest_prices[symbol]
-            exec_price = price_val * (1 - slippage) if slippage > 0 else price_val
-            holding_info = executable_holdings_map.get(symbol)
-
-            if holding_info is None:
-                rprint(
-                    label="Warning:",
-                    content=f"跳过卖出 {symbol}：当前不在 executable_holds 中，可能受 A 股 T+1 限制。",
-                )
-                continue
-            executable_qty = int(holding_info.volume)
-            if executable_qty <= 0:
-                rprint(label="Warning:", content=f"跳过卖出 {symbol}：可卖数量为 0。")
-                continue
-            if target_qty > executable_qty:
-                rprint(
-                    label="Warning:",
-                    content=(
-                        f"卖出 {symbol} 请求数量 {target_qty} 超过可卖数量 {executable_qty}，"
-                        "已按可卖数量下单。"
-                    ),
-                )
-                target_qty = executable_qty
-
-            try:
-                order = Order(
-                    symbol=symbol,
-                    price=exec_price,
-                    volume=target_qty,
-                    trade_type="SELL",
-                )
-                trade = self.broker.signal_sell(order)
-                executed_trades.append(trade)
-
-                pnl = (exec_price - holding_info.avg_cost) * target_qty
-                pnl_pct = (
-                    ((exec_price - holding_info.avg_cost) / holding_info.avg_cost * 100)
-                    if holding_info.avg_cost > 0
-                    else 0
-                )
-                rprint(
-                    label="Trade:",
-                    content=f"卖出 {symbol} {target_qty} 股 @ {exec_price:.2f}, "
-                    f"成本: {holding_info.avg_cost:.2f}, PnL: {pnl:.2f} ({pnl_pct:.2f}%)",
-                )
-            except Exception as e:
-                rprint(label="Error:", content=f"卖出 {symbol} 失败: {e}")
-                continue
-
-        rprint(label="Info:", content=f"成功执行 {len(executed_trades)} 个卖出订单")
-        return executed_trades
+        return self.order_executor.execute_sell_orders(orders, slippage)
 
     def close_all_positions(
         self,
         slippage: float = 0.0,
     ) -> List[Trade]:
-        """
-        清空所有可执行持仓
-
-        Args:
-            slippage: 滑点比例
-
-        Returns:
-            执行的交易列表
-        """
-        if not self.broker.executable_holds:
-            rprint(label="Info:", content="没有可执行持仓")
-            return []
-
-        holdings = self.broker.executable_holds
-        close_orders = pd.DataFrame(
-            [
-                {"symbol": h.symbol, "target_qty": h.volume, "reason": "manual_close"}
-                for h in holdings
-            ]
-        )
-
-        rprint(
-            label="Info:",
-            content=f"正在清空 {len(holdings)} 个持仓",
-        )
-
-        executed_trades = self.execute_short(close_orders, slippage)
-        rprint(
-            label="Info:",
-            content=f"已清空 {len(executed_trades)} 个持仓",
-        )
-        return executed_trades
+        return self.order_executor.close_all_positions(slippage)
 
     def execute_cycle(
         self,
@@ -802,20 +535,6 @@ class TradingEngine:
         max_candidates: int = 10,
         price_slippage: float = 0.0,
     ) -> tuple[List[Trade], List[Trade], pd.DataFrame, pd.DataFrame]:
-        """
-        执行完整交易周期：卖出 -> 买入
-
-        Args:
-            top_selections: 候选股票列表
-            price_start: 价格数据起始日期
-            cycle_date: 结算日期
-            frequency: 数据频率
-            max_candidates: 最大买入候选数
-            price_slippage: 滑点
-
-        Returns:
-            (executed_buys, executed_sells, long_candidates, short_candidates)
-        """
         price = self.get_price_data(
             symbols=top_selections or None,
             start_date=price_start,
@@ -823,11 +542,7 @@ class TradingEngine:
             frequency=frequency,
         )
 
-        latest_prices = self.get_latest_prices(symbols=top_selections)
-        if not latest_prices.empty:
-            prices_dict = latest_prices.to_dict()
-            if hasattr(self.broker, "update_position_market_value"):
-                self.broker.update_position_market_value(prices_dict)
+        self.refresh_position_market_value(symbols=top_selections)
 
         short_candidates = self.get_short_candidates(
             start_date=price_start,

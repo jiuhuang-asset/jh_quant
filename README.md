@@ -114,7 +114,9 @@ display_backtesting(trading_hist, backtest_perf)
 | -------- | -------- |
 | ![交易历史](assets/trading_history_resized.png) | ![策略排名](assets/strat_ranking_resized.png) |
 
-### 实时模拟交易
+## 交易Trading
+TODO: 介绍trading模块的两种模式
+### 模拟交易
 
 **jh_quant** 支持同时开启多个模拟交易会话，每个会话对应一个模拟账户。下面是示例运行方式：
 
@@ -126,8 +128,10 @@ python run_paper.py
 
 在回填模式下（可通过 `enable_backfill=False` 关闭），系统会先完成历史交易回放，并在本地启动服务，默认端口为 `8000`。
 
-**打开控制台仪表盘**
+### 实盘交易
+TODO
 
+### 控制台仪表盘
 本地服务启动后，可以通过如下代码打开控制台仪表盘：
 
 ```python
@@ -140,15 +144,6 @@ display_trading()
 ![JH_QUANT Dashboard Demo](assets/dash_video.gif)
 
 
-## 模块说明
-
-| 模块 | 说明 | 文档 |
-| ---- | ---- | ---- |
-| [data](docs/data/index.md) | 多种数据获取，兼容 `akshare` 和 `tushare` 的数据类型与调用风格 | [README](docs/data/index.md) |
-| [trading](docs/trading/index.md) | 交易运行层，支持模拟交易、交易会话编排和组合执行 | [README](docs/trading/index.md) |
-| [backtest](docs/backtest/index.md) | 回测引擎，支持快速策略验证和多种内置策略 | [README](docs/backtest/index.md) |
-| [factors](docs/factors/index.md) | 因子计算与暴露分析，内置多种因子模型 | [README](docs/factors/index.md) |
-| `dashboard` | PyWebView 可视化仪表盘 | - |
 
 ## License
 

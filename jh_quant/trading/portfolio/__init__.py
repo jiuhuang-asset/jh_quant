@@ -4,6 +4,7 @@ from .analysis import (
     build_portfolio_history,
 )
 from .allocator import build_rebalance_plan
+from .runtime import PortfolioRuntimeCoordinator
 from ..config import (
     PORTFOLIO_OPTIMIZER_REGISTRY,
     PortfolioAnalysisSpec,
@@ -19,6 +20,7 @@ __all__ = [
     "PORTFOLIO_OPTIMIZER_REGISTRY",
     "PortfolioAnalysisSpec",
     "PortfolioOptimizerDefinition",
+    "PortfolioRuntimeCoordinator",
     "PortfolioSpec",
     "RebalanceMode",
     "RebalancePolicySpec",

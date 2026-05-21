@@ -3,6 +3,9 @@
 Optional environment variables:
 - PAPER_INITIAL_CAPITAL
 - PAPER_BACKFILL_FROM
+- PAPER_ENABLE_BACKFILL
+- TRADING_AUTO_START
+- PAPER_DEMO_DB_PATH
 - TRADING_CRON
 - TRADING_HOST
 - TRADING_PORT
@@ -11,11 +14,13 @@ Optional environment variables:
 from __future__ import annotations
 
 import os
+from datetime import datetime, timedelta
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List
 
+from demo_market_data import DemoSyntheticMarketDataProvider
 from jh_quant.trading import (
-    JHMarketDataProvider,
+    AkShareJHMarketDataService,
     MultiSessionService,
     PersistenceCoordinator,
     SelectionProvider,
@@ -26,7 +31,9 @@ from jh_quant.trading import (
 )
 from jh_quant.trading.config import (
     ATRTrailingStopRuleConfig,
+    ClockMode,
     DualThrustStrategyConfig,
+    ExecutionMode,
     MomentumStrategyConfig,
     RebalanceMode,
     RebalancePolicySpec,
@@ -79,10 +86,26 @@ DEMO_SYMBOLS = [
 ]
 
 
+def _env_flag(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in {"0", "false", "no", "off"}
+
+
 def build_manager() -> MultiSessionService:
-    recorder = SQLiteOrderRecorder(db_path="trade_paper_demo.db")
+    db_path = os.getenv("PAPER_DEMO_DB_PATH", "trade_paper_demo.db")
+    recorder = SQLiteOrderRecorder(db_path=db_path)
     persistence = PersistenceCoordinator(recorder=recorder)
-    md_provider = JHMarketDataProvider()
+    try:
+        md_provider = AkShareJHMarketDataService(default_symbols=DEMO_SYMBOLS)
+        print("run_paper: using AkShareJHMarketDataService")
+    except Exception as exc:
+        print(
+            "run_paper: failed to initialize AkShareJHMarketDataService, "
+            f"falling back to synthetic demo data. reason={type(exc).__name__}: {exc}"
+        )
+        md_provider = DemoSyntheticMarketDataProvider(default_symbols=DEMO_SYMBOLS)
     return MultiSessionService(
         max_sessions=4,
         persistence=persistence,
@@ -92,17 +115,20 @@ def build_manager() -> MultiSessionService:
 
 def build_base_config() -> SessionServiceConfigBuilder:
     cron_expression = os.getenv("TRADING_CRON", "0 16 * * 1-5")
-    backfill_from = os.getenv("PAPER_BACKFILL_FROM", "2025-10-01")
+    backfill_from = os.getenv("PAPER_BACKFILL_FROM", (datetime.now() - timedelta(days=180)).strftime("%Y-%m-%d"))
+    auto_start = _env_flag("TRADING_AUTO_START", True)
+    enable_backfill = _env_flag("PAPER_ENABLE_BACKFILL", True)
+    clock_mode = ClockMode.BACKFILL if enable_backfill else ClockMode.REALTIME
 
-    return (
+    builder = (
         SessionServiceConfigBuilder.defaults()
         .with_session(
-            mode="paper",
-            auto_start=True,
+            execution_mode=ExecutionMode.PAPER,
+            clock_mode=clock_mode,
+            auto_start=auto_start,
             cron_expression=cron_expression,
             price_slippage=0.001,
-            enable_backfill=True,
-            backfill_from=backfill_from,
+            backfill_start=backfill_from if enable_backfill else None,
         )
         .with_selection(
             name="demo_watchlist",
@@ -121,6 +147,7 @@ def build_base_config() -> SessionServiceConfigBuilder:
             params=ATRTrailingStopRuleConfig(multiplier=3.0, window=20),
         )
     )
+    return builder
 
 
 def build_momentum_config() -> SessionServiceConfig:

@@ -163,7 +163,7 @@ PORTFOLIO_OPTIMIZER_REGISTRY: Dict[str, PortfolioOptimizerDefinition] = {
         params_schema=PortfolioSpec.model_json_schema(),
         optional_dependency="Riskfolio-Lib",
         notes=[
-            "Uses historical returns built from MarketDataProvider price data.",
+            "Uses historical returns built from MarketDataService price data.",
             "Lazy-imports Riskfolio-Lib and only fails when optimization is explicitly requested.",
         ],
     )

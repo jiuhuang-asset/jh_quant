@@ -20,7 +20,7 @@ from ..models import SelectionSnapshot
 if TYPE_CHECKING:
     from jh_quant.backtest.selectors import FactorSelector
 
-    from ..market_data import MarketDataProvider
+    from ..market_data import MarketDataService
 
 
 def _params_to_plain_dict(params: Any) -> Dict[str, Any]:
@@ -181,7 +181,7 @@ def _schema_from_callable(
 
 def _resolve_selection_runtime_kwargs(
     name: str,
-    market_data_provider: Optional["MarketDataProvider"],
+    market_data_provider: Optional["MarketDataService"],
 ) -> Dict[str, Any]:
     if name == "factor_selector":
         jh_data = getattr(market_data_provider, "jhd", None)
@@ -242,7 +242,7 @@ def list_selection_definitions() -> list[dict[str, Any]]:
 
 def build_selection_provider(
     spec: SelectionSpec,
-    market_data_provider: Optional["MarketDataProvider"],
+    market_data_provider: Optional["MarketDataService"],
 ) -> tuple[SelectionSpec, SelectionProvider]:
     normalized_spec = normalize_selection_spec(spec)
     provider_cls = SELECTION_PROVIDER_REGISTRY[normalized_spec.name]

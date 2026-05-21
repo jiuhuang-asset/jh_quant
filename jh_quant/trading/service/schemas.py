@@ -42,7 +42,7 @@ class SchedulerStatus(BaseModel):
 
 class TradingCycleResultResponse(BaseModel):
     session_id: str = Field(description="Current session ID.")
-    mode: str = Field(description="Session running mode.")
+    mode: str = Field(description="Session runtime profile, e.g. paper+backfill.")
     cycle_time: str = Field(description="Completed time for the latest trading cycle.")
     selection_count: int = Field(
         description="Number of selected securities in the latest cycle."
@@ -76,7 +76,7 @@ class TradingCycleResultResponse(BaseModel):
 
 class SessionStatusResponse(BaseModel):
     session_id: str = Field(description="Current session ID.")
-    mode: str = Field(description="Session running mode.")
+    mode: str = Field(description="Session runtime profile, e.g. paper+realtime.")
     running: bool = Field(description="Whether the scheduler is currently running.")
     scheduler: SchedulerStatus = Field(
         description="Scheduler configuration and status summary."
@@ -212,7 +212,10 @@ class ConfigChangeItem(BaseModel):
     """A single field-level change between two config versions."""
 
     field_path: str = Field(
-        description="Dot-separated path to the changed field, e.g. 'session.mode'."
+        description=(
+            "Dot-separated path to the changed field, "
+            "e.g. 'session.execution_mode'."
+        )
     )
     old_value: Any = Field(description="Previous value (None if field was added).")
     new_value: Any = Field(description="Current value (None if field was removed).")
@@ -595,7 +598,7 @@ class SessionInfoResponse(BaseModel):
     """
 
     session_id: str = Field(description="Service session ID.")
-    mode: str = Field(description="Running mode: paper or live.")
+    mode: str = Field(description="Runtime profile, e.g. paper+backfill.")
     running: bool = Field(description="Whether the scheduler is currently running.")
     strategy_count: int = Field(description="Number of configured strategies.")
     strategy_names: List[str] = Field(
@@ -700,7 +703,7 @@ class SessionTrendItem(BaseModel):
     """Trend series for a single session."""
 
     session_id: str = Field(description="Session ID.")
-    mode: str = Field(description="Running mode (paper/live).")
+    mode: str = Field(description="Runtime profile, e.g. live+realtime.")
     initial_capital: float = Field(description="Initial capital.")
     strategy_names: List[str] = Field(
         default_factory=list, description="Strategy names/aliases."

@@ -97,9 +97,9 @@ def _mount_mcp_server(app) -> None:
 
 _MAX_DATA_QUERY_ROWS = 10_000
 
-from jh_quant.trading.market_data import MarketDataProvider
+from jh_quant.trading.market_data import MarketDataService
 
-def _resolve_md_provider(manager: MultiSessionService) -> MarketDataProvider|None:
+def _resolve_md_provider(manager: MultiSessionService) -> MarketDataService | None:
     if manager._shared_md_provider:
         return manager._shared_md_provider
 

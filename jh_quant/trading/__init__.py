@@ -57,9 +57,12 @@ from .config import (
     validate_strategy_params,
 )
 from .market_data import (
-    JHMarketDataProvider,
-    MarketDataProvider,
-    XtQuantJHMarketDataProvider,
+    AkShareJHMarketDataService,
+    AkShareMarketDataService,
+    LatestQuoteProvider,
+    MarketDataService,
+    ReferenceTimeAware,
+    XtQuantAkShareMarketDataService,
 )
 from .models import (
     DailyPerformance,
@@ -72,6 +75,7 @@ from .models import (
 )
 from .broker import Broker, PaperBroker, XtQuantBroker
 from .portfolio import (
+    PortfolioRuntimeCoordinator,
     RiskfolioPortfolioOptimizer,
     build_current_portfolio_snapshot,
     build_portfolio_drift_snapshot,
@@ -145,6 +149,8 @@ from .service import (
     run_trading_app,
 )
 from .engine import TradingEngine
+from .execution import OrderExecutor, PositionValuator
+from .signal import SignalAggregator, SignalCandidateSelector
 
 __all__ = [
     "AnalyticsSnapshotResponse",
@@ -160,9 +166,12 @@ __all__ = [
     "Frequency",
     "DualThrustStrategyConfig",
     "HealthResponse",
-    "JHMarketDataProvider",
-    "MarketDataProvider",
-    "XtQuantJHMarketDataProvider",
+    "AkShareJHMarketDataService",
+    "AkShareMarketDataService",
+    "LatestQuoteProvider",
+    "MarketDataService",
+    "ReferenceTimeAware",
+    "XtQuantAkShareMarketDataService",
     "MeanReversionStrategyConfig",
     "MomentumStrategyConfig",
     "MovingAverageCrossoverStrategyConfig",
@@ -171,6 +180,7 @@ __all__ = [
     "MultiSessionService",
     "OHLCVRecord",
     "Order",
+    "OrderExecutor",
     "OrderRecorder",
     "PORTFOLIO_OPTIMIZER_REGISTRY",
     "RISK_RULE_REGISTRY",
@@ -186,11 +196,13 @@ __all__ = [
     "PortfolioOptimizeRequest",
     "PortfolioOptimizeResponse",
     "PortfolioOptimizerDefinition",
+    "PortfolioRuntimeCoordinator",
     "PortfolioRebalanceRequest",
     "PortfolioRebalanceResponse",
     "PortfolioSpec",
     "PositionPersistence",
     "PositionSnapshot",
+    "PositionValuator",
     "Positions",
     "PostgresOrderRecorder",
     "RSIStrategyConfig",
@@ -208,6 +220,8 @@ __all__ = [
     "SchedulerConfigUpdateRequest",
     "SchedulerConfigUpdateResponse",
     "SchedulerStatus",
+    "SignalAggregator",
+    "SignalCandidateSelector",
     "SelectionConfigSnapshotResponse",
     "SelectionConfigUpdateRequest",
     "SelectionConfigUpdateResponse",

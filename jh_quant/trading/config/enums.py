@@ -38,3 +38,13 @@ class Frequency(Enum):
         if normalized is None:
             raise ValueError(f"Unsupported frequency: {value}")
         return normalized
+
+
+class ExecutionMode(str, Enum):
+    PAPER = "paper"
+    LIVE = "live"
+
+
+class ClockMode(str, Enum):
+    REALTIME = "realtime"
+    BACKFILL = "backfill"
