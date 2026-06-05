@@ -28,6 +28,14 @@ from .factors import (
     validate_factor_market_return_frame,
     validate_factor_stock_returns_frame,
 )
+from .trading import (
+    TRADING_PRICE_COLUMNS,
+    TRADING_PRICE_NUMERIC_COLUMNS,
+    TRADING_PRICE_REQUIRED_COLUMNS,
+    normalize_trading_price_frame,
+    normalize_trading_symbol,
+    validate_trading_price_frame,
+)
 
 __all__ = [
     "BACKTEST_PRICE_COLUMNS",
@@ -54,4 +62,10 @@ __all__ = [
     "validate_factor_market_cap_frame",
     "validate_factor_market_return_frame",
     "validate_factor_stock_returns_frame",
+    "TRADING_PRICE_COLUMNS",
+    "TRADING_PRICE_NUMERIC_COLUMNS",
+    "TRADING_PRICE_REQUIRED_COLUMNS",
+    "normalize_trading_price_frame",
+    "normalize_trading_symbol",
+    "validate_trading_price_frame",
 ]

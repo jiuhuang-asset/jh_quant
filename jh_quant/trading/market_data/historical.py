@@ -7,6 +7,20 @@ import pandas as pd
 from jh_quant.data import DataTypes, JHData
 
 from ..config import Frequency
+from .adapters import to_trading_price_frame
+
+
+def to_tushare_symbol(symbol: str) -> str:
+    text = str(symbol).strip()
+    if "." in text:
+        return text.upper()
+    if text.startswith(("6", "5", "9")):
+        return f"{text}.SH"
+    if text.startswith(("0", "1", "2", "3")):
+        return f"{text}.SZ"
+    if text.startswith(("4", "8")):
+        return f"{text}.BJ"
+    return text
 
 
 class JHHistoricalBarProvider:
@@ -15,12 +29,15 @@ class JHHistoricalBarProvider:
         jhd: Optional[JHData] = None,
         frequency: Frequency = Frequency.DAILY,
         default_symbols: Optional[List[str]] = None,
+        data_type: DataTypes = DataTypes.AK_STOCK_ZH_A_HIST,
+        source: str = "akshare",
     ):
         # Prefer JHData auto mode so local direct cache works first and only
         # falls back to the sidecar service when the database is actually locked.
         self.jhd = jhd or JHData()
         self.frequency = Frequency.from_value(frequency)
-        self.data_type = DataTypes.AK_STOCK_ZH_A_HIST
+        self.data_type = data_type
+        self.source = source
         self.default_symbols = default_symbols or []
 
     def _resolve_symbols(self, symbols: Optional[List[str]]) -> List[str]:
@@ -40,12 +57,8 @@ class JHHistoricalBarProvider:
 
         api_start = self._normalize_api_datetime(start_date, is_end=False)
         api_end = self._normalize_api_datetime(end_date, is_end=True)
-        data = self.jhd.get_data(
-            self.data_type,
-            symbol=",".join(resolved_symbols),
-            start=api_start,
-            end=api_end,
-        )
+        kwargs = self._build_query_kwargs(resolved_symbols, api_start, api_end)
+        data = self.jhd.get_data(self.data_type, **kwargs)
         return self._standardize_price_df(data)
 
     def get_trade_calendar(
@@ -64,9 +77,11 @@ class JHHistoricalBarProvider:
         return date in self.get_trade_calendar(start_date=date, end_date=date)
 
     def _standardize_price_df(self, data, to_df: bool = True) -> pd.DataFrame:
-        code_col, date_col = data.code_date_col
         if to_df:
+            code_col, date_col = data.code_date_col
             data = data.to_df()
+        else:
+            code_col, date_col = "symbol", "date"
         data = data.copy()
         if data.empty and len(data.columns) == 0:
             return data
@@ -76,7 +91,25 @@ class JHHistoricalBarProvider:
             data["date"] = data[date_col]
         if "price" not in data.columns and "close" in data.columns:
             data["price"] = data["close"]
-        return data
+        return to_trading_price_frame(data)
+
+    def _build_query_kwargs(
+        self,
+        symbols: List[str],
+        api_start: str,
+        api_end: str,
+    ) -> dict:
+        if self.source == "tushare":
+            return {
+                "ts_code": ",".join(to_tushare_symbol(symbol) for symbol in symbols),
+                "start": api_start,
+                "end": api_end,
+            }
+        return {
+            "symbol": ",".join(symbols),
+            "start": api_start,
+            "end": api_end,
+        }
 
     def _normalize_api_datetime(self, value: str, *, is_end: bool) -> str:
         timestamp = pd.Timestamp(value)
@@ -92,4 +125,43 @@ class JHHistoricalBarProvider:
         return timestamp.strftime("%Y-%m-%d")
 
 
-__all__ = ["JHHistoricalBarProvider"]
+class AkShareHistoricalBarProvider(JHHistoricalBarProvider):
+    def __init__(
+        self,
+        jhd: Optional[JHData] = None,
+        frequency: Frequency = Frequency.DAILY,
+        default_symbols: Optional[List[str]] = None,
+        data_type: DataTypes = DataTypes.AK_STOCK_ZH_A_HIST,
+    ):
+        super().__init__(
+            jhd=jhd,
+            frequency=frequency,
+            default_symbols=default_symbols,
+            data_type=data_type,
+            source="akshare",
+        )
+
+
+class TuShareHistoricalBarProvider(JHHistoricalBarProvider):
+    def __init__(
+        self,
+        jhd: Optional[JHData] = None,
+        frequency: Frequency = Frequency.DAILY,
+        default_symbols: Optional[List[str]] = None,
+        data_type: DataTypes = DataTypes.TS_DAILY,
+    ):
+        super().__init__(
+            jhd=jhd,
+            frequency=frequency,
+            default_symbols=default_symbols,
+            data_type=data_type,
+            source="tushare",
+        )
+
+
+__all__ = [
+    "AkShareHistoricalBarProvider",
+    "JHHistoricalBarProvider",
+    "TuShareHistoricalBarProvider",
+    "to_tushare_symbol",
+]

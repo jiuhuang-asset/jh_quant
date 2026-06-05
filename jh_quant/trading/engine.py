@@ -25,6 +25,7 @@ from .market_data import (
     RealtimeQuoteProvider,
     TradingCalendarProvider,
 )
+from .market_data.adapters import to_trading_price_frame
 from .market_data.models import QuoteSnapshot
 from .models import Trade
 from .position_sizer import ATRPositionSizer, PositionSizer
@@ -162,7 +163,7 @@ class TradingEngine:
         )
         if price_df is None or price_df.empty:
             return pd.DataFrame()
-        return price_df.sort_values(["symbol", "date"]).reset_index(drop=True)
+        return to_trading_price_frame(price_df)
 
     def build_price_matrix(
         self,

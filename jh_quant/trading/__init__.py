@@ -57,12 +57,13 @@ from .config import (
     validate_strategy_params,
 )
 from .market_data import (
-    AkShareJHMarketDataService,
     AkShareMarketDataService,
     LatestQuoteProvider,
     MarketDataService,
     ReferenceTimeAware,
-    XtQuantAkShareMarketDataService,
+    TuShareMarketDataService,
+    XtQuantMarketDataService,
+    create_market_data_service,
 )
 from .models import (
     DailyPerformance,
@@ -151,12 +152,22 @@ from .service import (
 from .engine import TradingEngine
 from .execution import OrderExecutor, PositionValuator
 from .signal import SignalAggregator, SignalCandidateSelector
+from .bootstrap import (
+    DEFAULT_SYMBOLS,
+    TradingBootstrapConfig,
+    build_live_manager,
+    build_market_data_service,
+    build_paper_manager,
+    run_live_from_cli,
+    run_paper_from_cli,
+)
 
 __all__ = [
     "AnalyticsSnapshotResponse",
     "CloseAllPositionsRequest",
     "CloseAllPositionsResponse",
     "DailyPerformance",
+    "DEFAULT_SYMBOLS",
     "DataListResponse",
     "BollingerBandsStrategyConfig",
     "BreakoutStrategyConfig",
@@ -166,12 +177,13 @@ __all__ = [
     "Frequency",
     "DualThrustStrategyConfig",
     "HealthResponse",
-    "AkShareJHMarketDataService",
     "AkShareMarketDataService",
+    "create_market_data_service",
     "LatestQuoteProvider",
     "MarketDataService",
     "ReferenceTimeAware",
-    "XtQuantAkShareMarketDataService",
+    "TuShareMarketDataService",
+    "XtQuantMarketDataService",
     "MeanReversionStrategyConfig",
     "MomentumStrategyConfig",
     "MovingAverageCrossoverStrategyConfig",
@@ -263,11 +275,15 @@ __all__ = [
     "TradePersistence",
     "TradingCycleResult",
     "TradingCycleResultResponse",
+    "TradingBootstrapConfig",
     "TurtleStrategyConfig",
     "XtQuantBroker",
     "VolumeDivergenceStrategyConfig",
     "VolumeTrendStrategyConfig",
     "build_current_portfolio_snapshot",
+    "build_live_manager",
+    "build_market_data_service",
+    "build_paper_manager",
     "build_risk_rules",
     "build_portfolio_drift_snapshot",
     "build_portfolio_history",
@@ -293,6 +309,8 @@ __all__ = [
     "register_risk_rule",
     "register_selection_provider",
     "register_strategy",
+    "run_live_from_cli",
+    "run_paper_from_cli",
     "run_trading_app",
     "validate_risk_rule_params",
     "validate_selection_params",

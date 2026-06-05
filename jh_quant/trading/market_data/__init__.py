@@ -1,16 +1,22 @@
 from .facade import (
-    AkShareJHMarketDataService,
     AkShareMarketDataService,
-    XtQuantAkShareMarketDataService,
+    MarketDataService,
+    TuShareMarketDataService,
+    XtQuantMarketDataService,
+    create_market_data_service,
 )
-from .historical import JHHistoricalBarProvider
+from .historical import (
+    AkShareHistoricalBarProvider,
+    JHHistoricalBarProvider,
+    TuShareHistoricalBarProvider,
+    to_tushare_symbol,
+)
 from .instruments import AkShareInstrumentProvider
 from .models import InstrumentMeta, MarketStatus, QuoteSnapshot, TradingPhase
 from .protocols import (
     HistoricalBarProvider,
     InstrumentProvider,
     LatestQuoteProvider,
-    MarketDataService,
     MarketStatusProvider,
     ReferenceTimeAware,
     RealtimeQuoteProvider,
@@ -21,10 +27,11 @@ from .status import AkShareMarketStatusProvider
 
 __all__ = [
     "AkShareInstrumentProvider",
-    "AkShareJHMarketDataService",
+    "AkShareHistoricalBarProvider",
     "AkShareMarketDataService",
     "AkShareMarketStatusProvider",
     "AkShareRealtimeQuoteProvider",
+    "create_market_data_service",
     "HistoricalBarProvider",
     "InstrumentMeta",
     "InstrumentProvider",
@@ -36,8 +43,11 @@ __all__ = [
     "QuoteSnapshot",
     "ReferenceTimeAware",
     "RealtimeQuoteProvider",
+    "to_tushare_symbol",
     "TradingCalendarProvider",
     "TradingPhase",
-    "XtQuantAkShareMarketDataService",
+    "TuShareHistoricalBarProvider",
+    "TuShareMarketDataService",
+    "XtQuantMarketDataService",
     "XtQuantRealtimeQuoteProvider",
 ]

@@ -13,11 +13,10 @@ from pydantic import (
     field_validator,
 )
 
-from jh_quant.data import JHData
-
 from ..models import SelectionSnapshot
 
 if TYPE_CHECKING:
+    from jh_quant.data import JHData
     from jh_quant.backtest.selectors import FactorSelector
 
     from ..market_data import MarketDataService

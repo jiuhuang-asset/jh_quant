@@ -23,30 +23,16 @@ from jh_quant.data import JHData, DataTypes
 
 jh = JHData(api_key=os.getenv("JIUHUANG_API_KEY"))
 stock_price = jh.get_data(
-    DataTypes.AK_STOCK_ZH_A_HIST_QFQ,  # akshare A 股日线前复权
-    symbol="000001",
+    DataTypes.TS_DAILY_QFQ,  # tushare A 股日线前复权
+    ts_code="000001.SZ",
     start="2025-01-01",
     end="2025-12-10",
 )
 ```
+> 暂时只支持A股相关数据获取
 
 #### 数据兼容
-兼容 `akshare` 调用风格：
-
-```python
-from jh_quant.data.data_providers import akshare as ak
-
-df = ak.stock_zh_a_hist(
-    symbol="000001",
-    period="daily",
-    start_date="20240101",
-    end_date="20241231",
-    adjust="qfq",
-)
-```
-
 兼容 `tushare` 调用风格：
-
 ```python
 from jh_quant.data.data_providers import tushare as ts
 
@@ -64,7 +50,19 @@ pro_df = ts.pro.pro_bar(
     freq="D",
 )
 ```
+兼容 `akshare` 调用风格：
 
+```python
+from jh_quant.data.data_providers import akshare as ak
+
+df = ak.stock_zh_a_hist(
+    symbol="000001",
+    period="daily",
+    start_date="20240101",
+    end_date="20241231",
+    adjust="qfq",
+)
+```
 ### 策略回测
 
 ```python
@@ -80,8 +78,8 @@ from jh_quant.dashboard import display_backtesting
 # 1. 准备数据
 jh = JHData()
 stock_price = jh.get_data(
-    DataTypes.AK_STOCK_ZH_A_HIST_QFQ,
-    symbol="000001,600519,300750",
+    DataTypes.TS_DAILY_QFQ,
+    ts_code="000001.SZ,600519.SH,300750.SZ",
     start="2025-01-01",
     end="2026-05-07",
 )
@@ -268,18 +266,34 @@ display_backtesting(trading_hist, backtest_perf)
 #### 模拟交易
 
 ```bash
-python run_paper.py
+uv run python run_paper.py
 ```
 
-`run_paper.py` 会创建两个 `paper` session，方便直接比较不同策略。
+`run_paper.py` 默认使用 `paper-compare` 模板，自动创建两个并行模拟场景：
 
-#### 实盘 / 对照运行
+- `paper-turtle`：海龟策略基准场景。
+- `paper-momentum`：默认用户策略场景。
+
+可以通过 `--strategy` 指定一个或多个策略，多个策略用英文逗号分隔：
 
 ```bash
-python run_live.py
+uv run python run_paper.py --strategy rsi
+uv run python run_paper.py --strategy turtle,momentum
 ```
 
-`run_live.py` 默认同时保留一个 `paper` 对照 session；如果满足 `xtquant` / `MiniQMT` 环境，还会额外创建一个 `live` session。
+当使用 `paper-compare` 且用户只传入新策略时，bootstrap 会自动保留 `turtle` 作为基准场景。
+
+默认股票池偏向半导体 / AI 芯片链观察池，便于演示并行策略比较。默认行情 backend 是 `tushare`，当天实时行情暂用 AkShare 合并。
+
+> 运行 uv run python run_paper.py --help 查看完整参数说明。
+
+#### 实盘
+
+```bash
+uv run python run_live.py
+```
+
+`run_live.py` 使用 `live-basic` 模板创建实盘 session，broker 使用 xtquant / MiniQMT。运行前需要配置：
 
 实盘模式常用环境变量：
 
@@ -287,13 +301,26 @@ python run_live.py
 MINIQMT_USERDATA_DIR=...
 MINIQMT_STOCK_ACCOUNT=...
 MINIQMT_TRADER_SESSION_ID=...
-RUN_LIVE_SESSION=1
 ```
 
-如果没有可用的 `xtquant` 或 `MiniQMT` 环境，`run_live.py` 会自动退化为 `paper-only` 对照模式。
+实盘行情 backend 可选：
+
+```bash
+uv run python run_live.py --backend tushare --strategy turtle
+uv run python run_live.py --backend xquant --strategy turtle,momentum
+```
+
+> 运行 uv run python run_live.py --help 查看完整参数说明。
 
 ### 控制台仪表盘
-本地服务启动后，可以通过如下代码打开控制台仪表盘：
+
+bootstrap 默认会先启动 API，然后自动调用 `display_trading()` 打开控制台仪表盘。只想启动 API 时可以使用：
+
+```bash
+uv run python run_paper.py --no-dashboard
+```
+
+手动打开仪表盘仍然支持：
 
 ```python
 from jh_quant.dashboard import display_trading
@@ -303,6 +330,12 @@ display_trading()
 ```
 
 ![JH_QUANT Dashboard Demo](assets/dash_video.gif)
+
+更多说明：
+
+- [Trading 快速开始](docs/trading/quickstart.md)
+- [Bootstrap 模板](docs/trading/bootstrap.md)
+- [高级自定义运行](docs/trading/advanced-usage.md)
 
 
 

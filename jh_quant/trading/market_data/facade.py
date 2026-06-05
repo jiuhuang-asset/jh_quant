@@ -6,7 +6,8 @@ from typing import Dict, List, Optional
 import pandas as pd
 
 from ..config import Frequency
-from .historical import JHHistoricalBarProvider
+from .adapters import to_trading_price_frame
+from .historical import AkShareHistoricalBarProvider, TuShareHistoricalBarProvider
 from .instruments import AkShareInstrumentProvider
 from .models import InstrumentMeta, MarketStatus, QuoteSnapshot
 from .protocols import (
@@ -20,7 +21,7 @@ from .realtime import AkShareRealtimeQuoteProvider, XtQuantRealtimeQuoteProvider
 from .status import AkShareMarketStatusProvider
 
 
-class AkShareMarketDataService:
+class MarketDataService:
     def __init__(
         self,
         historical_data: HistoricalBarProvider,
@@ -30,6 +31,7 @@ class AkShareMarketDataService:
         instrument_provider: Optional[InstrumentProvider] = None,
         market_status_provider: Optional[MarketStatusProvider] = None,
         default_symbols: Optional[List[str]] = None,
+        backend: str = "market_data",
     ):
         self.historical_data = historical_data
         self.realtime_quote_provider = realtime_quote_provider
@@ -39,11 +41,12 @@ class AkShareMarketDataService:
             market_status_provider or AkShareMarketStatusProvider()
         )
         self.default_symbols = default_symbols or []
+        self.backend = backend
         self._reference_time: Optional[pd.Timestamp] = None
 
     def _resolve_symbols(self, symbols: Optional[List[str]]) -> List[str]:
         resolved = symbols or self.default_symbols
-        return list(dict.fromkeys(resolved))
+        return list(dict.fromkeys(str(symbol).split(".")[0] for symbol in resolved))
 
     def set_reference_time(
         self, value: Optional[str | datetime | pd.Timestamp]
@@ -132,7 +135,7 @@ class AkShareMarketDataService:
             )
             if spot_df is None or spot_df.empty:
                 return pd.DataFrame()
-            return spot_df.copy()
+            return to_trading_price_frame(spot_df)
 
         quotes = self.realtime_quote_provider.get_quote_snapshots(resolved_symbols)
         rows = [
@@ -142,7 +145,7 @@ class AkShareMarketDataService:
         ]
         if not rows:
             return pd.DataFrame()
-        return pd.DataFrame(rows).sort_values(["symbol", "date"]).reset_index(drop=True)
+        return to_trading_price_frame(pd.DataFrame(rows))
 
     def get_latest_quotes(
         self,
@@ -236,17 +239,18 @@ class AkShareMarketDataService:
             end_date=end_date,
             frequency=frequency,
         )
+        hist_df = to_trading_price_frame(hist_df)
         if not self._should_merge_realtime(end_date):
-            if hist_df is None or hist_df.empty:
+            if hist_df.empty:
                 return pd.DataFrame()
             return hist_df.sort_values(["symbol", "date"]).copy()
 
         spot_df = self._fetch_today_spot_df(resolved_symbols)
         if spot_df.empty:
-            if hist_df is None or hist_df.empty:
+            if hist_df.empty:
                 return pd.DataFrame()
             return hist_df.sort_values(["symbol", "date"]).copy()
-        if hist_df is None or hist_df.empty:
+        if hist_df.empty:
             return spot_df.sort_values(["symbol", "date"]).copy()
 
         combined = pd.concat([hist_df, spot_df], ignore_index=True, sort=False)
@@ -256,7 +260,7 @@ class AkShareMarketDataService:
         combined = combined.sort_values(["symbol", "_date_key"])
         combined = combined.drop_duplicates(subset=["symbol", "_date_key"], keep="last")
         combined = combined.drop(columns=["_date_key"], errors="ignore")
-        return combined.sort_values(["symbol", "date"]).copy()
+        return to_trading_price_frame(combined)
 
     def get_trade_calendar(
         self,
@@ -275,14 +279,14 @@ class AkShareMarketDataService:
         return self.market_status_provider.get_market_status(now=now)
 
 
-class AkShareJHMarketDataService(AkShareMarketDataService):
+class TuShareMarketDataService(MarketDataService):
     def __init__(
         self,
         jhd=None,
         frequency: Frequency = Frequency.DAILY,
         default_symbols: Optional[List[str]] = None,
     ):
-        historical_data = JHHistoricalBarProvider(
+        historical_data = TuShareHistoricalBarProvider(
             jhd=jhd,
             frequency=frequency,
             default_symbols=default_symbols,
@@ -292,11 +296,34 @@ class AkShareJHMarketDataService(AkShareMarketDataService):
             realtime_quote_provider=AkShareRealtimeQuoteProvider(jhd=historical_data.jhd),
             calendar_provider=historical_data,
             default_symbols=default_symbols,
+            backend="tushare",
         )
         self.jhd = historical_data.jhd
 
 
-class XtQuantAkShareMarketDataService(AkShareMarketDataService):
+class AkShareMarketDataService(MarketDataService):
+    def __init__(
+        self,
+        jhd=None,
+        frequency: Frequency = Frequency.DAILY,
+        default_symbols: Optional[List[str]] = None,
+    ):
+        historical_data = AkShareHistoricalBarProvider(
+            jhd=jhd,
+            frequency=frequency,
+            default_symbols=default_symbols,
+        )
+        super().__init__(
+            historical_data=historical_data,
+            realtime_quote_provider=AkShareRealtimeQuoteProvider(jhd=historical_data.jhd),
+            calendar_provider=historical_data,
+            default_symbols=default_symbols,
+            backend="akshare",
+        )
+        self.jhd = historical_data.jhd
+
+
+class XtQuantMarketDataService(MarketDataService):
     def __init__(
         self,
         jhd=None,
@@ -306,7 +333,7 @@ class XtQuantAkShareMarketDataService(AkShareMarketDataService):
         xtdata_module=None,
         auto_connect: bool = True,
     ):
-        historical_data = JHHistoricalBarProvider(
+        historical_data = TuShareHistoricalBarProvider(
             jhd=jhd,
             frequency=frequency,
             default_symbols=default_symbols,
@@ -321,12 +348,50 @@ class XtQuantAkShareMarketDataService(AkShareMarketDataService):
             instrument_provider=AkShareInstrumentProvider(),
             market_status_provider=AkShareMarketStatusProvider(),
             default_symbols=default_symbols,
+            backend="xquant",
         )
         self.jhd = historical_data.jhd
 
 
+def create_market_data_service(
+    backend: str = "tushare",
+    *,
+    default_symbols: Optional[List[str]] = None,
+    jhd=None,
+    frequency: Frequency = Frequency.DAILY,
+    xtdata_module=None,
+    auto_connect: bool = True,
+) -> MarketDataService:
+    normalized = (backend or "tushare").strip().lower()
+    if normalized in {"ts", "tushare"}:
+        return TuShareMarketDataService(
+            jhd=jhd,
+            frequency=frequency,
+            default_symbols=default_symbols,
+        )
+    if normalized in {"ak", "akshare"}:
+        return AkShareMarketDataService(
+            jhd=jhd,
+            frequency=frequency,
+            default_symbols=default_symbols,
+        )
+    if normalized in {"xt", "xquant", "xtquant"}:
+        return XtQuantMarketDataService(
+            jhd=jhd,
+            frequency=frequency,
+            default_symbols=default_symbols,
+            xtdata_module=xtdata_module,
+            auto_connect=auto_connect,
+        )
+    raise ValueError(
+        "Unsupported market data backend. Expected one of: tushare, akshare, xquant"
+    )
+
+
 __all__ = [
+    "MarketDataService",
     "AkShareMarketDataService",
-    "AkShareJHMarketDataService",
-    "XtQuantAkShareMarketDataService",
+    "TuShareMarketDataService",
+    "XtQuantMarketDataService",
+    "create_market_data_service",
 ]

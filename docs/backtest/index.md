@@ -1,21 +1,32 @@
-# jh_quant.backtest 用户文档
+# jh_quant.backtest
 
-`jh_quant.backtest` 是策略回测引擎，支持多策略并行回测、灵活的风控规则组合和丰富的绩效指标。
+`jh_quant.backtest` 是策略回测模块，支持多策略并行回测、风险规则、交易费用、绩效指标和可视化 Dashboard。
 
-## 核心特性
+## 数据约定
 
-- **11 种内置策略**：海龟交易、均线交叉、RSI、布林带、动量、Dual Thrust 等经典策略，开箱即用
-- **多策略并行回测**：一次传入多个策略，自动并行计算，输出对比结果
-- **可组合风控规则**：止损、止盈、移动止损、ATR 止损、持仓限制等，支持按策略绑定不同规则
-- **全面的绩效指标**：夏普比率、卡玛比率、最大回撤、VaR、CVaR、胜率、盈亏比等
-- **自定义策略**：继承 `Strategy` 基类，只需实现 `_execute_one` 方法
-- **因子选股**：基于因子暴露度和 Fama-MacBeth 回归权重的选股器
+backtest 核心逻辑不依赖具体数据源。推荐优先使用 TuShare 前复权日线：
+
+```python
+stock_price = jhd.get_data(
+    DataTypes.TS_DAILY_QFQ,
+    ts_code="600519.SH,000001.SZ",
+    start="2024-01-01",
+    end="2026-03-11",
+)
+stock_price = to_backtest_price_frame(stock_price)
+```
+
+进入 `backtest()` 前，数据应符合统一 schema：
+
+```text
+symbol, date, open, high, low, close, volume
+```
 
 ## 文档导航
 
 | 文档 | 内容 |
-|------|------|
-| [快速开始](./quickstart.md) | 基本回测流程、数据准备、可视化 |
-| [策略详解](./strategies.md) | 11 种内置策略的参数与逻辑、自定义策略开发 |
-| [风险管理规则](./risk-rules.md) | 止损/止盈/移动止损/ATR 止损/持仓限制，自定义规则 |
-| [指标与选股](./metrics.md) | 回测绩效指标说明、FactorSelector 因子选股 |
+| --- | --- |
+| [快速开始](./quickstart.md) | 使用 TuShare 数据完成一次基础回测 |
+| [策略详解](./strategies.md) | 内置策略参数、逻辑和自定义策略 |
+| [风险管理规则](./risk-rules.md) | 止损、止盈、移动止损、ATR 止损、持仓限制 |
+| [指标说明](./metrics.md) | 回测绩效指标和 FactorSelector 说明 |

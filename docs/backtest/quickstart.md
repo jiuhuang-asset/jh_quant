@@ -1,178 +1,184 @@
 # 快速开始
 
+`jh_quant.backtest` 的核心逻辑不关心数据来源。进入 `backtest()` 前，价格数据需要先转换为统一 schema：
+
+```text
+symbol, date, open, high, low, close, volume
+```
+
+推荐优先使用 TuShare 前复权日线数据 `DataTypes.TS_DAILY_QFQ`，再通过 `to_backtest_price_frame()` 转换。
+
 ## 导入
 
 ```python
-from jh_quant.backtest import backtest
-from jh_quant.backtest import (
-    StrategyTurtle,
-    StrategyMovingAverageCrossover,
-    StrategyBuyAndHold,
-)
-from jh_quant.data import JHData, DataTypes, to_backtest_price_frame
-```
-
-## 基本回测流程
-
-三步完成一个回测：准备数据 → 定义策略 → 执行回测。
-
-### 1. 准备数据
-
-回测需要标准化后的 **价格数据 DataFrame**，进入 `backtest()` 前应包含 `symbol`、`date`、`open`、`high`、`low`、`close`、`volume` 列。
-
-```python
-jh = JHData()
-
-# 价格数据 — 必须包含 open, high, low, close, volume 列
-stock_price = jh.get_data(
-    DataTypes.AK_STOCK_ZH_A_HIST_QFQ,
-    symbol="000001,600519,300750",   # 逗号分隔多只股票
-    start="2024-01-01",
-    end="2025-12-31",
-)
-stock_price = to_backtest_price_frame(stock_price)
-
-```
-
-价格数据至少需要包含 `open`、`high`、`low`、`close`、`volume` 列。`volume` 为 0 时视为停牌。
-
-### 2. 定义策略
-
-策略以字典形式传入，key 为策略名称，value 为策略实例：
-
-```python
-strategies = {
-    "海龟策略": StrategyTurtle(entry_window=20, exit_window=10),
-    "均线交叉": StrategyMovingAverageCrossover(short_window=12, long_window=24),
-    "买入持有": StrategyBuyAndHold(),
-}
-```
-
-所有内置策略详见 [策略详解](./strategies.md)。
-
-### 3. 执行回测
-
-```python
-trading_history, backtest_perf = backtest(
-    strategies=strategies,
-    price_data=stock_price,
-)
-```
-
-### 返回值
-
-`backtest()` 返回一个元组 `(trading_history, backtest_perf)`：
-
-**trading_history**（`pd.DataFrame`）：
-
-| 列 | 说明 |
-|----|------|
-| `symbol` | 股票代码 |
-| `date` | 交易日期 |
-| `open/high/low/close/volume` | 行情数据 |
-| `buy_signal` / `sell_signal` | 策略信号 |
-| `position` | 持仓状态（1=持仓, 0=空仓） |
-| `strategy` | 策略名称 |
-| `strategy_return` | 策略日收益率 |
-| `cumulative_return` | 累计收益率 |
-| `drawdown` | 当前回撤 |
-
-**backtest_perf**（`pd.DataFrame`）：
-
-| 列 | 说明 |
-|----|------|
-| `symbol` | 股票代码 |
-| `strategy` | 策略名称 |
-| `累积收益率` | 整个回测期的累计收益 |
-| `最大回撤` | 最大回撤幅度 |
-| `胜率` | 盈利交易日占比 |
-| `夏普比率` | 年化夏普比率 |
-| `卡玛比率` | 年化收益 / 最大回撤 |
-| ... | 更多指标 |
-
-## 完整示例
-
-```python
-import warnings
-warnings.filterwarnings("ignore")
-
 from jh_quant.data import JHData, DataTypes, to_backtest_price_frame
 from jh_quant.backtest import (
     backtest,
     StrategyTurtle,
-    StrategyMovingAverageCrossover,
+    StrategyVolumeTrend,
     StrategyBuyAndHold,
-    StrategyRSI,
-    StrategyBollingerBands,
 )
+from jh_quant.dashboard import display_backtesting
+```
 
-# 1. 数据
-jh = JHData()
-stock_price = jh.get_data(
-    DataTypes.AK_STOCK_ZH_A_HIST_QFQ,
-    symbol="000001,600036,600519,000858,601318",
-    start="2024-01-01",
-    end="2025-12-31",
+## 基本流程
+
+三步完成一次回测：
+
+1. 准备 TuShare 行情数据。
+2. 定义策略。
+3. 调用 `backtest()`。
+
+## 1. 准备数据
+
+TuShare 股票代码需要带交易所后缀，例如 `.SH`、`.SZ`、`.BJ`。
+
+```python
+jhd = JHData()
+
+symbols = [
+    "600135.SH",
+    "000001.SZ",
+    "600036.SH",
+    "600519.SH",
+    "000858.SZ",
+    "601318.SH",
+    "000002.SZ",
+    "600030.SH",
+    "600887.SH",
+    "000333.SZ",
+    "002415.SZ",
+]
+
+stock_price = jhd.get_data(
+    DataTypes.TS_DAILY_QFQ,
+    ts_code=",".join(symbols),
+    start="2024-12-25",
+    end="2026-03-11",
 )
 stock_price = to_backtest_price_frame(stock_price)
+```
 
-# 2. 策略
+`to_backtest_price_frame()` 会把 TuShare 字段转换成回测 schema，例如：
+
+| TuShare 字段 | 回测字段 |
+| --- | --- |
+| `ts_code` | `symbol` |
+| `trade_date` | `date` |
+| `vol` | `volume` |
+
+## 2. 定义策略
+
+策略以字典形式传入，key 是展示名称，value 是策略实例：
+
+```python
 strategies = {
-    "海龟": StrategyTurtle(entry_window=20, exit_window=10),
-    "均线交叉": StrategyMovingAverageCrossover(12, 24),
+    "海龟": StrategyTurtle(),
+    "放量趋势": StrategyVolumeTrend(),
     "买入持有": StrategyBuyAndHold(),
-    "RSI": StrategyRSI(rsi_window=14),
-    "布林带": StrategyBollingerBands(window=20, num_std=2.0),
 }
-
-# 3. 回测
-trading_history, backtest_perf = backtest(
-    strategies=strategies,
-    price_data=stock_price,
-)
-
-# 4. 查看结果
-print(backtest_perf[["symbol", "strategy", "累积收益率", "夏普比率", "最大回撤"]])
-
-# 按策略汇总
-summary = backtest_perf.groupby("strategy")[["累积收益率", "夏普比率", "最大回撤"]].mean()
-print(summary)
 ```
 
-## 费率设置
+更多内置策略见 [策略详解](./strategies.md)。
+
+## 3. 执行回测
 
 ```python
 trading_history, backtest_perf = backtest(
     strategies=strategies,
     price_data=stock_price,
-    commission_rate=0.0003,   # 佣金费率（默认 0.0002 = 万二）
-    stamp_tax_rate=0.001,      # 印花税率（默认 0.0005 = 万五，仅卖出收取）
 )
 ```
 
-## 信号模式
-
-`use_next_day_return` 控制买卖信号的应用时机：
+## 完整示例
 
 ```python
-# 默认 True：当日信号 → 次日持仓（避免未来信息）
-trading_history, _ = backtest(strategies, stock_price, use_next_day_return=True)
+from jh_quant.data import JHData, DataTypes, to_backtest_price_frame
+from jh_quant.backtest import (
+    backtest,
+    StrategyTurtle,
+    StrategyVolumeTrend,
+    StrategyBuyAndHold,
+)
+from jh_quant.dashboard import display_backtesting
 
-# False：当日信号 → 当日持仓（用于已引入滞后的信号）
-trading_history, _ = backtest(strategies, stock_price, use_next_day_return=False)
+
+def main():
+    jhd = JHData()
+    symbols = [
+        "600135.SH",
+        "000001.SZ",
+        "600036.SH",
+        "600519.SH",
+        "000858.SZ",
+        "601318.SH",
+        "000002.SZ",
+        "600030.SH",
+        "600887.SH",
+        "000333.SZ",
+        "002415.SZ",
+    ]
+
+    stock_price = jhd.get_data(
+        DataTypes.TS_DAILY_QFQ,
+        ts_code=",".join(symbols),
+        start="2024-12-25",
+        end="2026-03-11",
+    )
+    stock_price = to_backtest_price_frame(stock_price)
+
+    strategies = {
+        "海龟": StrategyTurtle(),
+        "放量趋势": StrategyVolumeTrend(),
+        "买入持有": StrategyBuyAndHold(),
+    }
+
+    trading_history, backtest_perf = backtest(
+        strategies=strategies,
+        price_data=stock_price,
+    )
+
+    display_backtesting(trading_history, backtest_perf)
+
+
+if __name__ == "__main__":
+    main()
 ```
 
-## 指标精度
-
-`metric_decimal` 控制绩效指标的小数位数（默认 2 位）：
+## 费用设置
 
 ```python
-trading_history, backtest_perf = backtest(strategies, stock_price, metric_decimal=4)
+trading_history, backtest_perf = backtest(
+    strategies=strategies,
+    price_data=stock_price,
+    commission_rate=0.0003,
+    stamp_tax_rate=0.001,
+)
+```
+
+## 信号应用时点
+
+`use_next_day_return=True` 是默认值，表示当日信号在次日收益上体现，避免使用未来信息：
+
+```python
+trading_history, _ = backtest(
+    strategies=strategies,
+    price_data=stock_price,
+    use_next_day_return=True,
+)
+```
+
+如果你的信号已经在外部做了滞后处理，可以显式关闭：
+
+```python
+trading_history, _ = backtest(
+    strategies=strategies,
+    price_data=stock_price,
+    use_next_day_return=False,
+)
 ```
 
 ## 可视化
-
-如果安装了 `jh_quant.dashboard` 模块，可以展示回测仪表盘：
 
 ```python
 from jh_quant.dashboard import display_backtesting
@@ -182,6 +188,6 @@ display_backtesting(trading_history, backtest_perf)
 
 ## 下一步
 
-- 了解 [11 种内置策略的详细参数](./strategies.md)
-- 配置 [风险管理规则](./risk-rules.md)（止损、止盈等）
+- 查看 [策略详解](./strategies.md)
+- 查看 [风险管理规则](./risk-rules.md)
 - 查看 [回测指标说明](./metrics.md)
