@@ -13,7 +13,7 @@
 
 - [快速开始](quickstart.md)：运行 `run_paper.py` 和 `run_live.py`。
 - [Bootstrap 模板](bootstrap.md)：模板、backend、策略场景、Dashboard 自动打开。
-- [高级自定义运行](advanced-usage.md)：不使用 bootstrap，手工配置完整模拟盘和实盘。
+- [高级自定义运行](advanced-usage.md)：不使用 bootstrap，手动配置完整模拟盘和实盘。
 - [行情数据 Schema](market-data-schema.md)：trading 需要的字段、转换边界和 TuShare/AkShare 适配规则。
 - [TradingEngine](trading-engine.md)：执行层如何消费统一行情数据。
 - [配置指南](configuration.md)：Session、策略、风控、选股器、组合优化配置。

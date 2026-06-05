@@ -18,6 +18,8 @@ uv run python run_live.py --help
 | `--strategy` | 一个或多个策略名，多个用英文逗号分隔 |
 | `--symbols` | 股票池，纯代码格式，例如 `688041,688256` |
 | `--db-path` | SQLite 数据库路径 |
+| `--host` | API 服务绑定地址，默认 `127.0.0.1` |
+| `--port` | API 服务端口，默认 `8000` |
 | `--no-dashboard` | 只启动 API，不自动打开 Dashboard |
 | `--dashboard-refresh-ms` | Dashboard 刷新间隔，默认 15000 毫秒 |
 | `--no-backfill` | 关闭回填模式 |

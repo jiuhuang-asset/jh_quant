@@ -35,7 +35,7 @@ from jh_quant.trading import PersistenceCoordinator, PostgresOrderRecorder
 
 persistence = PersistenceCoordinator(
     recorder=PostgresOrderRecorder(
-        db_url="postgres://user:password@localhost:5432/trading"
+        conninfo="postgres://user:password@localhost:5432/trading"
     )
 )
 ```

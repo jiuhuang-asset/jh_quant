@@ -1,6 +1,6 @@
 # 服务层
 
-`SessionService` 管理一个交易 session，`MultiSessionService` 管理多个 session，并通过 REST API 暴露运行状态、配置、持仓、绩效和手动操作接口。
+`SessionService` 管理一个交易 session，`MultiSessionService` 管理多个 session，并通过 `trading.service.api` 暴露 REST API。API 可用于查看运行状态、配置、持仓、绩效、交易记录，也可触发手动操作。
 
 ## 最小示例
 
@@ -15,7 +15,7 @@ from jh_quant.trading import (
 
 market_data = create_market_data_service(
     backend="tushare",
-    default_symbols=["600519", "000001"],
+    default_symbols=["688041", "688256"],
 )
 
 manager = MultiSessionService(
@@ -29,40 +29,67 @@ manager = MultiSessionService(
 run_trading_app(manager=manager, host="127.0.0.1", port=8000)
 ```
 
-## MarketDataService
+## 端口与访问地址
 
-服务层只注入统一 `MarketDataService`，不直接依赖 akshare 或 tushare 字段。内置 backend：
-
-- `tushare`：默认，TuShare 历史行情 + AkShare 当天实时合并。
-- `akshare`：AkShare 历史行情 + AkShare 实时行情。
-- `xquant`：TuShare 历史行情 + xtquant 实时行情。
-
-## Session 创建
-
-推荐通过 bootstrap 创建：
+`run_trading_app()` 由 `jh_quant.trading.service.api` 提供：
 
 ```python
-from jh_quant.trading.bootstrap import TradingBootstrapConfig, build_paper_manager
-
-config = TradingBootstrapConfig(
-    template="paper-basic",
-    backend="tushare",
-    symbols=["600519", "000001"],
+run_trading_app(
+    session=None,
+    host="127.0.0.1",
+    port=8000,
+    manager=None,
 )
-
-manager = build_paper_manager(config)
 ```
 
-专业用户可以直接构造 `SessionServiceConfig` 后调用：
-
-```python
-manager.create_session(config=session_config, initial_capital=100_000)
-```
-
-## API 文档
-
-服务启动后访问：
+默认监听：
 
 ```text
-http://127.0.0.1:8000/docs
+http://127.0.0.1:8000
+```
+
+常用访问地址：
+
+| 地址 | 说明 |
+| --- | --- |
+| `http://127.0.0.1:8000/docs` | Swagger / OpenAPI 交互文档 |
+| `http://127.0.0.1:8000/openapi.json` | OpenAPI JSON |
+| `http://127.0.0.1:8000/health` | 健康检查 |
+
+如果 8000 端口已被占用，可以指定其他端口：
+
+```bash
+uv run python run_paper.py --port 8010
+```
+
+## Dashboard 与 API 端口
+
+bootstrap 默认会先启动 API，再自动调用：
+
+```python
+from jh_quant.dashboard import display_trading
+
+display_trading(host=host, port=port)
+```
+
+因此 Dashboard 会连接同一个 `host:port`。如果你修改 API 端口，Dashboard 也必须使用同一端口。
+
+## 手动启动 API + Dashboard
+
+```python
+import threading
+import time
+
+from jh_quant.dashboard import display_trading
+from jh_quant.trading import run_trading_app
+
+api_thread = threading.Thread(
+    target=run_trading_app,
+    kwargs={"manager": manager, "host": "127.0.0.1", "port": 8000},
+    daemon=True,
+)
+api_thread.start()
+time.sleep(1.5)
+
+display_trading(host="127.0.0.1", port=8000)
 ```
