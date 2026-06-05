@@ -9,6 +9,10 @@ from typing import Optional, List, Dict
 import pandas as pd
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor
+from jh_quant.schemas.factors import (
+    normalize_factor_returns_frame,
+    normalize_factor_stock_returns_frame,
+)
 from ..config import DEFAULT_MIN_OBSERVATIONS, DEFAULT_N_JOBS
 
 
@@ -27,14 +31,8 @@ class StockExposureCalculator:
         self, factor_returns: pd.DataFrame
     ) -> tuple[pd.DataFrame, List[str]]:
         """Normalize factor-return input and keep factor columns only."""
-        factor_returns = factor_returns.copy()
-        if "date" in factor_returns.columns:
-            factor_returns["date"] = pd.to_datetime(factor_returns["date"])
-            factor_returns = factor_returns.set_index("date")
-        if isinstance(factor_returns.index, pd.DatetimeIndex):
-            factor_returns.index = pd.to_datetime(factor_returns.index)
-        factor_returns = factor_returns.sort_index()
-        factor_cols = [c for c in factor_returns.columns if c != "date"]
+        factor_returns = normalize_factor_returns_frame(factor_returns)
+        factor_cols = list(factor_returns.columns)
         return factor_returns[factor_cols], factor_cols
 
     def _nan_exposure_result(self, factor_columns: List[str]) -> Dict[str, float]:
@@ -141,11 +139,11 @@ class StockExposureCalculator:
         if stock_returns is None or stock_returns.empty:
             raise ValueError("stock_returns is required")
 
+        stock_returns = normalize_factor_stock_returns_frame(stock_returns)
+
         if symbols is None:
             symbols = stock_returns["symbol"].unique().tolist()
 
-        stock_returns = stock_returns.copy()
-        stock_returns["date"] = pd.to_datetime(stock_returns["date"])
         factor_matrix, factor_cols = self._prepare_factor_matrix(factor_returns)
 
         if verbose:
@@ -193,11 +191,10 @@ class StockExposureCalculator:
         if stock_returns is None or stock_returns.empty:
             raise ValueError("stock_returns is required")
 
+        stock_returns = normalize_factor_stock_returns_frame(stock_returns)
+
         if symbols is None:
             symbols = stock_returns["symbol"].unique().tolist()
-
-        stock_returns = stock_returns.copy()
-        stock_returns["date"] = pd.to_datetime(stock_returns["date"])
 
         if rolling:
             return self.calculate_rolling_exposures(

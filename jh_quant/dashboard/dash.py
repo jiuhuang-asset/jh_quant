@@ -1,10 +1,8 @@
 import os
-
 import pandas as pd
 import webview
 from rich import print as rprint
 
-from jh_quant.data import get_code_date_col
 
 
 class BacktestingView:
@@ -13,12 +11,11 @@ class BacktestingView:
         trading_hist: pd.DataFrame,
         perf_data: pd.DataFrame,
     ):
-        code_column, dt_column = get_code_date_col(trading_hist)
-        self.code_column = code_column
-        self.dt_column = dt_column
+        self.code_column = "symbol"
+        self.dt_column = "date"
         cols = [
-            code_column,
-            dt_column,
+            self.code_column,
+            self.dt_column,
             "open",
             "high",
             "low",
@@ -34,7 +31,6 @@ class BacktestingView:
         available_cols = [c for c in cols if c in trading_hist.columns]
         self.trading_hist = (
             trading_hist[available_cols]
-            .rename(columns={dt_column: "date"})
             .assign(date=lambda x: x["date"].astype(str))
             .to_dict(orient="records")
         )

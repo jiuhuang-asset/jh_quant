@@ -1,93 +1,79 @@
 """
-Factor Calculation Framework Main Entry
+Factor calculation entry points.
 
-Provides unified interface for factor return and exposure calculations.
-
-设计：每个因子类型对应一个数据准备类 (FactorReturnData子类)
+The factor package works with canonical DataFrame schemas only. Data fetching and
+source-specific column conversion should happen before calling these functions.
 """
 
-from typing import Optional, List, Dict, Union
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Dict, List, Optional, Union
+
 import pandas as pd
-from .config import FactorType, CalculationMethod, TimePeriod, DEFAULT_N_JOBS
-from .data.base import get_factor_data_class
-from .factors.general import GeneralFactorCalculator
+
+from jh_quant.schemas.factors import (
+    normalize_factor_fundamentals,
+    normalize_factor_market_cap_frame,
+    normalize_factor_market_return_frame,
+    normalize_factor_risk_free_rate_frame,
+    normalize_factor_returns_frame,
+    normalize_factor_stock_returns_frame,
+)
+
+from .config import CalculationMethod, FACTOR_CONFIGS, FactorType, TimePeriod
 from .exposure import StockExposureCalculator, calculate_stock_exposures
+from .factors.general import GeneralFactorCalculator
+
+
+def _coerce_factor_types(
+    factor_type: Union[str, FactorType],
+) -> list[FactorType]:
+    if isinstance(factor_type, str):
+        if factor_type.lower() == "all":
+            return FactorType.list_all()
+        return [FactorType.from_value(factor_type)]
+    return [factor_type]
+
+
+def _coerce_method(method: Union[str, CalculationMethod]) -> CalculationMethod:
+    return CalculationMethod(method) if isinstance(method, str) else method
+
+
+def _coerce_period(period: Union[str, TimePeriod]) -> TimePeriod:
+    return TimePeriod(period) if isinstance(period, str) else period
 
 
 class FactorEngine:
-    """
-    Main factor calculation engine.
-
-    支持所有因子模型的计算:
-    - FF3, FF5, CARHART, NOVY_MARX
-    - HOU_XUE_ZHANG, DHS
-    """
-
-    def __init__(self, api_key: Optional[str] = None, api_url: Optional[str] = None):
-        """
-        Initialize the factor engine.
-
-        Args:
-            api_key: API密钥（可选，从环境变量读取）
-            api_url: API地址（可选）
-        """
-        self.api_key = api_key
-        self.api_url = api_url
+    """Main factor calculation engine for normalized factor input frames."""
 
     def calculate_factor_returns(
         self,
         factor_type: FactorType = FactorType.FF3,
+        stock_returns: Optional[pd.DataFrame] = None,
+        market_cap: Optional[pd.DataFrame] = None,
+        fundamentals: Optional[Mapping[str, pd.DataFrame]] = None,
+        market_return: Optional[pd.DataFrame] = None,
+        risk_free_rate: Optional[pd.DataFrame] = None,
         method: CalculationMethod = CalculationMethod.SIMPLE,
         period: TimePeriod = TimePeriod.MONTHLY,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
-        symbols: Optional[List[str]] = None,
         n_jobs: Optional[int] = None,
         verbose: bool = True,
         use_polars: bool = True,
     ) -> pd.DataFrame:
         """
-        Calculate factor returns.
+        Calculate factor returns from canonical input frames.
 
-        Args:
-            factor_type: Type of factor model
-            method: Calculation method (CLASSIC or SIMPLE)
-            period: Time period (MONTHLY or DAILY)
-            start_date: Start date (YYYY-MM-DD)
-            end_date: End date (YYYY-MM-DD)
-            symbols: Optional list of stock symbols
-            verbose: Whether to print progress
-            use_polars: Whether to use Polars acceleration (default True)
-
-        Returns:
-            DataFrame with factor returns (date as index)
+        Required schemas:
+        - stock_returns: [symbol, date, return]
+        - market_cap: [symbol, date, mkt_cap]
+        - fundamentals: {field_name: DataFrame with symbol/date/field_name}
+        - market_return for CAPM: [date, mkt_excess]
         """
         if verbose:
             print(f"Calculating {factor_type.value} factors...")
             print(f"  Method: {method.value}")
             print(f"  Period: {period.value}")
-            print(f"  Date range: {start_date} to {end_date}")
-            print(f"  N Jobs: {n_jobs or DEFAULT_N_JOBS}")
-        data_class = get_factor_data_class(factor_type)
-        data_provider = data_class(api_key=self.api_key, api_url=self.api_url)
-
-        prepared = data_provider.prepare_data(
-            period=period, start_date=start_date, end_date=end_date, symbols=symbols
-        )
-
-        stock_returns = prepared.get("stock_returns")
-
-        # CAPM uses market_return instead of market_cap
-        if factor_type == FactorType.CAPM:
-            market_cap = prepared.get("market_return")
-        else:
-            market_cap = prepared.get("market_cap")
-
-        fundamentals = {
-            k: v
-            for k, v in prepared.items()
-            if k not in ["stock_returns", "market_cap", "market_return"]
-        }
 
         calculator = GeneralFactorCalculator(
             factor_type=factor_type,
@@ -97,69 +83,96 @@ class FactorEngine:
             use_polars=use_polars,
         )
 
-        factor_returns = calculator.calculate(
-            stock_returns=stock_returns,
-            market_cap=market_cap,
-            fundamentals=fundamentals,
+        if factor_type == FactorType.CAPM:
+            if market_return is None:
+                raise ValueError("market_return is required for CAPM factors")
+            normalized_market_return = normalize_factor_market_return_frame(
+                market_return
+            )
+            factor_returns = calculator.calculate(
+                stock_returns=pd.DataFrame(),
+                market_cap=normalized_market_return,
+                fundamentals=None,
+                risk_free_rate=None,
+            )
+            return normalize_factor_returns_frame(factor_returns)
+
+        if stock_returns is None:
+            raise ValueError("stock_returns is required")
+        if market_cap is None:
+            raise ValueError("market_cap is required")
+
+        normalized_stock_returns = normalize_factor_stock_returns_frame(stock_returns)
+        normalized_market_cap = normalize_factor_market_cap_frame(market_cap)
+        normalized_fundamentals = normalize_factor_fundamentals(fundamentals)
+        normalized_risk_free_rate = normalize_factor_risk_free_rate_frame(
+            risk_free_rate
         )
+
+        missing = self._missing_required_fields(
+            factor_type,
+            normalized_stock_returns,
+            normalized_market_cap,
+            normalized_fundamentals,
+        )
+        if missing:
+            raise ValueError(
+                f"{factor_type.value} factors require missing fields: "
+                + ", ".join(missing)
+            )
+
+        factor_returns = calculator.calculate(
+            stock_returns=normalized_stock_returns,
+            market_cap=normalized_market_cap,
+            fundamentals=normalized_fundamentals,
+            risk_free_rate=normalized_risk_free_rate,
+        )
+
+        factor_returns = normalize_factor_returns_frame(factor_returns)
 
         if verbose:
             period_label = "days" if period == TimePeriod.DAILY else "months"
-            print(
-                f"\nCalculated {len(factor_returns)} {period_label} of factor returns"
-            )
+            print(f"Calculated {len(factor_returns)} {period_label} of factor returns")
 
         return factor_returns
 
     def calculate_all_factors(
         self,
         factor_types: Optional[List[FactorType]] = None,
+        stock_returns: Optional[pd.DataFrame] = None,
+        market_cap: Optional[pd.DataFrame] = None,
+        fundamentals: Optional[Mapping[str, pd.DataFrame]] = None,
+        market_return: Optional[pd.DataFrame] = None,
+        risk_free_rate: Optional[pd.DataFrame] = None,
         method: CalculationMethod = CalculationMethod.SIMPLE,
         period: TimePeriod = TimePeriod.MONTHLY,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
-        symbols: Optional[List[str]] = None,
         n_jobs: Optional[int] = None,
         verbose: bool = True,
         use_polars: bool = True,
     ) -> Dict[FactorType, pd.DataFrame]:
-        """
-        Calculate multiple factor returns at once.
-
-        Args:
-            factor_types: List of factor types to calculate
-            method: Calculation method
-            start_date: Start date
-            end_date: End date
-            symbols: Stock symbols
-            verbose: Whether to print progress
-            use_polars: Whether to use Polars acceleration (default True)
-
-        Returns:
-            Dict mapping factor type to factor returns DataFrame
-        """
+        """Calculate multiple factor return sets from canonical input frames."""
         if factor_types is None:
             factor_types = FactorType.list_all()
 
-        results = {}
-        for ft in factor_types:
-            if verbose:
-                print(f"\n{'='*40}")
+        results: Dict[FactorType, pd.DataFrame] = {}
+        for factor_type in factor_types:
             try:
-                results[ft] = self.calculate_factor_returns(
-                    factor_type=ft,
+                results[factor_type] = self.calculate_factor_returns(
+                    factor_type=factor_type,
+                    stock_returns=stock_returns,
+                    market_cap=market_cap,
+                    fundamentals=fundamentals,
+                    market_return=market_return,
+                    risk_free_rate=risk_free_rate,
                     method=method,
                     period=period,
-                    start_date=start_date,
-                    end_date=end_date,
-                    symbols=symbols,
                     n_jobs=n_jobs,
                     verbose=verbose,
                     use_polars=use_polars,
                 )
-            except Exception as e:
+            except Exception as exc:
                 if verbose:
-                    print(f"Failed to calculate {ft.value}: {e}")
+                    print(f"Failed to calculate {factor_type.value}: {exc}")
 
         return results
 
@@ -170,111 +183,92 @@ class FactorEngine:
         n_jobs: int = 4,
         verbose: bool = True,
     ) -> pd.DataFrame:
-        """
-        Calculate stock factor exposures.
-
-        Args:
-            stock_returns: DataFrame with [symbol, date, return]
-            factor_returns: DataFrame with factor returns
-            n_jobs: Parallel jobs
-            verbose: Whether to print progress
-
-        Returns:
-            DataFrame with factor exposures
-        """
+        """Calculate stock factor exposures from canonical input frames."""
         if verbose:
             print("Calculating stock factor exposures...")
 
-        if stock_returns.empty:
-            raise ValueError("stock_returns is empty")
+        stock_returns = normalize_factor_stock_returns_frame(stock_returns)
+        factor_returns = normalize_factor_returns_frame(factor_returns)
 
         calculator = StockExposureCalculator(n_jobs=n_jobs)
-        exposures = calculator.calculate_all_exposures(
+        return calculator.calculate_all_exposures(
             stock_returns, factor_returns, verbose=verbose
         )
 
-        return exposures
+    @staticmethod
+    def _missing_required_fields(
+        factor_type: FactorType,
+        stock_returns: pd.DataFrame,
+        market_cap: pd.DataFrame,
+        fundamentals: Mapping[str, pd.DataFrame],
+    ) -> list[str]:
+        missing = []
+        available = set(stock_returns.columns) | set(market_cap.columns)
+        available.update(fundamentals.keys())
+        for field in FACTOR_CONFIGS[factor_type]["required_data"]:
+            if field == "mkt_cap":
+                continue
+            if field not in available:
+                missing.append(field)
+        return missing
 
 
 def calculate_factor_returns(
     factor_type: Union[str, FactorType] = FactorType.FF3,
+    stock_returns: Optional[pd.DataFrame] = None,
+    market_cap: Optional[pd.DataFrame] = None,
+    fundamentals: Optional[Mapping[str, pd.DataFrame]] = None,
+    market_return: Optional[pd.DataFrame] = None,
+    risk_free_rate: Optional[pd.DataFrame] = None,
     method: Union[str, CalculationMethod] = CalculationMethod.SIMPLE,
     period: Union[str, TimePeriod] = TimePeriod.MONTHLY,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    symbols: Optional[List[str]] = None,
-    api_key: Optional[str] = None,
-    api_url: Optional[str] = None,
     n_jobs: Optional[int] = 1,
     use_polars: bool = True,
+    verbose: bool = True,
     **kwargs,
-) -> pd.DataFrame:
-    """
-    Convenience function to calculate factor returns.
+) -> Union[pd.DataFrame, Dict[FactorType, pd.DataFrame]]:
+    """Convenience function to calculate factor returns from canonical frames."""
+    if kwargs:
+        unsupported = ", ".join(sorted(kwargs))
+        raise TypeError(
+            "calculate_factor_returns no longer fetches source data. "
+            f"Prepare schema-compatible DataFrames before calling it. "
+            f"Unsupported arguments: {unsupported}"
+        )
 
-    Usage:
-        # 计算FF3
-        from jh_factors import calculate_factor_returns
-        ff3 = calculate_factor_returns('ff3', start_date='2020-01-01', end_date='2024-12-31')
-
-        # 计算所有因子
-        all_factors = calculate_factor_returns('all')
-
-    Args:
-        factor_type: Factor type ('ff3', 'ff5', 'carhart', 'novy_marx', 'hxz', 'sy', 'dhs', 'betaplus', 'all')
-        method: Calculation method ('classic' or 'simple')
-        period: Time period ('M' or 'D')
-        start_date: Start date
-        end_date: End date
-        symbols: Stock symbols
-        api_key: API密钥
-        api_url: API地址
-        n_jobs: 并行任务数，默认为1
-        use_polars: 是否使用Polars加速（默认True）
-        **kwargs: Additional parameters
-
-    Returns:
-        DataFrame or Dict of factor returns
-    """
-    if isinstance(factor_type, str):
-        if factor_type.lower() == "all":
-            factor_types = FactorType.list_all()
-        else:
-            factor_types = [FactorType.from_value(factor_type)]
-    else:
-        factor_types = [factor_type]
-
-    if isinstance(method, str):
-        method = CalculationMethod(method)
-    if isinstance(period, str):
-        period = TimePeriod(period)
-
-    engine = FactorEngine(api_key=api_key, api_url=api_url)
+    factor_types = _coerce_factor_types(factor_type)
+    method = _coerce_method(method)
+    period = _coerce_period(period)
+    engine = FactorEngine()
 
     if len(factor_types) == 1:
         return engine.calculate_factor_returns(
             factor_type=factor_types[0],
+            stock_returns=stock_returns,
+            market_cap=market_cap,
+            fundamentals=fundamentals,
+            market_return=market_return,
+            risk_free_rate=risk_free_rate,
             method=method,
             period=period,
-            start_date=start_date,
-            end_date=end_date,
-            symbols=symbols,
             n_jobs=n_jobs,
-            verbose=kwargs.get("verbose", True),
+            verbose=verbose,
             use_polars=use_polars,
         )
-    else:
-        return engine.calculate_all_factors(
-            factor_types=factor_types,
-            method=method,
-            period=period,
-            start_date=start_date,
-            end_date=end_date,
-            symbols=symbols,
-            n_jobs=n_jobs,
-            verbose=kwargs.get("verbose", True),
-            use_polars=use_polars,
-        )
+
+    return engine.calculate_all_factors(
+        factor_types=factor_types,
+        stock_returns=stock_returns,
+        market_cap=market_cap,
+        fundamentals=fundamentals,
+        market_return=market_return,
+        risk_free_rate=risk_free_rate,
+        method=method,
+        period=period,
+        n_jobs=n_jobs,
+        verbose=verbose,
+        use_polars=use_polars,
+    )
 
 
 def calculate_exposures(
@@ -284,19 +278,9 @@ def calculate_exposures(
     lookback: Optional[int] = None,
     **kwargs,
 ) -> pd.DataFrame:
-    """
-    Convenience function to calculate stock factor exposures.
-
-    Args:
-        stock_returns: DataFrame with [symbol, date, return]
-        factor_returns: DataFrame with factor returns
-        period: Period of factor return ('D' or 'M'), determines the default lookback window to calculate exposures
-        lookback: Lookback window for exposures
-        **kwargs: Additional parameters
-
-    Returns:
-        DataFrame with factor exposures
-    """
+    """Convenience function to calculate stock factor exposures."""
+    stock_returns = normalize_factor_stock_returns_frame(stock_returns)
+    factor_returns = normalize_factor_returns_frame(factor_returns)
     return calculate_stock_exposures(
         stock_returns, factor_returns, period, lookback, **kwargs
     )

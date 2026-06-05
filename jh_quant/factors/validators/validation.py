@@ -17,8 +17,11 @@ from dataclasses import dataclass, field
 from typing import Optional, List, Dict
 import pandas as pd
 import numpy as np
+from jh_quant.schemas.factors import (
+    normalize_factor_returns_frame,
+    normalize_factor_stock_returns_frame,
+)
 from ..exposure import StockExposureCalculator
-from ..config import DEFAULT_MIN_OBSERVATIONS
 
 # ============================================================================
 # Data Classes for Validation Results
@@ -219,6 +222,8 @@ def validate_factor_intercept(
     """
     from scipy import stats
 
+    factor_returns = normalize_factor_returns_frame(factor_returns)
+
     if newey_west_lag is None:
         newey_west_lag = 3 if period == "M" else 21
 
@@ -328,6 +333,7 @@ class FamaMacBethValidator:
         check_condition_number: bool = True,
         condition_threshold: float = 30.0,
         test_window: Optional[int] = None,
+        lag_exposures: bool = True,
     ):
         self.alpha = alpha
         self.min_periods = min_periods
@@ -341,6 +347,7 @@ class FamaMacBethValidator:
         self.check_condition_number = check_condition_number
         self.condition_threshold = condition_threshold
         self.test_window = test_window
+        self.lag_exposures = lag_exposures
 
     def validate(
         self,
@@ -375,15 +382,14 @@ class FamaMacBethValidator:
             >>> print(result.to_dataframe())
         """
         # 确定因子名称
+        stock_returns = normalize_factor_stock_returns_frame(stock_returns)
+        factor_returns = normalize_factor_returns_frame(factor_returns)
+
         if factor_names is None:
             factor_names = list(factor_returns.columns)
 
         # 数据准备
         stock_returns = stock_returns.copy()
-        stock_returns["date"] = pd.to_datetime(stock_returns["date"])
-        factor_returns = factor_returns.copy()
-        if isinstance(factor_returns.index, pd.DatetimeIndex):
-            factor_returns.index = pd.to_datetime(factor_returns.index)
 
         # 每月估计个股beta（滚动窗口）
         beta_df = self._estimate_rolling_betas(
@@ -437,7 +443,7 @@ class FamaMacBethValidator:
     ) -> pd.DataFrame:
         """Estimate rolling betas by reusing the exposure calculator."""
         calculator = StockExposureCalculator(
-            min_observations=min(DEFAULT_MIN_OBSERVATIONS, self.lookback), n_jobs=1
+            min_observations=min(self.min_periods, self.lookback), n_jobs=1
         )
         beta_df = calculator.calculate_all_exposures(
             stock_returns=stock_returns,
@@ -449,7 +455,28 @@ class FamaMacBethValidator:
         if beta_df.empty:
             return beta_df
         cols = ["symbol", "date"] + factor_names
-        return beta_df[[c for c in cols if c in beta_df.columns]].copy()
+        beta_df = beta_df[[c for c in cols if c in beta_df.columns]].copy()
+        if self.lag_exposures:
+            beta_df = self._lag_exposures(beta_df, factor_names)
+        return beta_df
+
+    def _lag_exposures(
+        self, exposures: pd.DataFrame, factor_names: List[str]
+    ) -> pd.DataFrame:
+        """Use exposures estimated through t-1 for the cross-section at t."""
+        if exposures.empty:
+            return exposures
+
+        result = exposures.copy()
+        result["date"] = pd.to_datetime(result["date"])
+        result = result.sort_values(["symbol", "date"]).reset_index(drop=True)
+        available_factors = [f for f in factor_names if f in result.columns]
+        if not available_factors:
+            return result
+        result[available_factors] = result.groupby("symbol", sort=False)[
+            available_factors
+        ].shift(1)
+        return result.dropna(subset=available_factors, how="all")
 
     def _step1_cross_sectional(
         self, data: pd.DataFrame, factor_names: List[str]
@@ -704,6 +731,8 @@ def validate_factor(
     Returns:
         InterceptValidationResult 或 FamaMacBethValidationResult
     """
+    factor_returns = normalize_factor_returns_frame(factor_returns)
+
     if method == "intercept":
         return validate_factor_intercept(
             factor_returns, alpha, newey_west_lag, period, test_window
@@ -711,7 +740,13 @@ def validate_factor(
     elif method == "fama_macbeth":
         if stock_returns is None or stock_returns.empty:
             raise ValueError("stock_returns is required for fama_macbeth validation")
-        validator = FamaMacBethValidator(alpha=alpha, test_window=test_window)
+        stock_returns = normalize_factor_stock_returns_frame(stock_returns)
+        validator = FamaMacBethValidator(
+            alpha=alpha,
+            period=period,
+            newey_west_lag=newey_west_lag,
+            test_window=test_window,
+        )
         if factor_exposures is not None and not factor_exposures.empty:
             factor_names = [
                 c for c in factor_returns.columns if c in factor_exposures.columns
@@ -719,6 +754,8 @@ def validate_factor(
             merged = stock_returns[["symbol", "date", "return"]].copy()
             merged["date"] = pd.to_datetime(merged["date"]).dt.strftime("%Y-%m-%d")
             exposures = factor_exposures.copy()
+            if validator.lag_exposures:
+                exposures = validator._lag_exposures(exposures, factor_names)
             exposures["date"] = pd.to_datetime(exposures["date"]).dt.strftime(
                 "%Y-%m-%d"
             )

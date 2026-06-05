@@ -2,6 +2,8 @@
 
 框架提供两种因子计算方法 — **SIMPLE**（简化）和 **CLASSIC**（经典），以及多层级的性能优化选项。
 
+以下示例假设你已经通过 `load_ts_factor_inputs()` 或自备 schema-compatible DataFrame 得到了 `inputs`。
+
 ## SIMPLE vs CLASSIC
 
 | 维度 | SIMPLE（默认） | CLASSIC |
@@ -29,6 +31,7 @@ hml = 高 BM 股票等权均值 - 低 BM 股票等权均值
 ff3 = engine.calculate_factor_returns(
     factor_type=FactorType.FF3,
     method='simple',  # 可省略，为默认值
+    **inputs,
 )
 ```
 
@@ -58,6 +61,7 @@ HML = (S/H + B/H)/2 - (S/L + B/L)/2
 ff3 = engine.calculate_factor_returns(
     factor_type=FactorType.FF3,
     method='classic',
+    **inputs,
 )
 ```
 
@@ -82,12 +86,14 @@ ff3 = engine.calculate_factor_returns(
 ff3_m = engine.calculate_factor_returns(
     factor_type=FactorType.FF3,
     period='M',  # 或 TimePeriod.MONTHLY
+    **inputs,
 )
 
 # 日度因子
 ff3_d = engine.calculate_factor_returns(
     factor_type=FactorType.FF3,
     period='D',  # 或 TimePeriod.DAILY
+    **inputs,
 )
 ```
 
@@ -100,6 +106,57 @@ ff3_d = engine.calculate_factor_returns(
 
 日度计算默认启用 Polars 加速以获得更好性能。
 
+## Schema 与时间对齐
+
+因子计算入口只接受标准化后的 DataFrame。数据源字段转换应在进入因子核心之前完成。
+
+### 基础输入
+
+| 输入 | 必需列 | 说明 |
+|------|--------|------|
+| `stock_returns` | `symbol`, `date`, `return` | 收益期结束日和该期收益 |
+| `market_cap` | `symbol`, `date`, `mkt_cap` | 已按可获得时间对齐到收益期的市值 |
+| `fundamentals` | `{field_name: DataFrame}` | 因子特征字段 |
+| `market_return` | `date`, `mkt_excess` | CAPM 使用的市场超额收益 |
+
+`calculate_factor_returns()` 不负责拉取 Tushare/AkShare 数据，也不猜测不同数据源的列名。可以使用 `jh_quant.data` 中的 adapter 或 `load_ts_factor_inputs()` 完成转换。
+
+### 避免 look-ahead bias
+
+因子收益率是在某个收益期上构造多空组合。因此用于分组的特征必须在该收益期开始前已经可获得。
+
+默认 TS loader 做了两层防护：
+
+1. `price_adjust="qfq"`：优先使用前复权行情，月频默认映射到 `TS_MONTHLY_QFQ`。
+2. `lag_features=True`：将 t 期观测到的市场特征用于下一期收益。
+
+示例：
+
+```text
+2024-01-31 的 mkt_cap / bm / momentum
+        ↓
+用于 2024-02-29 的收益分组
+```
+
+如果自行准备 `market_cap` 或 `fundamentals`，也应遵循同样原则：不要把 `2024-02-29` 才能知道的特征用于 `2024-02-29` 当月收益。
+
+### 财务字段与公告日
+
+财务报表的报告期末日期不是可获得日期。例如一季报报告期是 `2024-03-31`，但公告日可能是 `2024-05-05`。这份数据不能用于 `2024-04-30` 的收益。
+
+财务类字段必须带 `ann_date`：
+
+```python
+roe = pd.DataFrame({
+    "symbol": ["000001.SZ"],
+    "date": ["2024-03-31"],      # 报告期
+    "ann_date": ["2024-05-05"],  # 公告日/可获得日
+    "roe": [0.12],
+})
+```
+
+因子核心按 `ann_date <= return_date` 做 as-of 匹配；缺少 `ann_date` 的财务字段会在 schema 校验阶段报错。
+
 ## 性能优化
 
 ### Polars 加速
@@ -111,12 +168,14 @@ ff3_d = engine.calculate_factor_returns(
 ff5 = engine.calculate_factor_returns(
     factor_type=FactorType.FF5,
     use_polars=True,
+    **inputs,
 )
 
 # 禁用（使用纯 pandas）
 ff5 = engine.calculate_factor_returns(
     factor_type=FactorType.FF5,
     use_polars=False,
+    **inputs,
 )
 ```
 
@@ -128,13 +187,13 @@ Polars 使用线程并行，pandas 使用进程并行。如果遇到内存问题
 
 ```python
 # 自动检测（默认，最多 4 核）
-ff3 = engine.calculate_factor_returns(factor_type=FactorType.FF3)
+ff3 = engine.calculate_factor_returns(factor_type=FactorType.FF3, **inputs)
 
 # 单线程（调试用）
-ff3 = engine.calculate_factor_returns(factor_type=FactorType.FF3, n_jobs=1)
+ff3 = engine.calculate_factor_returns(factor_type=FactorType.FF3, n_jobs=1, **inputs)
 
 # 指定核数
-ff3 = engine.calculate_factor_returns(factor_type=FactorType.FF3, n_jobs=8)
+ff3 = engine.calculate_factor_returns(factor_type=FactorType.FF3, n_jobs=8, **inputs)
 ```
 
 默认值：`min(cpu_count, 4)`。对于日度数据（日期多、单日数据少），多线程效果好；对于月度数据，收益一般。
@@ -155,8 +214,8 @@ ff3 = engine.calculate_factor_returns(factor_type=FactorType.FF3, n_jobs=8)
 ```python
 ff3 = engine.calculate_factor_returns(
     factor_type=FactorType.FF3,
-    ...
-    # risk_free_rate 通过 data provider 自动获取
+    risk_free_rate=risk_free_rate,
+    **inputs,
 )
 ```
 
@@ -168,13 +227,17 @@ ff3 = engine.calculate_factor_returns(
 通过 `symbols` 参数限定计算范围（如仅计算沪深300成分股）：
 
 ```python
-hs300_stocks = ['000001', '000002', ..., '688981']
+from jh_quant.factors import load_ts_factor_inputs
+
+hs300_inputs = load_ts_factor_inputs(
+    symbols=['000001.SZ', '000002.SZ', '600519.SH'],
+    start_date='2020-01-01',
+    end_date='2024-12-31',
+)
 
 ff3 = engine.calculate_factor_returns(
     factor_type=FactorType.FF3,
-    symbols=hs300_stocks,
-    start_date='2020-01-01',
-    end_date='2024-12-31',
+    **hs300_inputs,
 )
 ```
 

@@ -3,7 +3,11 @@ from abc import ABC, abstractmethod
 
 import pandas as pd
 from joblib import Parallel, delayed
-from jh_quant.data import get_code_date_col
+from jh_quant.schemas.market import (
+    DATE_COL,
+    SYMBOL_COL,
+    normalize_backtest_price_frame,
+)
 
 # Get the number of CPUs minus one
 n_jobs = max(1, os.cpu_count() - 1)
@@ -43,11 +47,11 @@ class Strategy(ABC):
         Returns:
             合并后的结果 DataFrame
         """
-        code_col, dt_col = get_code_date_col(price)
+        price = normalize_backtest_price_frame(price)
         # 按股票代码和日期排序
-        price_sorted = price.sort_values([code_col, dt_col]).reset_index(drop=True)
+        price_sorted = price.sort_values([SYMBOL_COL, DATE_COL]).reset_index(drop=True)
         # Group by symbol and apply parallel processing
-        grouped = price_sorted.groupby(code_col)
+        grouped = price_sorted.groupby(SYMBOL_COL)
         results = Parallel(n_jobs=n_jobs)(
             delayed(self._execute_one)(data) for _, data in grouped
         )

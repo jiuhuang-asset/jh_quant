@@ -1,6 +1,5 @@
 from typing import Protocol, Optional, List, runtime_checkable
 from dataclasses import dataclass, field
-from jh_quant.data import JHData, DataTypes
 from jh_quant.factors import FactorType, validate_factor
 from jh_quant.factors import FACTOR_CONFIGS
 import numpy as np
@@ -66,8 +65,10 @@ class Selector(Protocol):
 
 def get_data_type_by_factor(
     ft: FactorType, period: str = "M", type: str = "returns"
-) -> DataTypes:
+):
     """根据FactorType获取对应的DataType"""
+    from jh_quant.data import DataTypes
+
     if period == "M":
         period = "monthly"
     elif period == "D":
@@ -81,7 +82,7 @@ def get_data_type_by_factor(
 
 
 class FactorSelector(Selector):
-    def __init__(self, jh_data: JHData):
+    def __init__(self, jh_data):
         self.jh_data = jh_data
 
     def select(
@@ -137,6 +138,8 @@ class FactorSelector(Selector):
         ).set_index("date")
         factor_exposures = self.jh_data.get_data(exposure_dtype, start=start, end=end)
 
+        from jh_quant.data import DataTypes, to_backtest_price_frame
+
         stock_price_dtype = (
             DataTypes.AK_STOCK_ZH_A_HIST_QFQ_MON
             if period == "M"
@@ -148,7 +151,7 @@ class FactorSelector(Selector):
 
         from .metrics import calculate_returns
 
-        stock_returns = calculate_returns(stock_price_monthly)
+        stock_returns = calculate_returns(to_backtest_price_frame(stock_price_monthly))
 
         # Fama-MacBeth验证获取Mean_Lambda
         if test_window is None:

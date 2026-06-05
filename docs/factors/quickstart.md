@@ -24,19 +24,53 @@ export JIUHUANG_API_KEY="your-api-key"
 | `FactorEngine` | 需要复用实例、批量计算多个模型 |
 | `GeneralFactorCalculator` | 已有股票收益率和基本面数据，只需计算逻辑 |
 
+## 数据准备原则
+
+因子核心不直接拉取 Tushare 或 AkShare 数据。你需要先准备符合 schema 的 DataFrame，再调用 `calculate_factor_returns()`。
+
+最简单的 TS 数据准备方式是使用 `load_ts_factor_inputs()`：
+
+```python
+from jh_quant.factors import calculate_factor_returns, load_ts_factor_inputs
+
+inputs = load_ts_factor_inputs(
+    start_date="2020-01-01",
+    end_date="2024-12-31",
+    period="M",             # 默认直接使用 TS_MONTHLY_* 月频行情
+    price_adjust="qfq",     # 默认使用前复权价格
+    lag_features=True,      # 默认将特征滞后一收益期，避免同月 look-ahead
+)
+```
+
+返回值可以直接传给 `calculate_factor_returns()`：
+
+```python
+factor_returns = calculate_factor_returns("ff3", **inputs)
+```
+
+如果自行准备数据，至少需要：
+
+| 输入 | 必需列 | 说明 |
+|------|--------|------|
+| `stock_returns` | `symbol`, `date`, `return` | 股票收益率 |
+| `market_cap` | `symbol`, `date`, `mkt_cap` | 已按可用时间对齐的市值 |
+| `fundamentals` | `{field: DataFrame}` | 因子特征字段 |
+| 财务字段 | `symbol`, `date`, `ann_date`, `<field>` | `ann_date` 是公告日/可获得日 |
+
+财务字段缺少 `ann_date` 会被 schema 拦截。详见 [Look-Ahead Bias 防护](./look-ahead-bias.md)。
+
 ### 方式一：便捷函数（推荐入门）
 
 ```python
-from jh_quant.factors import calculate_factor_returns
+from jh_quant.factors import calculate_factor_returns, load_ts_factor_inputs
+
+inputs = load_ts_factor_inputs(
+    start_date="2020-01-01",
+    end_date="2024-12-31",
+)
 
 # 计算 FF3 月度因子收益率
-ff3 = calculate_factor_returns(
-    'ff3',
-    method='simple',
-    period='M',
-    start_date='2020-01-01',
-    end_date='2024-12-31',
-)
+ff3 = calculate_factor_returns("ff3", **inputs, method="simple")
 print(ff3.head())
 ```
 
@@ -53,8 +87,8 @@ date
 一次性计算所有因子模型：
 
 ```python
-all_factors = calculate_factor_returns('all', start_date='2020-01-01', end_date='2024-12-31')
-# 返回 Dict[str, DataFrame]，key 为 "ff3", "ff5", "carhart" 等
+all_factors = calculate_factor_returns("all", **inputs)
+# 返回 Dict[FactorType, DataFrame]
 
 for name, df in all_factors.items():
     print(f"{name}: {len(df)} 行, 因子: {list(df.columns)}")
@@ -71,11 +105,9 @@ engine = FactorEngine()
 ff5 = engine.calculate_factor_returns(
     factor_type=FactorType.FF5,
     method=CalculationMethod.CLASSIC,
-    period=TimePeriod.DAILY,
-    start_date='2024-01-01',
-    end_date='2024-12-31',
     n_jobs=4,
     use_polars=True,
+    **inputs,
 )
 
 # 批量计算
@@ -83,8 +115,7 @@ results = engine.calculate_all_factors(
     factor_types=[FactorType.FF3, FactorType.CARHART, FactorType.DHS],
     method=CalculationMethod.SIMPLE,
     period=TimePeriod.MONTHLY,
-    start_date='2020-01-01',
-    end_date='2024-12-31',
+    **inputs,
 )
 
 for ft, df in results.items():
@@ -146,8 +177,18 @@ exposures = calculate_exposures(
 | `symbols` | `None`（全部 A 股） | 限定股票范围 |
 | `verbose` | `True` | 是否打印进度信息 |
 
+### load_ts_factor_inputs 参数
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `period` | `"M"` | 使用 TS 月频行情；`"D"` 表示用日频行情转月末收益 |
+| `price_adjust` | `"qfq"` | 优先使用前复权价格；可选 `"hfq"` 或 `"none"` |
+| `lag_features` | `True` | 将市值、BM、动量等特征滞后一收益期 |
+| `include_proxy_fundamentals` | `False` | 仅用于 smoke test 的代理财务字段，不建议用于正式研究 |
+
 ## 下一步
 
 - 查看 [11 种因子模型的详细介绍](./factor-models.md)
 - 了解 [SIMPLE 与 CLASSIC 计算方法的区别](./calculation.md)
 - 学习 [个股暴露度计算和因子验证](./exposure.md)
+- 阅读 [Look-Ahead Bias 防护](./look-ahead-bias.md)

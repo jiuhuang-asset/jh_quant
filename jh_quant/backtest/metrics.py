@@ -1,9 +1,35 @@
+import warnings
+
 import pandas as pd
 import quantstats as qs
 import numpy as np
-from jh_quant.data import get_code_date_col
+from jh_quant.schemas.market import (
+    DATE_COL,
+    SYMBOL_COL,
+    normalize_backtest_price_frame,
+    validate_backtest_price_frame,
+)
 
 __all__ = ["cal_metrics_from_returns"]
+
+
+def _to_finite_float(value) -> float:
+    if isinstance(value, pd.Series):
+        value = value.iloc[0] if not value.empty else np.nan
+    if value is None or pd.isna(value):
+        return np.nan
+    value = float(value)
+    return value if np.isfinite(value) else np.nan
+
+
+def _safe_stat(func, *args) -> float:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        try:
+            with np.errstate(all="ignore"):
+                return _to_finite_float(func(*args))
+        except (FloatingPointError, ValueError, ZeroDivisionError):
+            return np.nan
 
 
 def calculate_returns(df: pd.DataFrame) -> pd.DataFrame:
@@ -15,10 +41,8 @@ def calculate_returns(df: pd.DataFrame) -> pd.DataFrame:
     Returns:
         DataFrame with added 'return' column
     """
-    # Get code column and dt column from df
-    code_col, dt_col = get_code_date_col(df)
-    result_df = df.sort_values([code_col, dt_col]).reset_index(drop=True)
-    result_df["return"] = result_df.groupby(code_col)["close"].pct_change().fillna(0)
+    result_df = normalize_backtest_price_frame(df)
+    result_df["return"] = result_df.groupby(SYMBOL_COL)["close"].pct_change().fillna(0)
     return result_df
 
 
@@ -38,14 +62,12 @@ def calculate_strategy_returns(
         DataFrame with added 'strategy_return' column
     """
 
-    code_col, _ = get_code_date_col(df)
-
     result_df = calculate_returns(df)
 
     result_df["strategy_return"] = result_df["return"] * result_df["position"]
 
     result_df["prev_position"] = (
-        result_df.groupby(code_col)["position"].shift(1).fillna(0)
+        result_df.groupby(SYMBOL_COL)["position"].shift(1).fillna(0)
     )
     result_df["is_selling"] = (result_df["position"] == 0) & (
         result_df["prev_position"] == 1
@@ -66,14 +88,14 @@ def calculate_strategy_returns(
     )
 
     # Calculate cumulative return
-    result_df["cumulative_return"] = result_df.groupby(code_col)[
+    result_df["cumulative_return"] = result_df.groupby(SYMBOL_COL)[
         "strategy_return"
     ].transform(lambda x: (1 + x).cumprod() - 1)
 
     # Calculate max drawdown
-    result_df["drawdown"] = result_df.groupby(code_col)["cumulative_return"].transform(
-        lambda x: (x.cummax() - x) / (1 + x.cummax())
-    )
+    result_df["drawdown"] = result_df.groupby(SYMBOL_COL)[
+        "cumulative_return"
+    ].transform(lambda x: (x.cummax() - x) / (1 + x.cummax()))
 
     result_df = result_df.drop(
         ["prev_position", "is_selling", "commission_fee", "selling_fee", "total_fees"],
@@ -93,7 +115,7 @@ def cal_metrics_from_returns(df: pd.DataFrame) -> pd.Series:
         pd.Series with multi-level index (metric_name, code).
     """
 
-    code_col, dt_col = get_code_date_col(df)
+    validate_backtest_price_frame(df)
 
     metrics = [
         "累积收益率",
@@ -110,20 +132,31 @@ def cal_metrics_from_returns(df: pd.DataFrame) -> pd.Series:
     ]
 
     results = []
-    for code, group in df.groupby(code_col):
-        returns = group.set_index(dt_col)["strategy_return"]
+    for code, group in df.groupby(SYMBOL_COL):
+        returns = (
+            pd.to_numeric(group.set_index(DATE_COL)["strategy_return"], errors="coerce")
+            .replace([np.inf, -np.inf], np.nan)
+            .dropna()
+        )
 
-        cumulative_return = group.groupby(code_col)["cumulative_return"].last().iloc[0]
-        max_dd = qs.stats.max_drawdown(returns)
-        win_rate = (returns > 0).mean()
-        sharpe = qs.stats.sharpe(returns)
-        calmar = qs.stats.calmar(returns) if max_dd != 0 else np.nan
-        sortino = qs.stats.sortino(returns)
-        volatility = returns.std()
-        var = qs.stats.value_at_risk(returns)
-        cvar = qs.stats.cvar(returns)
-        profit_factor = qs.stats.profit_factor(returns)
-        omega = qs.stats.omega(returns)
+        cumulative_return = (
+            group.groupby(SYMBOL_COL)["cumulative_return"].last().iloc[0]
+        )
+        cumulative_return = _to_finite_float(cumulative_return)
+        max_dd = _safe_stat(qs.stats.max_drawdown, returns)
+        win_rate = _to_finite_float((returns > 0).mean()) if not returns.empty else np.nan
+        sharpe = _safe_stat(qs.stats.sharpe, returns)
+        calmar = (
+            _safe_stat(qs.stats.calmar, returns)
+            if not pd.isna(max_dd) and max_dd != 0
+            else np.nan
+        )
+        sortino = _safe_stat(qs.stats.sortino, returns)
+        volatility = _to_finite_float(returns.std()) if not returns.empty else np.nan
+        var = _safe_stat(qs.stats.value_at_risk, returns)
+        cvar = _safe_stat(qs.stats.cvar, returns)
+        profit_factor = _safe_stat(qs.stats.profit_factor, returns)
+        omega = _safe_stat(qs.stats.omega, returns)
 
         code_results = pd.Series(
             [

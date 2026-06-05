@@ -38,12 +38,6 @@ summary = backtest_perf.groupby("strategy")[[
 ]].mean()
 print(summary)
 
-# 按行业汇总
-industry_summary = backtest_perf.groupby("industry")[[
-    "累积收益率", "夏普比率"
-]].mean()
-print(industry_summary)
-
 # 找出每只股票的最优策略
 best = backtest_perf.loc[
     backtest_perf.groupby("symbol")["夏普比率"].idxmax()

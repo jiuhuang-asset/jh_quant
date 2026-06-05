@@ -16,6 +16,14 @@ import pandas as pd
 import numpy as np
 import polars as pl
 from joblib import Parallel, delayed
+from jh_quant.schemas.factors import (
+    ANN_DATE_COL,
+    normalize_factor_fundamentals,
+    normalize_factor_market_cap_frame,
+    normalize_factor_market_return_frame,
+    normalize_factor_risk_free_rate_frame,
+    normalize_factor_stock_returns_frame,
+)
 from ..config import (
     FactorType,
     CalculationMethod,
@@ -1017,11 +1025,9 @@ def _pl_assign_groups(series: pl.Series, breakpoints: List[float]) -> pl.Expr:
 
     bounds = []
     for p in breakpoints:
-        q = series.quantile(p)
+        q = series.quantile(p, interpolation="linear")
         # Handle case where quantile returns None for edge cases
         bounds.append(q if q is not None else float("nan"))
-
-    n = len(bounds)
 
     # 构建when-otherwise链，逐个添加条件
     # NaN values go to 'low' group
@@ -1030,7 +1036,7 @@ def _pl_assign_groups(series: pl.Series, breakpoints: List[float]) -> pl.Expr:
         if pd.isna(bound):
             # Skip invalid bounds
             continue
-        label = "low" if i == 0 else ("medium" if i < n - 1 else "high")
+        label = "low" if i == 0 else ["medium", "high"][i - 1]
         result = result.when(series <= bound).then(pl.lit(label))
     result = result.otherwise(pl.lit("high"))
 
@@ -1353,7 +1359,7 @@ def _calc_ff5_classic_module_polars(
 
     # Size分组
     size_breakpoint = bps.get(size_var, [0.5])[0]
-    size_median = pl_df[size_var].quantile(size_breakpoint)
+    size_median = pl_df[size_var].quantile(size_breakpoint, interpolation="linear")
     pl_df = pl_df.with_columns(
         pl.when(pl.col(size_var).is_null() | (pl.col(size_var) <= size_median))
         .then(pl.lit("small"))
@@ -1455,7 +1461,7 @@ def _calc_carhart_classic_module_polars(
     size_var = "mkt_cap"
     # Use 'small'/'big' labels for size (50% breakpoint), same as FF3
     size_breakpoint = bps.get(size_var, [0.5])[0]
-    size_median = pl_df[size_var].quantile(size_breakpoint)
+    size_median = pl_df[size_var].quantile(size_breakpoint, interpolation="linear")
     pl_df = pl_df.with_columns(
         pl.when(pl.col(size_var).is_null() | (pl.col(size_var) <= size_median))
         .then(pl.lit("small"))
@@ -1540,7 +1546,7 @@ def _calc_novymarx_classic_module_polars(
 
     # Size分组
     size_breakpoint = bps.get(size_var, [0.5])[0]
-    size_median = pl_df[size_var].quantile(size_breakpoint)
+    size_median = pl_df[size_var].quantile(size_breakpoint, interpolation="linear")
     pl_df = pl_df.with_columns(
         pl.when(pl.col(size_var).is_null() | (pl.col(size_var) <= size_median))
         .then(pl.lit("small"))
@@ -1645,7 +1651,7 @@ def _calc_hxz_classic_module_polars(
     size_var = "mkt_cap"
     # Use 'small'/'big' labels for size (50% breakpoint), same as FF3
     size_breakpoint = bps.get(size_var, [0.5])[0]
-    size_median = pl_df[size_var].quantile(size_breakpoint)
+    size_median = pl_df[size_var].quantile(size_breakpoint, interpolation="linear")
     pl_df = pl_df.with_columns(
         pl.when(pl.col(size_var).is_null() | (pl.col(size_var) <= size_median))
         .then(pl.lit("small"))
@@ -1729,7 +1735,7 @@ def _calc_dhs_classic_module_polars(
 
     # Size分组
     size_breakpoint = bps.get(size_var, [0.5])[0]
-    size_median = pl_df[size_var].quantile(size_breakpoint)
+    size_median = pl_df[size_var].quantile(size_breakpoint, interpolation="linear")
     pl_df = pl_df.with_columns(
         pl.when(pl.col(size_var).is_null() | (pl.col(size_var) <= size_median))
         .then(pl.lit("small"))
@@ -1793,7 +1799,7 @@ def _calc_ch3_classic_module_polars(
 
     # Size分组
     size_breakpoint = bps.get(size_var, [0.5])[0]
-    size_median = pl_df[size_var].quantile(size_breakpoint)
+    size_median = pl_df[size_var].quantile(size_breakpoint, interpolation="linear")
     pl_df = pl_df.with_columns(
         pl.when(pl.col(size_var).is_null() | (pl.col(size_var) <= size_median))
         .then(pl.lit("small"))
@@ -1822,7 +1828,7 @@ def _calc_ch3_classic_module_polars(
         # VMG: exclude the bottom 30% by market cap before value sorting.
         valid_caps = pl_df.filter(pl.col(size_var).is_not_null())
         if valid_caps.height > 0:
-            vmg_cutoff = valid_caps[size_var].quantile(0.3)
+            vmg_cutoff = valid_caps[size_var].quantile(0.3, interpolation="linear")
             vmg_df = pl_df.filter(
                 pl.col(size_var).is_not_null() & (pl.col(size_var) > vmg_cutoff)
             )
@@ -1861,7 +1867,7 @@ def _calc_sy4_classic_module_polars(
 
     # Size分组
     size_breakpoint = bps.get(size_var, [0.5])[0]
-    size_median = pl_df[size_var].quantile(size_breakpoint)
+    size_median = pl_df[size_var].quantile(size_breakpoint, interpolation="linear")
     pl_df = pl_df.with_columns(
         pl.when(pl.col(size_var).is_null() | (pl.col(size_var) <= size_median))
         .then(pl.lit("small"))
@@ -1935,7 +1941,7 @@ def _calc_reversal_classic_module_polars(
 
     # Size分组
     size_breakpoint = bps.get(size_var, [0.5])[0]
-    size_median = pl_df[size_var].quantile(size_breakpoint)
+    size_median = pl_df[size_var].quantile(size_breakpoint, interpolation="linear")
     pl_df = pl_df.with_columns(
         pl.when(pl.col(size_var).is_null() | (pl.col(size_var) <= size_median))
         .then(pl.lit("small"))
@@ -1989,7 +1995,7 @@ def _calc_lowvol_classic_module_polars(
 
     # Size分组
     size_breakpoint = bps.get(size_var, [0.5])[0]
-    size_median = pl_df[size_var].quantile(size_breakpoint)
+    size_median = pl_df[size_var].quantile(size_breakpoint, interpolation="linear")
     pl_df = pl_df.with_columns(
         pl.when(pl.col(size_var).is_null() | (pl.col(size_var) <= size_median))
         .then(pl.lit("small"))
@@ -2096,8 +2102,12 @@ class GeneralFactorCalculator:
         """
         if self.factor_type == FactorType.CAPM:
             # CAPM: market_cap 实际上是 market_return (mkt_excess)
-            market_return = market_cap
+            market_return = normalize_factor_market_return_frame(market_cap)
             return self._calculate_capm_factor(market_return)
+        stock_returns = normalize_factor_stock_returns_frame(stock_returns)
+        market_cap = normalize_factor_market_cap_frame(market_cap)
+        fundamentals = normalize_factor_fundamentals(fundamentals)
+        risk_free_rate = normalize_factor_risk_free_rate_frame(risk_free_rate)
         return self._calculate_from_data(
             stock_returns, market_cap, fundamentals, risk_free_rate
         )
@@ -2239,6 +2249,10 @@ class GeneralFactorCalculator:
 
         financial_data = financial_data.copy()
         financial_data["date"] = pd.to_datetime(financial_data["date"])
+        available_col = ANN_DATE_COL if ANN_DATE_COL in financial_data.columns else "date"
+        financial_data[available_col] = pd.to_datetime(financial_data[available_col])
+        financial_data["report_date"] = financial_data["date"]
+        financial_data["available_date"] = financial_data[available_col]
 
         stock_dates = stock_dates.copy()
         stock_dates["date"] = pd.to_datetime(stock_dates["date"])
@@ -2247,30 +2261,30 @@ class GeneralFactorCalculator:
             .drop_duplicates()
             .sort_values(["date", "symbol"])
         )
-        financial_data = financial_data[["symbol", "date", field_name]].sort_values(
-            ["date", "symbol"]
-        )
+        financial_data = financial_data[
+            ["symbol", "report_date", "available_date", field_name]
+        ].sort_values(["available_date", "symbol"])
 
         matched = pd.merge_asof(
             stock_dates.rename(columns={"date": "stock_date"}),
-            financial_data.rename(columns={"date": "financial_date"}),
+            financial_data,
             by="symbol",
             left_on="stock_date",
-            right_on="financial_date",
+            right_on="available_date",
             direction="backward",
             allow_exact_matches=True,
         )
 
-        valid = matched["financial_date"].notna()
+        valid = matched["available_date"].notna()
         if not valid.any():
             return pd.DataFrame()
 
         months_diff = (
             matched.loc[valid, "stock_date"].dt.year
-            - matched.loc[valid, "financial_date"].dt.year
+            - matched.loc[valid, "available_date"].dt.year
         ) * 12 + (
             matched.loc[valid, "stock_date"].dt.month
-            - matched.loc[valid, "financial_date"].dt.month
+            - matched.loc[valid, "available_date"].dt.month
         )
         result = matched.loc[valid].copy()
         result = result.loc[months_diff <= 6, ["symbol", "stock_date", field_name]]

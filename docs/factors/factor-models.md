@@ -227,21 +227,31 @@ Stambaugh-Yuan 误定价四因子模型。基于多个异象指标聚类构建�
 
 ## 数据准备
 
-### 自动数据拉取
+### TS 便捷数据准备
 
-FactorEngine 内部通过 `FactorReturnData` 子类自动从 JiuHuang API 拉取所需数据：
+`FactorEngine` 不再在核心计算中自动拉取数据。推荐先通过 `load_ts_factor_inputs()` 准备标准输入：
 
-1. 根据 `factor_type` 选择对应的数据类（如 `FF3Data`、`FF5Data` 等）
-2. 调用 `prepare_data()` 拉取股票收益率、市值、基本面数据
-3. 合并后传入计算器
+```python
+from jh_quant.factors import load_ts_factor_inputs
 
-整个过程对用户透明，无需手动准备数据。
+inputs = load_ts_factor_inputs(
+    start_date="2020-01-01",
+    end_date="2024-12-31",
+    period="M",
+    price_adjust="qfq",
+    lag_features=True,
+)
+```
+
+其他数据源也可以使用，只要在进入因子计算前转换成相同 schema。
 
 ### 数据合并逻辑
 
-基本面数据（BM、盈利、投资等）使用 **Point-in-Time (PIT)** 原则匹配到股票收益：
-- 仅使用已知的财报数据（`ann_date <= trade_date`）
-- 选取最近可用数据（不超过 6 个月前）
+因子计算遵循 **Point-in-Time (PIT)** 原则：
+
+- 市值、BM、动量等市场特征应先滞后一收益期，避免用同月特征解释同月收益。
+- 财务字段必须包含 `ann_date`，并按 `ann_date <= return_date` 匹配到股票收益。
+- 财务字段选取最近可用数据，默认不超过 6 个月。
 
 ### 使用自定义数据
 
@@ -264,4 +274,4 @@ factor_returns = calc.calculate(
 )
 ```
 
-`stock_returns` 需要包含 `symbol`、`date`、`return` 列，`return` 为小数形式（如 0.03 表示 3%）。
+`stock_returns` 需要包含 `symbol`、`date`、`return` 列，`return` 为小数形式（如 0.03 表示 3%）。财务字段还需要包含 `ann_date`，详见 [Look-Ahead Bias 防护](./look-ahead-bias.md)。

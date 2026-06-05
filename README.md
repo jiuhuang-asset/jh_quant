@@ -68,7 +68,7 @@ pro_df = ts.pro.pro_bar(
 ### 策略回测
 
 ```python
-from jh_quant.data import JHData, DataTypes
+from jh_quant.data import JHData, DataTypes, to_backtest_price_frame
 from jh_quant.backtest import (
     backtest,
     StrategyTurtle,
@@ -85,7 +85,7 @@ stock_price = jh.get_data(
     start="2025-01-01",
     end="2026-05-07",
 )
-stock_info = jh.get_data(DataTypes.AK_STOCK_INDIVIDUAL_INFO_EM)
+stock_price = to_backtest_price_frame(stock_price)
 
 # 2. 定义策略
 strategies = {
@@ -98,7 +98,6 @@ strategies = {
 trading_hist, backtest_perf = backtest(
     strategies=strategies,
     price_data=stock_price,
-    stock_info=stock_info,
 )
 
 display_backtesting(trading_hist, backtest_perf)

@@ -7,37 +7,26 @@
 ### 基本用法
 
 ```python
-from jh_quant.factors import FactorEngine, FactorType
-from jh_quant.data import JHData, DataTypes
+from jh_quant.factors import FactorEngine, FactorType, load_ts_factor_inputs
 
 engine = FactorEngine()
 
-# 1. 计算因子收益率
+# 1. 准备 schema-compatible 输入
+inputs = load_ts_factor_inputs(
+    start_date="2020-01-01",
+    end_date="2024-12-31",
+)
+
+# 2. 计算因子收益率
 ff3 = engine.calculate_factor_returns(
     factor_type=FactorType.FF3,
     period='M',
-    start_date='2023-01-01',
-    end_date='2024-12-31',
+    **inputs,
 )
 
-# 2. 获取个股收益率
-jh = JHData()
-stock_returns = jh.get_data(
-    DataTypes.AK_STOCK_ZH_A_HIST_QFQ,
-    symbol="000001,600519",
-    start="2023-01-01",
-    end="2024-12-31",
-)
-
-# 3. 确保数据格式正确
-stock_returns = stock_returns[['symbol', 'date', 'pct_chg']].rename(
-    columns={'pct_chg': 'return'}
-)
-stock_returns['return'] = stock_returns['return'] / 100  # 百分比转小数
-
-# 4. 计算暴露度
+# 3. 计算暴露度
 exposures = engine.calculate_stock_exposures(
-    stock_returns=stock_returns,
+    stock_returns=inputs["stock_returns"],
     factor_returns=ff3,
     n_jobs=4,
 )
@@ -158,15 +147,33 @@ validator = FamaMacBethValidator()
 result = validator.validate(
     stock_returns=stock_returns,
     factor_returns=ff3,
-    exposures=exposures,        # 可选，不传则自动计算
-    nw_lags=12,                 # Newey-West 滞后阶数
 )
 
 # 查看验证结果
 print(result.to_dataframe())
 
-# 因子风险溢价的月度序列
-print(result.lambdas)
+# 某个因子的风险溢价月度序列
+print(result.results["mkt"].lambdas)
+```
+
+Fama-MacBeth 验证默认会避免使用当期信息：
+
+- 自动估计 rolling beta 时，`t` 期横截面回归使用的是截至 `t-1` 可得的暴露。
+- 如果通过便捷函数传入外部 `factor_exposures`，validator 也会默认对暴露做一阶滞后。
+- 第二步时间序列检验使用 Newey-West 标准误，默认月频滞后阶数为 3。
+
+如需传入已经准备好的暴露，使用便捷函数：
+
+```python
+from jh_quant.factors.validators import validate_factor
+
+result = validate_factor(
+    factor_returns=ff3,
+    stock_returns=stock_returns,
+    factor_exposures=exposures,
+    method="fama_macbeth",
+    period="M",
+)
 ```
 
 输出格式：
@@ -192,61 +199,56 @@ print(result.lambdas)
 ```python
 from jh_quant.factors.validators import validate_factor
 
-# 一站式验证（截距项 + Fama-MacBeth）
+# Fama-MacBeth 便捷验证
 results = validate_factor(
     factor_returns=ff3,
     stock_returns=stock_returns,
-    exposures=exposures,  # 可选
+    factor_exposures=exposures,  # 可选
+    method="fama_macbeth",
 )
 
-# results 包含:
-# - results['intercept']: InterceptValidationResult
-# - results['fama_macbeth']: FamaMacBethValidationResult
+# 返回 FamaMacBethValidationResult
 ```
 
 ## 完整工作流示例
 
 ```python
-from jh_quant.factors import FactorEngine, FactorType, CalculationMethod, TimePeriod
-from jh_quant.data import JHData, DataTypes
-from jh_quant.factors.validators import validate_factor
+from jh_quant.factors import (
+    CalculationMethod,
+    FactorEngine,
+    FactorType,
+    TimePeriod,
+    load_ts_factor_inputs,
+)
+from jh_quant.factors.validators import validate_factor, validate_factor_intercept
+
+engine = FactorEngine()
+inputs = load_ts_factor_inputs(
+    start_date="2020-01-01",
+    end_date="2024-12-31",
+)
 
 # === Step 1: 计算因子收益率 ===
-engine = FactorEngine()
 ff3 = engine.calculate_factor_returns(
     factor_type=FactorType.FF3,
     method=CalculationMethod.SIMPLE,
     period=TimePeriod.MONTHLY,
-    start_date='2020-01-01',
-    end_date='2024-12-31',
+    **inputs,
 )
 print(f"FF3 因子收益率: {len(ff3)} 个月, 因子: {list(ff3.columns)}")
 
-# === Step 2: 获取个股收益率 ===
-jh = JHData()
-stock_returns = jh.get_data(
-    DataTypes.AK_STOCK_ZH_A_HIST_QFQ,
-    symbol='000001,000002,600519,300750,688981',
-    start='2020-01-01',
-    end='2024-12-31',
-)
-# 月度化: 取每月加权收益率
-stock_returns['date'] = stock_returns['date'].dt.to_period('M').dt.to_timestamp()
-monthly_rets = stock_returns.groupby(['symbol', 'date'])['pct_chg'].sum().reset_index()
-monthly_rets = monthly_rets.rename(columns={'pct_chg': 'return'})
-monthly_rets['return'] = monthly_rets['return'] / 100
-
-# === Step 3: 验证因子 ===
-validation_results = validate_factor(
-    factor_returns=ff3,
-    stock_returns=monthly_rets,
-)
-
-# 查看截距项检验
+# === Step 2: 截距项检验 ===
+intercept_result = validate_factor_intercept(ff3, period="M")
 print("\n=== 截距项检验 ===")
-print(validation_results['intercept'].to_dataframe())
+print(intercept_result.to_dataframe())
 
-# 查看 Fama-MacBeth 检验
+# === Step 3: Fama-MacBeth 检验 ===
+fm_result = validate_factor(
+    factor_returns=ff3,
+    stock_returns=inputs["stock_returns"],
+    method="fama_macbeth",
+    period="M",
+)
 print("\n=== Fama-MacBeth 检验 ===")
-print(validation_results['fama_macbeth'].to_dataframe())
+print(fm_result.to_dataframe())
 ```

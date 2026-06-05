@@ -13,7 +13,12 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 
-from jh_quant.data import JhDataType, get_code_date_col
+from jh_quant.schemas.market import (
+    DATE_COL,
+    SYMBOL_COL,
+    normalize_backtest_price_frame,
+    validate_backtest_price_frame,
+)
 
 from .metrics import cal_metrics_from_returns, calculate_strategy_returns
 from .rules import RiskRule, apply_rules
@@ -34,7 +39,11 @@ def _resolve_rules(
         return None
     if isinstance(rules, list):
         return rules
-    return rules.get(strat_name)
+    if isinstance(rules, dict):
+        return rules.get(strat_name)
+    raise TypeError(
+        "rules must be None, a list of RiskRule, or a dict of strategy rules"
+    )
 
 
 def build_position(
@@ -56,20 +65,19 @@ def build_position(
     Returns:
         新增 'position' 列的 DataFrame。
     """
-    code_col, dt_col = get_code_date_col(df)
-    result_df = df.sort_values([code_col, dt_col]).reset_index(drop=True)
+    result_df = df.sort_values([SYMBOL_COL, DATE_COL]).reset_index(drop=True)
 
     if use_next_day_return:
-        buy_signal = result_df.groupby(code_col)[buy_signal_name].shift(1).fillna(0)
-        sell_signal = result_df.groupby(code_col)[sell_signal_name].shift(1).fillna(0)
+        buy_signal = result_df.groupby(SYMBOL_COL)[buy_signal_name].shift(1).fillna(0)
+        sell_signal = result_df.groupby(SYMBOL_COL)[sell_signal_name].shift(1).fillna(0)
     else:
         buy_signal = result_df[buy_signal_name].fillna(0)
         sell_signal = result_df[sell_signal_name].fillna(0)
 
     result_df["position"] = 0
 
-    for code in result_df[code_col].unique():
-        stock_mask = result_df[code_col] == code
+    for code in result_df[SYMBOL_COL].unique():
+        stock_mask = result_df[SYMBOL_COL] == code
         stock_data = result_df.loc[stock_mask].copy()
         stock_buy_signal = buy_signal.loc[stock_mask]
         stock_sell_signal = sell_signal.loc[stock_mask]
@@ -87,7 +95,7 @@ def evaluate_strategies(
     rules: list[RiskRule] | dict[str, list[RiskRule]] | None = None,
     commission_rate: float = 0.0002,
     stamp_tax_rate: float = 0.0005,
-) -> Tuple[pd.DataFrame, JhDataType]:
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """评估多个策略的表现。
 
     Args:
@@ -105,7 +113,7 @@ def evaluate_strategies(
     Returns:
         (combined_performance, trading_history)。
     """
-    code_col, _ = get_code_date_col(price)
+    price = normalize_backtest_price_frame(price)
     perf_results: dict[str, pd.Series] = {}
     _trading_history_datas: list[pd.DataFrame] = []
     _extra_cols = [
@@ -153,30 +161,28 @@ def evaluate_strategies(
     combined = pd.DataFrame(perf_results)
     combined = combined.reset_index()
     combined_performance = combined.rename(
-        columns={"level_0": code_col, "level_1": "metric"}
+        columns={"level_0": SYMBOL_COL, "level_1": "metric"}
     )
     concated_trading_hist = pd.concat(_trading_history_datas).reset_index()[
         _trading_history_cols
     ]
-    return (combined_performance, JhDataType(concated_trading_hist, price.jh_dt))
+    return (combined_performance, concated_trading_hist)
 
 
 def backtest(
     strategies: dict[str, Strategy],
-    price_data: JhDataType,
-    stock_info: Optional[pd.DataFrame] = None,
+    price_data: pd.DataFrame,
     rules: list[RiskRule] | dict[str, list[RiskRule]] | None = None,
     commission_rate: float = 0.0002,
     stamp_tax_rate: float = 0.0005,
     metric_decimal: int = 2,
     use_next_day_return: bool = True,
-) -> Optional[Tuple[JhDataType, pd.DataFrame]]:
+) -> Optional[Tuple[pd.DataFrame, pd.DataFrame]]:
     """回测策略表现。
 
     Args:
         strategies: 策略字典，键为策略名称，值为策略函数。
-        price_data: 价格数据（JhDataType）。
-        stock_info: 股票信息，可选。需包含 name、industry 列。
+        price_data: 标准化后的价格数据（pd.DataFrame）。
         rules: 风险规则。可为：
                - ``None``（不启用风控）
                - ``list[RiskRule]``（全局规则，所有策略共享）
@@ -189,6 +195,9 @@ def backtest(
     Returns:
         (trading_history, reshaped_eval_results)，若无数据则返回 None。
     """
+    validate_backtest_price_frame(price_data)
+    price_data = normalize_backtest_price_frame(price_data)
+
     if price_data.empty:
         rprint("[bold yellow]没有价格数据")
         return None
@@ -196,8 +205,6 @@ def backtest(
     if not strategies:
         rprint("[bold yellow]没有策略需要评估")
         return None
-
-    code_col = price_data.code_col
 
     eval_results, trading_history = evaluate_strategies(
         price_data,
@@ -209,21 +216,13 @@ def backtest(
     )
     eval_results = eval_results.round(metric_decimal)
     melted_eval_results = eval_results.melt(
-        id_vars=[code_col, "metric"], var_name="strategy", value_name="value"
+        id_vars=[SYMBOL_COL, "metric"], var_name="strategy", value_name="value"
     )
 
     reshaped_eval_results = melted_eval_results.pivot_table(
-        index=[code_col, "strategy"], columns="metric", values="value"
+        index=[SYMBOL_COL, "strategy"], columns="metric", values="value"
     ).reset_index()
 
     reshaped_eval_results.columns.name = None
-
-    if stock_info is not None and not stock_info.empty:
-        stock_info_clean = stock_info[[code_col, "name", "industry"]].drop_duplicates()
-        reshaped_eval_results = reshaped_eval_results.merge(
-            stock_info_clean,
-            on=code_col,
-            how="left",
-        )
 
     return trading_history, reshaped_eval_results

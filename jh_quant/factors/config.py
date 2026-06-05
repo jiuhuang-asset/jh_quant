@@ -136,44 +136,44 @@ FACTOR_CONFIGS: Dict[FactorType, Dict] = {
         "name": "Novy-Marx四因子模型",
         "factors": ["mkt", "hml_adj", "umd", "gp_a"],  # 核心是GP/A
         "sorting_dims": ["size", "value", "momentum", "profitability"],
-        "required_data": ["mkt_cap", "bm", "momentum", "gross_profit", "industry"],
+        "required_data": ["mkt_cap", "bm", "momentum", "gp_a"],
     },
     FactorType.HOU_XUE_ZHANG: {
         "name": "q-factor模型 (Hou-Xue-Zhang)",
         "factors": ["mkt", "me", "ia", "roe"],
         "sorting_dims": ["size", "investment", "profitability"],
-        "required_data": ["mkt_cap", "asset_growth", "roe_quarterly"],
+        "required_data": ["mkt_cap", "asset_growth", "roe"],
     },
     FactorType.DHS: {
         "name": "Daniel-Hirshleifer-Sun行为三因子模型",
         "factors": ["mkt", "pead", "fin"],  # 修正为行为因子
         "sorting_dims": ["earnings_surprise", "financing"],
-        "required_data": ["mkt_cap", "sud", "net_share_issuance"],
+        "required_data": ["mkt_cap", "pead", "fin"],
     },
     # 新加模型
     FactorType.CH3: {
         "name": "中国三因子模型 (CH-3)",
         "factors": ["mkt", "smb", "vmg"],
         "sorting_dims": ["size", "value_weight"],  # VMG 需剔除小票干扰
-        "required_data": ["mkt_cap", "bm", "is_st"],
+        "required_data": ["mkt_cap", "bm"],
     },
     FactorType.SY4: {
         "name": "Stambaugh-Yuan四因子模型",
         "factors": ["mkt", "smb", "mgmt", "perf"],
         "sorting_dims": ["size", "management_cluster", "performance_cluster"],
-        "required_data": ["mkt_cap", "asset_growth", "operating_accruals", "roe"],
+        "required_data": ["mkt_cap", "mgmt", "perf"],
     },
     FactorType.REVERSAL: {
         "name": "短期反转模型",
         "factors": ["mkt", "smb", "rev"],
         "sorting_dims": ["size", "return_20d"],  # 过去20日收益率
-        "required_data": ["mkt_cap", "close"],
+        "required_data": ["mkt_cap", "rev"],
     },
     FactorType.LOW_VOL: {
         "name": "低波动模型",
         "factors": ["mkt", "smb", "ivol"],
         "sorting_dims": ["size", "idiosyncratic_vol"],
-        "required_data": ["mkt_cap", "daily_return"],
+        "required_data": ["mkt_cap", "ivol"],
     },
 }
 

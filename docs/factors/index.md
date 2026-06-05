@@ -10,6 +10,7 @@
 - **高性能**：支持 Polars 加速 + joblib 多进程并行
 - **暴露度估计**：OLS 回归计算个股在因子上的 Beta 暴露，支持滚动窗口
 - **因子验证**：截距项 t 检验 + Fama-MacBeth 两步回归
+- **Look-ahead bias 防护**：TS loader 默认使用前复权月频行情，特征滞后一收益期，财务字段按 `ann_date` 做可获得性校验
 
 ## 文档导航
 
@@ -19,3 +20,4 @@
 | [因子模型介绍](./factor-models.md) | 11 种因子模型详解、因子含义、学术来源 |
 | [计算方法详解](./calculation.md) | SIMPLE vs CLASSIC、参数调优、性能优化 |
 | [暴露计算与验证](./exposure.md) | 个股 Beta 计算、Fama-MacBeth 验证 |
+| [Look-Ahead Bias 防护](./look-ahead-bias.md) | QFQ 默认、特征滞后、财务公告日 `ann_date` schema |

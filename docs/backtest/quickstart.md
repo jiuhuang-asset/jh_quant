@@ -9,7 +9,7 @@ from jh_quant.backtest import (
     StrategyMovingAverageCrossover,
     StrategyBuyAndHold,
 )
-from jh_quant.data import JHData, DataTypes
+from jh_quant.data import JHData, DataTypes, to_backtest_price_frame
 ```
 
 ## 基本回测流程
@@ -18,7 +18,7 @@ from jh_quant.data import JHData, DataTypes
 
 ### 1. 准备数据
 
-回测需要两类数据：**价格数据**（必需）和**股票信息**（可选，用于展示股票名称和行业）。
+回测需要标准化后的 **价格数据 DataFrame**，进入 `backtest()` 前应包含 `symbol`、`date`、`open`、`high`、`low`、`close`、`volume` 列。
 
 ```python
 jh = JHData()
@@ -30,9 +30,8 @@ stock_price = jh.get_data(
     start="2024-01-01",
     end="2025-12-31",
 )
+stock_price = to_backtest_price_frame(stock_price)
 
-# 股票信息 — 可选，用于回测结果中附加 name、industry
-stock_info = jh.get_data(DataTypes.AK_STOCK_INDIVIDUAL_INFO_EM)
 ```
 
 价格数据至少需要包含 `open`、`high`、`low`、`close`、`volume` 列。`volume` 为 0 时视为停牌。
@@ -57,7 +56,6 @@ strategies = {
 trading_history, backtest_perf = backtest(
     strategies=strategies,
     price_data=stock_price,
-    stock_info=stock_info,
 )
 ```
 
@@ -65,7 +63,7 @@ trading_history, backtest_perf = backtest(
 
 `backtest()` 返回一个元组 `(trading_history, backtest_perf)`：
 
-**trading_history**（`JhDataType`，包装了 DataFrame）：
+**trading_history**（`pd.DataFrame`）：
 
 | 列 | 说明 |
 |----|------|
@@ -85,8 +83,6 @@ trading_history, backtest_perf = backtest(
 |----|------|
 | `symbol` | 股票代码 |
 | `strategy` | 策略名称 |
-| `name` | 股票名称（若传入了 stock_info） |
-| `industry` | 行业（若传入了 stock_info） |
 | `累积收益率` | 整个回测期的累计收益 |
 | `最大回撤` | 最大回撤幅度 |
 | `胜率` | 盈利交易日占比 |
@@ -100,7 +96,7 @@ trading_history, backtest_perf = backtest(
 import warnings
 warnings.filterwarnings("ignore")
 
-from jh_quant.data import JHData, DataTypes
+from jh_quant.data import JHData, DataTypes, to_backtest_price_frame
 from jh_quant.backtest import (
     backtest,
     StrategyTurtle,
@@ -118,7 +114,7 @@ stock_price = jh.get_data(
     start="2024-01-01",
     end="2025-12-31",
 )
-stock_info = jh.get_data(DataTypes.AK_STOCK_INDIVIDUAL_INFO_EM)
+stock_price = to_backtest_price_frame(stock_price)
 
 # 2. 策略
 strategies = {
@@ -133,7 +129,6 @@ strategies = {
 trading_history, backtest_perf = backtest(
     strategies=strategies,
     price_data=stock_price,
-    stock_info=stock_info,
 )
 
 # 4. 查看结果
