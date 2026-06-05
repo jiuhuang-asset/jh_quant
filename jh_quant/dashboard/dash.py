@@ -1,5 +1,4 @@
 import os
-from pathlib import Path
 
 import pandas as pd
 import webview
@@ -39,8 +38,8 @@ class BacktestingView:
             .assign(date=lambda x: x["date"].astype(str))
             .to_dict(orient="records")
         )
-        non_numeric_cols = ["symbol", "strategy", "name", "industry"]
-        numeric_cols = [c for c in perf_data.columns if c not in non_numeric_cols]
+        numeric_cols = perf_data.select_dtypes(include="number").columns
+        non_numeric_cols = perf_data.columns.difference(numeric_cols)
         perf_filled = perf_data.copy()
         perf_filled[numeric_cols] = perf_filled[numeric_cols].fillna(0)
         perf_filled[non_numeric_cols] = perf_filled[non_numeric_cols].fillna("-")
@@ -133,9 +132,7 @@ def display_trading(
     title: str = "JH-QUANT量化控制台",
     refresh_interval_ms: int = 15000,
 ):
-    rprint(
-        f"[cyan]  Starting trading dashboard..."
-    )
+    rprint("[cyan]  Starting trading dashboard...")
     api = TradingView(
         host=host,
         port=port,
