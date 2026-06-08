@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import multiprocessing
 import os
-import threading
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
@@ -326,6 +326,27 @@ def run_live_from_cli(argv: Sequence[str] | None = None) -> None:
     )
 
 
+def _run_trading_dashboard_process(
+    *,
+    host: str,
+    port: int,
+    protocol: str,
+    refresh_interval_ms: int,
+    startup_delay: float = 1.5,
+) -> None:
+    if startup_delay > 0:
+        time.sleep(startup_delay)
+
+    from jh_quant.dashboard import display_trading
+
+    display_trading(
+        host=host,
+        port=port,
+        protocol=protocol,
+        refresh_interval_ms=refresh_interval_ms,
+    )
+
+
 def run_trading_service(
     manager: MultiSessionService,
     *,
@@ -335,29 +356,23 @@ def run_trading_service(
         run_trading_app(manager=manager, host=config.host, port=config.port)
         return
 
-    api_thread = threading.Thread(
-        target=run_trading_app,
-        kwargs={"manager": manager, "host": config.host, "port": config.port},
-        daemon=True,
+    dashboard_process = multiprocessing.Process(
+        target=_run_trading_dashboard_process,
+        kwargs={
+            "host": config.host,
+            "port": config.port,
+            "protocol": config.dashboard_protocol,
+            "refresh_interval_ms": config.dashboard_refresh_interval_ms,
+        },
+        daemon=False,
     )
-    api_thread.start()
-    time.sleep(1.5)
+    dashboard_process.start()
     try:
-        from jh_quant.dashboard import display_trading
-
-        display_trading(
-            host=config.host,
-            port=config.port,
-            protocol=config.dashboard_protocol,
-            refresh_interval_ms=config.dashboard_refresh_interval_ms,
-        )
-    except Exception as exc:
-        print(
-            "bootstrap: Dashboard 启动失败，API 仍在运行："
-            f"http://{config.host}:{config.port}/docs. "
-            f"原因={type(exc).__name__}: {exc}"
-        )
-        api_thread.join()
+        run_trading_app(manager=manager, host=config.host, port=config.port)
+    finally:
+        if dashboard_process.is_alive():
+            dashboard_process.terminate()
+        dashboard_process.join(timeout=5)
 
 
 def parse_bootstrap_args(
