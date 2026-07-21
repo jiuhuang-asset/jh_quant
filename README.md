@@ -1,4 +1,6 @@
-﻿# JH_QUANT
+# JH_QUANT
+
+https://github.com/user-attachments/assets/33e088f7-11e8-4baf-95f6-232485590d5c
 
 量化交易研究与执行平台。支持：**免费数据获取**、**回测**、**因子计算**、**实盘/模拟交易**、**组合优化**、**可视化仪表盘**。
 
