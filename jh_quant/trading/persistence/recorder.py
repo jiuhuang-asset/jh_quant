@@ -515,15 +515,9 @@ class SQLiteOrderRecorder(TortoiseOrderRecorder):
 
 
 class PostgresOrderRecorder(TortoiseOrderRecorder):
-    """Postgres-backed recorder for hosted databases such as MemFire Cloud."""
+    """Postgres-backed recorder for hosted databases (Neon, Supabase, etc.)."""
 
     def __init__(self, conninfo: str):
         self.conninfo = conninfo
         super().__init__(db_url=conninfo)
 
-
-class MemFireCloudRecorder(PostgresOrderRecorder):
-    """User-facing alias for a MemFire Cloud backed recorder."""
-
-    def __init__(self, conninfo: str):
-        super().__init__(conninfo=conninfo)

@@ -18,7 +18,6 @@ from .protocols import (
     SessionConfigPersistence,
 )
 from .recorder import (
-    MemFireCloudRecorder,
     OrderRecorder,
     PostgresOrderRecorder,
     SQLiteOrderRecorder,
@@ -38,6 +37,5 @@ __all__ = [
     "TortoiseOrderRecorder",
     "SQLiteOrderRecorder",
     "PostgresOrderRecorder",
-    "MemFireCloudRecorder",
     "require_tortoise_orm",
 ]
