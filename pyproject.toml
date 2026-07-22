@@ -1,6 +1,6 @@
 [project]
 name = "jh-quant"
-version = "0.3.3"
+version = "0.3.4"
 description = "Jiuhuang quant python sdk"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -37,7 +37,7 @@ Documentation = "https://doc.jiuhuang.xyz"
 Repository = "https://github.com/jiuhuang-asset/jh_quant"
 
 [project.scripts]
-jh-quant = "jh_quant.trading.cli:main"
+jh-quant = "jh_quant.cli:main"
 
 [build-system]
 requires = ["hatchling"]

@@ -1,20 +1,8 @@
-"""统一的 trading CLI 入口，通过 subcommand 串接 paper / live / sync。
+"""统一的 jh_quant CLI 入口
+* ``paper``  → ``trading.bootstrap.run_paper_from_cli``
+* ``live``   → ``trading.bootstrap.run_live_from_cli``
+* ``sync``   → ``trading.sync.cli.main``（Phase A 占位，Phase F 替换为完整 argparse）
 
-设计目标：
-
-* 让 ``jh-quant`` 一个 console script 同时承载三种工作流（paper 模拟盘、
-  live 实盘、sync 同步到远程 DB），避免在仓库根目录新增更多 ``run_xxx.py``
-  散装脚本。
-* 顶层 ``run_paper.py`` / ``run_live.py`` / ``run_sync.py`` 作为薄封装保留
-  （向后兼容、不打破现有用户习惯）；它们最终都委托到本模块的 ``main``。
-
-子命令 → 实现映射（Phase F 之前 sync 是占位）：
-
-* ``paper``  → ``bootstrap.run_paper_from_cli``
-* ``live``   → ``bootstrap.run_live_from_cli``
-* ``sync``   → ``sync.cli.main``（Phase A 占位，Phase F 替换为完整 argparse）
-
-详细设计见 ``specs/trading/plan__sync_local_trading_to_remote_v1.md``。
 """
 
 from __future__ import annotations
@@ -24,7 +12,7 @@ import os
 import sys
 from typing import List, Optional, Sequence
 
-from .bootstrap import registered_strategy_names
+from .trading.bootstrap import registered_strategy_names
 
 _PAPER_BACKENDS = ["tushare", "akshare"]
 _LIVE_BACKENDS = ["tushare", "akshare", "xquant"]
@@ -324,19 +312,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     rest = argv_list[1:]
 
     if command == "paper":
-        from .bootstrap import run_paper_from_cli
+        from .trading.bootstrap import run_paper_from_cli
 
         run_paper_from_cli(rest)
         return 0
 
     if command == "live":
-        from .bootstrap import run_live_from_cli
+        from .trading.bootstrap import run_live_from_cli
 
         run_live_from_cli(rest)
         return 0
 
     if command == "sync":
-        from .sync.cli import main as sync_main
+        from .trading.sync.cli import main as sync_main
 
         return int(sync_main(rest) or 0)
 
