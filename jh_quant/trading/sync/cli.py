@@ -1,7 +1,7 @@
 """sync CLI — ``jh-quant sync ...``
 
 环境变量（优先级从高到低）：
-    NEON_PG_URL > TRADING_REMOTE_DSN
+    REMOTE_DB_URL > TRADING_REMOTE_DSN
 """
 
 from __future__ import annotations
@@ -30,9 +30,9 @@ _LOG = logging.getLogger("jh_quant.trading.sync.cli")
 
 
 def _env_dsn() -> Optional[str]:
-    """优先级：NEON_PG_URL > TRADING_REMOTE_DSN。"""
+    """优先级：REMOTE_DB_URL > TRADING_REMOTE_DSN。"""
     return (
-        os.getenv("NEON_PG_URL")
+        os.getenv("REMOTE_DB_URL")
         or os.getenv("TRADING_REMOTE_DSN")
         or None
     )
@@ -58,7 +58,7 @@ def _build_parser() -> argparse.ArgumentParser:
         epilog=(
             "示例:\n"
             "  # 一次性全量同步（DSN 从环境变量取）\n"
-            "  NEON_PG_URL=postgresql://... jh-quant sync --from trade_paper.db\n"
+            "  REMOTE_DB_URL=postgresql://... jh-quant sync --from trade_paper.db\n"
             "\n"
             "  # 预览（不写）\n"
             "  jh-quant sync --from trade_paper.db --to postgresql://... --dry-run\n"
@@ -73,7 +73,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--to", dest="target_dsn", default=_env_dsn(),
-        help="目标 Neon/Postgres DSN。缺省走环境变量 NEON_PG_URL。",
+        help="目标 Neon/Postgres DSN。缺省走环境变量 REMOTE_DB_URL。",
     )
     p.add_argument(
         "--tables", default=None,
@@ -198,7 +198,7 @@ def _run_once(args: argparse.Namespace) -> int:
     if not target_dsn:
         _LOG.error(
             "缺少目标 DSN：通过 --to 显式指定，或设置环境变量 "
-            "NEON_PG_URL / TRADING_REMOTE_DSN"
+            "REMOTE_DB_URL / TRADING_REMOTE_DSN"
         )
         return 2
 

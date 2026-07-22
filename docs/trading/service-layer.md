@@ -59,7 +59,7 @@ http://127.0.0.1:8000
 如果 8000 端口已被占用，可以指定其他端口：
 
 ```bash
-uv run python run_paper.py --port 8010
+jh-quant paper --port 8010
 ```
 
 ## Dashboard 与 API 端口

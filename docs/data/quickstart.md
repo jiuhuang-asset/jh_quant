@@ -75,8 +75,8 @@ jh = JHData()
 
 # 获取 A 股日线数据（前复权）
 df = jh.get_data(
-    DataTypes.AK_STOCK_ZH_A_HIST_QFQ,
-    symbol="000001",
+    DataTypes.TS_DAILY_QFQ,
+    ts_code="000001.SZ",
     start="2024-01-01",
     end="2024-12-31",
 )
@@ -90,25 +90,25 @@ print(df.head())
 返回的 DataFrame 经过了包装，可以方便地获取 code 列和 date 列名：
 
 ```python
-df = jh.get_data(DataTypes.AK_STOCK_ZH_A_HIST_QFQ, symbol="000001")
+df = jh.get_data(DataTypes.TS_DAILY_QFQ, ts_code="000001.SZ")
 
 # 获取 code 列名
-print(df.code_col)      # "symbol"
+print(df.code_col)      # "ts_code"
 
 # 获取 date 列名
-print(df.date_col)      # "date"
+print(df.date_col)      # "trade_date"
 
 # 同时获取两者
-print(df.code_date_col) # ("symbol", "date")
+print(df.code_date_col) # ("ts_code", "trade_date")
 
 # 查看数据类型
-print(df.jh_dt)         # DataTypes.AK_STOCK_ZH_A_HIST_QFQ
+print(df.jh_dt)         # DataTypes.TS_DAILY_QFQ
 
 # 转回普通 DataFrame
 plain_df = df.to_df()
 ```
 
-这些属性会根据数据来源自动适配 — akshare 数据返回 `symbol`/`date`，tushare 数据返回 `ts_code`/`trade_date`。
+这些属性会根据数据来源自动适配 — tushare 数据返回 `ts_code`/`trade_date`，akshare 数据返回 `symbol`/`date`。
 
 ## 下一步
 

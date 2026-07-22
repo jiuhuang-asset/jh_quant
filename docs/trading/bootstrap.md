@@ -5,8 +5,8 @@
 ## CLI 入口
 
 ```bash
-uv run python run_paper.py --help
-uv run python run_live.py --help
+jh-quant paper --help
+jh-quant live  --help
 ```
 
 常用参数：
@@ -31,8 +31,8 @@ uv run python run_live.py --help
 
 | 模板 | 行为 |
 | --- | --- |
-| `paper-basic` | 创建一个模拟盘 session；多个策略会在同一个 session 内等权聚合 |
-| `paper-compare` | 为每个策略创建一个独立模拟盘 session，适合做策略对比 |
+| `paper-basic` | 创建一个模拟盘 session；多个策略在同一 session 内等权聚合 |
+| `paper-compare` | 为每个策略创建独立模拟盘 session，适合做策略对比；始终保留 `turtle` 基准 |
 | `live-basic` | 创建一个实盘 session；broker 使用 xtquant/MiniQMT |
 
 默认策略：
@@ -43,7 +43,7 @@ uv run python run_live.py --help
 | `paper-compare` | `turtle,momentum` |
 | `live-basic` | `momentum` |
 
-`run_paper.py` 默认使用 `paper-compare`。当用户传入 `--strategy rsi` 时，bootstrap 会自动保留 `turtle` 基准场景，并额外创建 `paper-rsi`。
+`jh-quant paper` 默认使用 `paper-compare`。当用户传入 `--strategy rsi` 时，bootstrap 会自动保留 `turtle` 基准场景，并额外创建 `paper-rsi`。
 
 ## 默认股票池
 
@@ -58,11 +58,28 @@ uv run python run_live.py --help
 
 | backend | 历史行情 | 实时行情 |
 | --- | --- | --- |
-| `tushare` | `TuShareHistoricalBarProvider` | 暂用 AkShare 实时行情合并当天数据 |
-| `akshare` | `AkShareHistoricalBarProvider` | AkShare 实时行情 |
-| `xquant` | `TuShareHistoricalBarProvider` | xtquant 实时行情 |
+| `tushare` | `TuShareHistoricalBarProvider` | 复用 AkShare 实时行情合并当天数据 |
+| `akshare` | `AkShareHistoricalBarProvider` | `AkShareRealtimeQuoteProvider` |
+| `xquant` | `TuShareHistoricalBarProvider` | `XtQuantRealtimeQuoteProvider` |
 
-默认 backend 是 `tushare`。因为当前 TuShare 实时行情积分可能不可用，`TuShareMarketDataService` 会复用 AkShare 的实时行情和当天数据 merge 逻辑。
+默认 backend 是 `tushare`。
+
+## 选股器
+
+内置两种选股器：
+
+| 选股器 | 说明 |
+| --- | --- |
+| `watchlist` | 固定股票池选股（bootstrap 默认） |
+| `factor_selector` | 基于因子排序选股（包装 `jh_quant.backtest.selectors.FactorSelector`） |
+
+## 风控规则
+
+bootstrap 默认为所有 session 配置 `atr_trailing_stop`（multiplier=3.0, window=20）。可选规则还包括 `stop_loss`、`take_profit`、`trailing_stop`、`max_holding_bars`、`max_consecutive_rising`、`max_consecutive_falling`。详见 [配置指南](configuration.md)。
+
+## 组合优化
+
+bootstrap 默认启用 Riskfolio 组合优化（`MinRisk` 目标，`DRIFT_THRESHOLD` 再平衡 \(\pm10\%\) 漂移）。详见 [组合优化](portfolio.md)。
 
 ## Dashboard
 
@@ -74,10 +91,10 @@ from jh_quant.dashboard import display_trading
 display_trading(host=host, port=port)
 ```
 
-因此用户运行 `run_paper.py` 后不需要再手动启动 Dashboard。若只需要 API：
+因此用户运行 `jh-quant paper` 后不需要再手动启动 Dashboard。若只需要 API：
 
 ```bash
-uv run python run_paper.py --no-dashboard
+jh-quant paper --no-dashboard
 ```
 
 ## Python API

@@ -2,53 +2,50 @@
 
 ## 模拟盘
 
-根目录提供简洁 CLI 入口：
+统一 CLI 入口 `jh-quant paper`：
 
 ```bash
-uv run python run_paper.py
+jh-quant paper
 ```
 
-默认会启动两个并行模拟场景：
+默认使用 `paper-compare` 模板，自动创建两个并行模拟场景：
 
-- `paper-turtle`：海龟策略，作为保底基准。
+- `paper-turtle`：海龟策略基准场景。
 - `paper-momentum`：默认用户策略场景。
 
-API 启动后会自动打开 trading Dashboard。只想启动 API 时可以加：
+API 启动后会自动打开 trading Dashboard。只想启动 API 时：
 
 ```bash
-uv run python run_paper.py --no-dashboard
+jh-quant paper --no-dashboard
 ```
 
 查看完整参数说明：
 
 ```bash
-uv run python run_paper.py --help
+jh-quant paper --help
 ```
 
 常用示例：
 
 ```bash
-uv run python run_paper.py --strategy turtle --backend tushare
-uv run python run_paper.py --strategy rsi --symbols 688041,688256,688981
-uv run python run_paper.py --strategy turtle,momentum --no-dashboard
+jh-quant paper --strategy turtle --backend tushare
+jh-quant paper --strategy rsi --symbols 688041,688256,688981
+jh-quant paper --strategy turtle,momentum --no-dashboard
 ```
 
 默认行为：
 
 - backend: `tushare`
-- 历史行情: `TuShareMarketDataService`
-- 当天实时合并: 暂用 `AkShareRealtimeQuoteProvider`
 - template: `paper-compare`
-- strategy: `turtle,momentum`
+- strategy: `momentum`
 - 默认股票池: 半导体 / AI 芯片链观察池
 - API 地址: `http://127.0.0.1:8000/docs`
+- 初始资金: 100,000 元
 
 ## 实盘
 
-实盘入口：
-
 ```bash
-uv run python run_live.py
+jh-quant live
 ```
 
 运行前需要设置 MiniQMT / xtquant broker 环境变量：
@@ -61,16 +58,28 @@ set MINIQMT_STOCK_ACCOUNT=你的资金账号
 查看完整参数说明：
 
 ```bash
-uv run python run_live.py --help
+jh-quant live --help
 ```
 
 常用示例：
 
 ```bash
-uv run python run_live.py --strategy turtle
-uv run python run_live.py --backend xquant --strategy turtle,momentum
-uv run python run_live.py --no-dashboard
+jh-quant live --strategy turtle
+jh-quant live --backend xquant --strategy turtle,momentum
+jh-quant live --no-dashboard
 ```
+
+> **注意**: `live` 模式没有 `--initial-capital`（资金以 broker 查询为准），不支持回填（始终保持 `realtime` 时钟）。
+
+## 数据同步
+
+将本地 SQLite 交易数据增量同步到远程 Postgres/Neon：
+
+```bash
+jh-quant sync --from trade_paper.db
+```
+
+详见 [数据同步模块](#)（待补充独立文档）。
 
 ## 策略参数
 
@@ -80,7 +89,7 @@ uv run python run_live.py --no-dashboard
 --strategy turtle,momentum
 ```
 
-当前注册策略会在 `--help` 中完整列出，例如：
+当前注册策略会在 `--help` 中完整列出，共 11 种：
 
 ```text
 bollinger_bands, breakout, buy_and_hold, dual_thrust, mean_reversion,

@@ -83,7 +83,7 @@ df = jh.get_data(
 ```python
 # tushare 源批量查询
 df = jh.get_data(
-    DataTypes.TS_DAILY_QFQ,
+    DataTypes.AK_STOCK_ZH_A_HIST_QFQ,
     ts_code="000001.SZ,600519.SH,300750.SZ",
     start="2024-01-01",
     end="2024-12-31",

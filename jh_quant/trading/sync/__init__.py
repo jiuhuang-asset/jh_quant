@@ -5,7 +5,7 @@
 
 典型用法::
 
-    NEON_PG_URL=postgresql://... jh-quant sync --from trade_paper.db
+    REMOTE_DB_URL=postgresql://... jh-quant sync --from trade_paper.db
 """
 
 from __future__ import annotations

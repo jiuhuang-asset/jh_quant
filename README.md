@@ -1,4 +1,4 @@
-# JH_QUANT
+﻿# JH_QUANT
 
 
 
@@ -268,6 +268,7 @@ display_trading()
 
 ## 更多说明：
 
+- [数据同步（sync）](docs/sync/index.md) — 同步本地数据到远程数据库后，配合 [手机 App](https://github.com/jiuhuang-asset/jh_quant_rn_app) 随时随地查看投资表现
 - [Trading 快速开始](docs/trading/quickstart.md)
 - [Bootstrap 模板](docs/trading/bootstrap.md)
 - [高级自定义运行](docs/trading/advanced-usage.md)
