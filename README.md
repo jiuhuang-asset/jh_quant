@@ -266,6 +266,54 @@ from jh_quant.dashboard import display_trading
 display_trading()
 ```
 
+## AI 开发助手 (Skill)
+
+本项目提供跨平台 AI Coding Agent 的 Skill 文件，让你的 AI 助手以 jh_quant 专家的模式工作。
+
+### 安装
+
+| 平台 | 安装方式 |
+|------|---------|
+| **Claude Code** | 复制 `skills/jh-quant/` → `<project>/.claude/skills/jh-quant/` |
+| **Codex (OpenAI)** | 复制 `skills/jh-quant/` → `<project>/.codex/skills/jh-quant/` |
+| **Hermes / OpenClaw** | 开箱即用（自动识别项目根目录 `skills/` 文件夹） |
+
+#### 安装到项目（仅当前项目生效）
+
+```bash
+# macOS / Linux
+cp -r skills/jh-quant /path/to/your-project/.claude/skills/
+
+# Windows (PowerShell)
+Copy-Item -Recurse skills/jh-quant/ C:\path\to\your-project\.claude\skills\
+```
+
+#### 安装到用户目录（所有项目生效）
+
+```bash
+# --- macOS / Linux ---
+# Claude Code
+cp -r skills/jh-quant ~/.claude/skills/
+# Codex
+cp -r skills/jh-quant ~/.codex/skills/
+
+# --- Windows (PowerShell) ---
+# Claude Code
+Copy-Item -Recurse skills/jh-quant/ $env:USERPROFILE\.claude\skills\
+# Codex
+Copy-Item -Recurse skills/jh-quant/ $env:USERPROFILE\.codex\skills\
+```
+
+### 使用
+
+安装后，AI 助手会自动在相关任务中激活该 skill。你也可以显式调用：
+
+- **Claude Code**：`/jh-quant 帮我实现一个新的策略并回测`
+- **Codex**：`$jh-quant 帮我实现一个新的策略并回测`
+- **Hermes / OpenClaw**：`/jh-quant 帮我实现一个新的策略并回测`
+
+Skill 内容详见 [skills/jh-quant/](skills/jh-quant/)。
+
 ## 更多说明：
 
 - [数据同步（sync）](docs/sync/index.md) — 同步本地数据到远程数据库后，配合 [手机 App](https://github.com/jiuhuang-asset/jh_quant_rn_app) 随时随地查看投资表现
