@@ -1,6 +1,6 @@
 # DataTypes 介绍
 
-`DataTypes` 是一个枚举类，每个成员代表一种可以从 JiuHuang API 获取的数据类型。当前共支持 **34 种**（含复权变体共 **40 个**）数据类型。
+`DataTypes` 是一个枚举类，每个成员代表一种可以从 JiuHuang API 获取的数据类型。当前共支持 **37 种**（含复权变体共 **43 个**）数据类型。
 
 ## 数据源
 
@@ -281,9 +281,33 @@ df = jh.get_data(
 )
 ```
 
+## 同花顺概念板块
+
+| DataType | 说明 |
+|----------|------|
+| `TS_THS_INDEX` | 同花顺概念和行业指数 |
+| `TS_THS_MEMBER` | 同花顺概念板块成分 |
+| `TS_THS_DAILY` | 同花顺概念板块行情 |
+
+```python
+# 获取同花顺概念和行业指数
+df = jh.get_data(DataTypes.TS_THS_INDEX, ts_code="884166.TI")
+
+# 获取同花顺概念板块成分股
+df = jh.get_data(DataTypes.TS_THS_MEMBER, ts_code="884166.TI")
+
+# 获取同花顺概念板块行情
+df = jh.get_data(
+    DataTypes.TS_THS_DAILY,
+    ts_code="884166.TI",
+    start="2024-01-01",
+    end="2024-12-31",
+)
+```
+
 ## 完整列表
 
-以下为当前有数据维护的全部 DataTypes（含复权变体共 40 个），表名大写即对应枚举名：
+以下为当前有数据维护的全部 DataTypes（含复权变体共 43 个），表名大写即对应枚举名：
 
 | 枚举名 | 值（API 标识） | 分类 |
 |--------|---------------|------|
@@ -327,6 +351,9 @@ df = jh.get_data(
 | `TS_TOP_INST` | `ts_top_inst` | 龙虎榜 |
 | `TS_STK_FACTOR_PRO` | `ts_stk_factor_pro` | 技术面 |
 | `TS_STK_AH_COMPARISON` | `ts_stk_ah_comparison` | 跨市场 |
+| `TS_THS_INDEX` | `ts_ths_index` | 同花顺概念板块 |
+| `TS_THS_MEMBER` | `ts_ths_member` | 同花顺概念板块 |
+| `TS_THS_DAILY` | `ts_ths_daily` | 同花顺概念板块 |
 
 > 枚举定义中还有其他类型（指数、基金、宏观、港股、美股、因子等），但目前它们对应的数据表没有数据维护，不建议在生产中使用。
 
