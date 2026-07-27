@@ -43,7 +43,7 @@ stock_price = jh.get_data(
 ```python
 from jh_quant.data.data_providers import tushare as ts
 
-df = ts.daily(
+df = ts.daily(  # 或者完全类似tushare: ts.pro.daily()
     ts_code="000001.SZ",
     start_date="20240101",
     end_date="20241231",
@@ -55,6 +55,7 @@ pro_df = ts.pro.pro_bar(
     end_date="20241231",
     asset="E",
     freq="D",
+   # fields="ts_code,trade_date,open,high,low,close,vol,amount", # 支持筛选字段
 )
 ```
 

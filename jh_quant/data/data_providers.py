@@ -198,14 +198,48 @@ class _TushareProApi(_DynamicApiWrapper):
                 result["end"] = _normalize_date(v)
             elif k == "trade_date":
                 result[k] = _normalize_date(v)
+            # fields 由 _call_jhd 处理，不传给底层
             elif k == "fields":
-                result[k] = v
+                pass
             else:
                 result[k] = v
+        # 保留 fields 供 _call_jhd 使用
+        if "fields" in kwargs and kwargs["fields"] is not None:
+            result["_fields"] = kwargs["fields"]
         return result
 
+    def _call_jhd(self, data_type: DataTypes, **kwargs):
+        """调用 JHData get_data 并应用 fields 过滤"""
+        fields = kwargs.pop("_fields", None)
+
+        # 直接调用 jhd.get_data，不走父类 _call_jhd 的 reverse（因为我们要先 fields 再 reverse）
+        df = self._get_jhd().get_data(data_type, **kwargs)
+
+        if df is not None and fields:
+            requested_fields = [f.strip() for f in fields.split(",") if f.strip()]
+            available = [f for f in requested_fields if f in df.columns]
+            missing = [f for f in requested_fields if f not in df.columns]
+            if missing:
+                import warnings
+                warnings.warn(f"fields 中以下字段不存在，已忽略: {missing}")
+            if available:
+                # 保留 JhDataType 包装（_JHDataWrapper 的 __getitem__ 会丢失 wrapper）
+                jh_dt = getattr(df, "_jh_dt", None)
+                df = df[available]
+                if jh_dt is not None:
+                    df = JhDataType(df, jh_dt)
+
+        if df is None:
+            return None
+
+        reverse_func = self._get_reverse_func()
+        if reverse_func:
+            return reverse_func(df)
+        return df
+
     def pro_bar(
-        self, ts_code=None, start_date=None, end_date=None, asset="E", freq="D"
+        self, ts_code=None, start_date=None, end_date=None, asset="E", freq="D",
+        fields=None,
     ):
         """获取行情数据 (tushare pro.pro_bar)"""
         # Map asset and freq to appropriate DataType
@@ -226,8 +260,11 @@ class _TushareProApi(_DynamicApiWrapper):
         if end_date:
             kwargs["end_date"] = _normalize_date(end_date)
 
-        df = self._get_jhd().get_data(data_type, **kwargs)
-        return reverse_ts(df)
+        # 使用统一的 _build_kwargs + _call_jhd 以支持 fields
+        if fields is not None:
+            kwargs["fields"] = fields
+        normalized = self._build_kwargs(kwargs, data_type)
+        return self._call_jhd(data_type, **normalized)
 
     def __getattr__(self, name: str):
         """动态方法分发，支持 pro.daily()、pro.daily_basic() 等调用"""

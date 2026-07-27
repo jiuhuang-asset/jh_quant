@@ -24,6 +24,7 @@ from .data_types import (
     get_table_unique_keys,
     get_table_dt_field,
 )
+from ._factor_pro import derive_factor_pro
 
 
 load_dotenv()
@@ -315,6 +316,10 @@ class JHData:
         data_type: DataTypes,
         **kwargs,
     ):
+        # TS_STK_FACTOR_PRO 已停止提供，用 ts_daily 的行数代替
+        if data_type == DataTypes.TS_STK_FACTOR_PRO:
+            return self.get_data_total(DataTypes.TS_DAILY, **kwargs)
+
         payload = {
             "data_type": data_type.value,
         }
@@ -570,6 +575,16 @@ class JHData:
         支持自动分片：当远程数据量超过阈值且存在 start/end 日期参数
         或逗号分隔的列表参数时，会递归二分参数范围；仅在 bypass_cache=False 时增量写入缓存。
         """
+        # TS_STK_FACTOR_PRO 已停止提供，从基表衍生计算
+        if data_type == DataTypes.TS_STK_FACTOR_PRO:
+            ts_code = kwargs.get("ts_code")
+            if not ts_code:
+                rprint("[bold red]TS_STK_FACTOR_PRO 需要 ts_code 参数[/bold red]")
+                return
+            start = kwargs.get("start")
+            end = kwargs.get("end")
+            return derive_factor_pro(self, ts_code=ts_code, start=start, end=end)
+
         remote_data_count = self.get_data_total(data_type=data_type, **kwargs)
         if remote_data_count == 0:
             rprint(

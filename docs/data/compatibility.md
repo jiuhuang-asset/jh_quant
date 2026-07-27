@@ -150,6 +150,7 @@ df = ts.pro.daily(
     ts_code="000001.SZ",
     start_date="20240101",
     end_date="20241231",
+  # fields="trade_date,open,high,low,close,vol" # 支持字段筛选
 )
 ```
 
