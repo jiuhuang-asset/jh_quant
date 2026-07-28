@@ -6,39 +6,6 @@ import pandas as pd
 
 from jh_quant.schemas.factors import ANN_DATE_COL, FINANCIAL_FACTOR_FIELDS
 
-DEFAULT_TS_SYMBOLS = [
-    "600135.SH",
-    "000001.SZ",
-    "600036.SH",
-    "600519.SH",
-    "000858.SZ",
-    "601318.SH",
-    "000002.SZ",
-    "600030.SH",
-    "600000.SH",
-    "600016.SH",
-    "600048.SH",
-    "600887.SH",
-    "601166.SH",
-    "601601.SH",
-    "601628.SH",
-    "601857.SH",
-    "601939.SH",
-    "601988.SH",
-    "000063.SZ",
-    "000333.SZ",
-    "000425.SZ",
-    "000568.SZ",
-    "000651.SZ",
-    "000725.SZ",
-    "000776.SZ",
-    "000895.SZ",
-    "002027.SZ",
-    "002142.SZ",
-    "002230.SZ",
-    "002415.SZ",
-]
-
 
 def month_end_rows(df: pd.DataFrame) -> pd.DataFrame:
     result = df.copy()
@@ -228,6 +195,7 @@ def _build_proxy_fundamentals(
     df["momentum"] = df.groupby("symbol")["close"].pct_change(3)
     df["perf"] = df["roe"] + df["momentum"].fillna(0)
     df["industry"] = (symbol_num % 5).astype(float)
+    df[ANN_DATE_COL] = df["date"]
 
     fields = [
         "op",
@@ -261,7 +229,7 @@ def load_ts_factor_inputs(
     *,
     start_date: str = "2015-01-01",
     end_date: str = "2026-03-31",
-    symbols: list[str] | None = None,
+    symbols: list[str],
     period: str = "M",
     price_adjust: str = "qfq",
     lag_features: bool = True,
@@ -287,7 +255,6 @@ def load_ts_factor_inputs(
     )
 
     jhd = JHData()
-    symbols = symbols or DEFAULT_TS_SYMBOLS
     ts_codes = ",".join(symbols)
     price_data_type, already_monthly = _ts_price_data_type(
         DataTypes,

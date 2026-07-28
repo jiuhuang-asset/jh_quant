@@ -6,7 +6,7 @@ import pandas as pd
 import os
 from os import getenv
 from dotenv import load_dotenv
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Tuple, TypeVar, Generator
 import duckdb
 from rich.progress import (
@@ -363,15 +363,14 @@ class JHData:
         if s >= e:
             return
 
-        mid_year = (s.year + e.year) // 2
-        if mid_year == s.year:
-            # 同一年内，按月切
-            mid = datetime(s.year, min(s.month + 1, 12), 1)
-        else:
-            mid = datetime(mid_year, 1, 1)
+        # Use day-based midpoint to guarantee forward progress
+        days = (e - s).days
+        if days <= 1:
+            return
+        mid_date = s + timedelta(days=days // 2)
 
-        yield (start, mid.strftime("%Y-%m-%d"))
-        yield (mid.strftime("%Y-%m-%d"), end)
+        yield (start, mid_date.strftime("%Y-%m-%d"))
+        yield (mid_date.strftime("%Y-%m-%d"), end)
 
     def _bisect_list_param(
         self, value: str, param_name: str
@@ -500,6 +499,20 @@ class JHData:
             return pd.DataFrame()
         return pd.concat(parts, ignore_index=True)
 
+    @staticmethod
+    def _summarize_payload(payload: dict) -> dict:
+        """Truncate long string values for display."""
+        result = {}
+        for k, v in payload.items():
+            if isinstance(v, str) and len(v) > 80:
+                if "," in v:
+                    result[k] = f"{v[:30]}...({len(v.split(','))} codes)"
+                else:
+                    result[k] = f"{v[:30]}...({len(v)} chars)"
+            else:
+                result[k] = v
+        return result
+
     def _fetch_recursive(
         self,
         data_type: DataTypes,
@@ -540,11 +553,11 @@ class JHData:
             if use_cache:
                 cache_count = self._cache.get_data_total(data_type, **filter_kwargs)
                 if cache_count >= sub_total:
-                    rprint(f"[green]    cache hit, skip: {sub}[/green]")
+                    rprint(f"[green]    cache hit, skip: {self._summarize_payload(sub)}[/green]")
                     parts.append(self._cache.get_data(data_type, **filter_kwargs))
                     continue
 
-            rprint(f"[dim]    sub range: {sub}[/dim]")
+            rprint(f"[dim]    sub range: {self._summarize_payload(sub)}[/dim]")
             parts.append(
                 self._fetch_recursive(
                     data_type,
