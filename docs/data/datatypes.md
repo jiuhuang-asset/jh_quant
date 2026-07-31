@@ -1,6 +1,6 @@
 # DataTypes 介绍
 
-`DataTypes` 是一个枚举类，每个成员代表一种可以从 JiuHuang API 获取的数据类型。当前共支持 **37 种**（含复权变体共 **43 个**）数据类型。
+`DataTypes` 是一个枚举类，每个成员代表一种可以从 JiuHuang API 获取的数据类型。当前共支持 **57 种**（含复权变体共 **63 个**）数据类型。
 
 ## 数据源
 
@@ -285,21 +285,153 @@ df = jh.get_data(
 
 | DataType | 说明 |
 |----------|------|
-| `TS_THS_INDEX` | 同花顺概念和行业指数 |
-| `TS_THS_MEMBER` | 同花顺概念板块成分 |
-| `TS_THS_DAILY` | 同花顺概念板块行情 |
+| `TS_THS_INDEX` | 同花顺概念板块指数（板块基础信息） |
+| `TS_THS_MEMBER` | 同花顺概念板块成分股 |
+| `TS_THS_DAILY` | 同花顺概念板块日线行情 |
 
 ```python
-# 获取同花顺概念和行业指数
-df = jh.get_data(DataTypes.TS_THS_INDEX, ts_code="884166.TI")
+# 获取同花顺概念板块指数
+df = jh.get_data(DataTypes.TS_THS_INDEX)
 
-# 获取同花顺概念板块成分股
-df = jh.get_data(DataTypes.TS_THS_MEMBER, ts_code="884166.TI")
+# 获取概念板块成分股
+df = jh.get_data(DataTypes.TS_THS_MEMBER, ts_code="885000.TI")
 
-# 获取同花顺概念板块行情
+# 获取概念板块日线行情
 df = jh.get_data(
     DataTypes.TS_THS_DAILY,
-    ts_code="884166.TI",
+    ts_code="885000.TI",
+    start="2024-01-01",
+    end="2024-12-31",
+)
+```
+
+## 指数数据
+
+### 指数基本信息
+
+| DataType | 说明 |
+|----------|------|
+| `TS_INDEX_BASIC` | 指数基本信息（名称、市场、发布商、分类、基日、基点、上市日期） |
+
+```python
+# 获取指数基本信息
+df = jh.get_data(DataTypes.TS_INDEX_BASIC)
+```
+
+### 指数日线行情
+
+| DataType | 说明 |
+|----------|------|
+| `TS_INDEX_GLOBAL` | 国际主要指数日线行情（标普500、道琼斯等） |
+| `TS_SW_DAILY` | 申万行业指数日线行情（默认申万2021版） |
+
+```python
+# 获取国际主要指数日线行情
+df = jh.get_data(
+    DataTypes.TS_INDEX_GLOBAL,
+    start="2024-01-01",
+    end="2024-12-31",
+)
+
+# 获取申万行业指数日线行情
+df = jh.get_data(
+    DataTypes.TS_SW_DAILY,
+    start="2024-01-01",
+    end="2024-12-31",
+)
+```
+
+### 指数日线指标
+
+| DataType | 说明 |
+|----------|------|
+| `TS_INDEX_DAILYBASIC` | 指数日线基础指标（市值、换手率、PE、PB等，覆盖上证综指、深证成指、上证50、中证500、中小板指、创业板指） |
+
+```python
+# 获取指数日线基础指标
+df = jh.get_data(
+    DataTypes.TS_INDEX_DAILYBASIC,
+    start="2024-01-01",
+    end="2024-12-31",
+)
+```
+
+### 交易所统计
+
+| DataType | 说明 |
+|----------|------|
+| `TS_DAILY_INFO` | 交易所股票交易统计（各板块明细，含成交额、成交量、换手率等） |
+
+```python
+# 获取交易所股票交易统计
+df = jh.get_data(
+    DataTypes.TS_DAILY_INFO,
+    start="2024-01-01",
+    end="2024-12-31",
+)
+```
+
+## 宏观数据
+
+### 中国宏观数据
+
+| DataType | 说明 |
+|----------|------|
+| `TS_SHIBOR` | Shibor 利率 |
+| `TS_SHIBOR_LPR` | LPR 贷款基础利率 |
+| `TS_SHIBOR_QUOTE` | Shibor 报价数据 |
+| `TS_LIBOR` | 伦敦银行间同业拆借利率（LIBOR） |
+| `TS_HIBOR` | 香港银行间同业拆借利率（HIBOR） |
+| `TS_CN_GDP` | 国民经济之 GDP 数据 |
+| `TS_CN_CPI` | 居民消费价格指数（CPI），包括全国、城市和农村的数据 |
+| `TS_CN_PPI` | 工业生产者出厂价格指数（PPI） |
+| `TS_CN_M` | 货币供应量之月度数据 |
+| `TS_CN_PMI` | 采购经理人指数（PMI） |
+
+```python
+# 获取 GDP 数据
+df = jh.get_data(
+    DataTypes.TS_CN_GDP,
+    start="2020-01-01",
+    end="2024-12-31",
+)
+
+# 获取 CPI 数据
+df = jh.get_data(
+    DataTypes.TS_CN_CPI,
+    start="2024-01-01",
+    end="2024-12-31",
+)
+
+# 获取货币供应量数据
+df = jh.get_data(
+    DataTypes.TS_CN_M,
+    start="2024-01-01",
+    end="2024-12-31",
+)
+```
+
+### 美国宏观数据
+
+| DataType | 说明 |
+|----------|------|
+| `TS_US_TYCR` | 美国国债收益率曲线利率（日频） |
+| `TS_US_TRYCR` | 美国国债实际收益率曲线利率 |
+| `TS_US_TBR` | 美国短期国债利率 |
+| `TS_US_TLTR` | 美国国债长期利率 |
+| `TS_US_TRLTR` | 美国国债实际长期利率平均值 |
+
+```python
+# 获取美国国债收益率曲线利率
+df = jh.get_data(
+    DataTypes.TS_US_TYCR,
+    start="2024-01-01",
+    end="2024-12-31",
+)
+
+# 获取美国短期国债利率
+df = jh.get_data(
+    DataTypes.TS_US_TBR,
     start="2024-01-01",
     end="2024-12-31",
 )
@@ -307,7 +439,7 @@ df = jh.get_data(
 
 ## 完整列表
 
-以下为当前有数据维护的全部 DataTypes（含复权变体共 43 个），表名大写即对应枚举名：
+以下为当前有数据维护的全部 DataTypes（含复权变体共 63 个），表名大写即对应枚举名：
 
 | 枚举名 | 值（API 标识） | 分类 |
 |--------|---------------|------|
@@ -351,11 +483,31 @@ df = jh.get_data(
 | `TS_TOP_INST` | `ts_top_inst` | 龙虎榜 |
 | `TS_STK_FACTOR_PRO` | `ts_stk_factor_pro` | 技术面 |
 | `TS_STK_AH_COMPARISON` | `ts_stk_ah_comparison` | 跨市场 |
-| `TS_THS_INDEX` | `ts_ths_index` | 同花顺概念板块 |
-| `TS_THS_MEMBER` | `ts_ths_member` | 同花顺概念板块 |
-| `TS_THS_DAILY` | `ts_ths_daily` | 同花顺概念板块 |
+| `TS_THS_INDEX` | `ts_ths_index` | 同花顺概念 |
+| `TS_THS_MEMBER` | `ts_ths_member` | 同花顺概念 |
+| `TS_THS_DAILY` | `ts_ths_daily` | 同花顺概念 |
+| `TS_INDEX_BASIC` | `ts_index_basic` | 指数 |
+| `TS_INDEX_GLOBAL` | `ts_index_global` | 指数 |
+| `TS_DAILY_INFO` | `ts_daily_info` | 指数 |
+| `TS_SW_DAILY` | `ts_sw_daily` | 指数 |
+| `TS_INDEX_DAILYBASIC` | `ts_index_dailybasic` | 指数 |
+| `TS_SHIBOR` | `ts_shibor` | 宏观-中国 |
+| `TS_SHIBOR_LPR` | `ts_shibor_lpr` | 宏观-中国 |
+| `TS_SHIBOR_QUOTE` | `ts_shibor_quote` | 宏观-中国 |
+| `TS_LIBOR` | `ts_libor` | 宏观-中国 |
+| `TS_HIBOR` | `ts_hibor` | 宏观-中国 |
+| `TS_CN_GDP` | `ts_cn_gdp` | 宏观-中国 |
+| `TS_CN_CPI` | `ts_cn_cpi` | 宏观-中国 |
+| `TS_CN_PPI` | `ts_cn_ppi` | 宏观-中国 |
+| `TS_CN_M` | `ts_cn_m` | 宏观-中国 |
+| `TS_CN_PMI` | `ts_cn_pmi` | 宏观-中国 |
+| `TS_US_TYCR` | `ts_us_tycr` | 宏观-美国 |
+| `TS_US_TRYCR` | `ts_us_trycr` | 宏观-美国 |
+| `TS_US_TBR` | `ts_us_tbr` | 宏观-美国 |
+| `TS_US_TLTR` | `ts_us_tltr` | 宏观-美国 |
+| `TS_US_TRLTR` | `ts_us_trltr` | 宏观-美国 |
 
-> 枚举定义中还有其他类型（指数、基金、宏观、港股、美股、因子等），但目前它们对应的数据表没有数据维护，不建议在生产中使用。
+> 枚举定义中还有其他类型（基金、港股、美股等），但目前它们对应的数据表没有数据维护，不建议在生产中使用。指数相关类型已在上方列出并可用。
 
 也可通过代码查看完整列表：
 

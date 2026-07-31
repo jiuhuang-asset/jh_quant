@@ -1,3 +1,4 @@
+# fmt: off
 from enum import Enum
 from typing import Dict, List
 
@@ -4234,7 +4235,7 @@ def get_data_rename_mapping(data_type: DataTypes) -> Dict[str, str]:
             'title': 'title',
         },
         DataTypes.TS_MARGIN: {
-            'exchange': 'exchange',
+            'exchange_id': 'exchange_id',
             'rqmcl': 'rqmcl',
             'rqye': 'rqye',
             'rqyl': 'rqyl',
@@ -6101,7 +6102,7 @@ def get_table_unique_keys(data_type: DataTypes) -> list:
         DataTypes.TS_LIMIT_LIST_THS: ['trade_date', 'ts_code'],
         DataTypes.TS_LIMIT_STEP: ['trade_date', 'ts_code'],
         DataTypes.TS_MAJOR_NEWS: ['title'],
-        DataTypes.TS_MARGIN: ['trade_date', 'exchange'],
+        DataTypes.TS_MARGIN: ['trade_date', 'exchange_id'],
         DataTypes.TS_MARGIN_DETAIL: ['trade_date', 'ts_code'],
         DataTypes.TS_MONEYFLOW: ['trade_date', 'ts_code'],
         DataTypes.TS_MONEYFLOW_CNT_THS: ['trade_date', 'ts_code'],
@@ -6493,7 +6494,7 @@ def get_table_fields(data_type: DataTypes) -> List[str]:
         DataTypes.TS_LIMIT_LIST_THS: ['trade_date', 'ts_code', 'name', 'price', 'pct_chg', 'open_num', 'lu_desc', 'limit_type', 'tag', 'status', 'first_lu_time', 'last_lu_time', 'first_ld_time', 'last_ld_time', 'limit_order', 'limit_amount', 'turnover_rate', 'free_float', 'lu_limit_order', 'limit_up_suc_rate', 'turnover', 'rise_rate', 'sum_float', 'market_type'],
         DataTypes.TS_LIMIT_STEP: ['ts_code', 'name', 'trade_date', 'nums'],
         DataTypes.TS_MAJOR_NEWS: ['title', 'content', 'pub_time', 'src'],
-        DataTypes.TS_MARGIN: ['trade_date', 'exchange', 'rzye', 'rzmre', 'rzche', 'rzrqye', 'rqmcl', 'rqye', 'rqyl'],
+        DataTypes.TS_MARGIN: ['trade_date', 'exchange_id', 'rzye', 'rzmre', 'rzche', 'rzrqye', 'rqmcl', 'rqye', 'rqyl'],
         DataTypes.TS_MARGIN_DETAIL: ['trade_date', 'ts_code', 'rzye', 'rqye', 'rzmre', 'rqyl', 'rzche', 'rqchl', 'rqmcl', 'rzrqye'],
         DataTypes.TS_MONEYFLOW: ['ts_code', 'trade_date', 'buy_sm_vol', 'buy_sm_amount', 'sell_sm_vol', 'sell_sm_amount', 'buy_md_vol', 'buy_md_amount', 'sell_md_vol', 'sell_md_amount', 'buy_lg_vol', 'buy_lg_amount', 'sell_lg_vol', 'sell_lg_amount', 'buy_elg_vol', 'buy_elg_amount', 'sell_elg_vol', 'sell_elg_amount', 'net_mf_vol', 'net_mf_amount'],
         DataTypes.TS_MONEYFLOW_CNT_THS: ['trade_date', 'ts_code', 'name', 'lead_stock', 'close_price', 'pct_change', 'industry_index', 'company_num', 'pct_change_stock', 'net_buy_amount', 'net_sell_amount', 'net_amount'],
@@ -7388,3 +7389,4 @@ def get_table_comment(data_type: DataTypes) -> str:
 
     return comment_mappings.get(data_type, "")
 
+# fmt: on
