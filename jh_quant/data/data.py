@@ -125,6 +125,13 @@ def raise_err_with_details(response, read_body: bool = True) -> None:
                 error_msg = (
                     error_body if "error_body" in dir() else response.text or error_msg
                 )
+        # 401: API Token 无效或已过期，提示用户到官网购买/续费套餐
+        if response.status_code == 401:
+            error_msg = (
+                f"{error_msg}\n"
+                "提示: API Token 无效或已过期，请到 https://jiuhuang.xyz "
+                "购买或续费 API Token 套餐（首次注册赠送7日免费额度）。"
+            )
         raise Exception(f"API error {response.status_code}: {error_msg}")
 
 
