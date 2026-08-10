@@ -31,7 +31,7 @@ inputs = load_ts_factor_inputs(
 
 | 参数 | 默认值 | 含义 |
 |------|--------|------|
-| `period` | `"M"` | 直接使用 `TS_MONTHLY_*` 月频行情 |
+| `period` | `"M"` | 直接使用 `TS_MONTHLY_*` 月频行情，基本面使用 `TS_MONTHLY_BASIC` |
 | `price_adjust` | `"qfq"` | 优先使用前复权价格，默认映射到 `TS_MONTHLY_QFQ` |
 | `lag_features` | `True` | 将 t 期观测到的特征用于下一期收益 |
 

@@ -42,6 +42,10 @@ inputs = load_ts_factor_inputs(
 )
 ```
 
+**注意**：`symbols` 参数可省略，省略时加载**全部 A 股**（请求省略 `ts_code`，服务端返回全市场）。如需限定股票范围，传入 ts_codes 列表即可。
+
+月频（`period="M"`）时，市值、PB 等基本面数据直接使用月度衍生表 `TS_MONTHLY_BASIC`（每只股票每月取当月最后一个交易日，约日线数据量的 1/20），无需拉取全量日线 `TS_DAILY_BASIC` 再本地降频，能显著减少内存与耗时。该表不可用时自动回退日线降频。
+
 返回值可以直接传给 `calculate_factor_returns()`：
 
 ```python
@@ -181,7 +185,8 @@ exposures = calculate_exposures(
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| `period` | `"M"` | 使用 TS 月频行情；`"D"` 表示用日频行情转月末收益 |
+| `symbols` | `None` | 股票范围。省略或传空列表时加载全部 A 股（请求省略 `ts_code`）；传 ts_codes 列表则限定范围，如 `['000001.SZ', '600000.SH']` |
+| `period` | `"M"` | `"M"` 使用 TS 月频行情 `TS_MONTHLY_*`，基本面优先用 `TS_MONTHLY_BASIC`（不可用时回退 `TS_DAILY_BASIC` 本地降频）；`"D"` 使用日频行情转月末收益，基本面用 `TS_DAILY_BASIC` |
 | `price_adjust` | `"qfq"` | 优先使用前复权价格；可选 `"hfq"` 或 `"none"` |
 | `lag_features` | `True` | 将市值、BM、动量等特征滞后一收益期 |
 | `include_proxy_fundamentals` | `False` | 仅用于 smoke test 的代理财务字段，不建议用于正式研究 |

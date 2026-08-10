@@ -128,6 +128,70 @@ def _align_fundamentals_to_next_return_date(
     return result
 
 
+def _fetch_basic_monthly(
+    jhd,
+    *,
+    period: str,
+    start_date: str,
+    end_date: str,
+    ts_codes: str | None,
+) -> pd.DataFrame:
+    """Fetch basic metrics reduced to one row per symbol-month.
+
+    period="M" prefers the server-side ts_monthly_basic (one row per symbol-month,
+    trade_date = last trading day of the month, same convention as the TS_MONTHLY
+    price tables) and falls back to ts_daily_basic reduced locally when the
+    monthly table is missing or empty. period="D" always uses ts_daily_basic
+    reduced locally.
+
+    ``ts_codes`` may be None to request all stocks (ts_code is then omitted
+    from the request, since an empty string is rejected by the server).
+
+    Returns a canonical [symbol, date, ...] frame carrying the basic fields.
+    """
+    from rich import print as rprint
+
+    from jh_quant.data import DataTypes
+
+    is_monthly = period.upper() in {"M", "MONTH", "MONTHLY"}
+    candidates = (
+        [DataTypes.TS_MONTHLY_BASIC, DataTypes.TS_DAILY_BASIC]
+        if is_monthly
+        else [DataTypes.TS_DAILY_BASIC]
+    )
+
+    for data_type in candidates:
+        fetch_kwargs = {"start": start_date, "end": end_date}
+        if ts_codes:
+            fetch_kwargs["ts_code"] = ts_codes
+        basic = jhd.get_data(data_type, **fetch_kwargs)
+        df = _to_df(basic)
+        if df is None or df.empty:
+            continue
+
+        frame = df.copy().rename(columns={"ts_code": "symbol", "trade_date": "date"})
+        if data_type == DataTypes.TS_MONTHLY_BASIC:
+            rprint(
+                f"[green]Using ts_monthly_basic for basic metrics "
+                f"({start_date} ~ {end_date})[/green]"
+            )
+            # Server contract: one row per symbol-month. Cheap guard against
+            # stray duplicate rows (keep last, matching tail(1) semantics), and
+            # sort like month_end_rows so both sources produce identical order.
+            return (
+                frame.drop_duplicates(["symbol", "date"], keep="last")
+                .sort_values(["symbol", "date"])
+                .reset_index(drop=True)
+            )
+        if len(candidates) > 1:
+            rprint(
+                "[yellow]ts_monthly_basic 无数据，回退 ts_daily_basic 本地降频[/yellow]"
+            )
+        return month_end_rows(frame)
+
+    raise ValueError("无法获取基本面数据: ts_monthly_basic 与 ts_daily_basic 均为空")
+
+
 def _build_price_fields(
     base: pd.DataFrame,
     stock_returns: pd.DataFrame,
@@ -229,7 +293,7 @@ def load_ts_factor_inputs(
     *,
     start_date: str = "2015-01-01",
     end_date: str = "2026-03-31",
-    symbols: list[str],
+    symbols: list[str] | None = None,
     period: str = "M",
     price_adjust: str = "qfq",
     lag_features: bool = True,
@@ -238,8 +302,14 @@ def load_ts_factor_inputs(
     """
     Load TS-backed factor inputs and normalize them to factor schemas.
 
-    ``period="M"`` uses TS_MONTHLY_* price data directly. ``period="D"`` uses
-    TS_DAILY_* price data and converts it to month-end returns.
+    ``symbols`` is optional; when omitted or empty, data for all A-shares is
+    loaded (the request omits ``ts_code`` entirely). Pass a list of ts_codes to
+    restrict the universe, e.g. ``symbols=["000001.SZ", "600000.SH"]``.
+
+    ``period="M"`` uses TS_MONTHLY_* price data and TS_MONTHLY_BASIC daily-basic
+    data directly (falling back to TS_DAILY_BASIC reduced locally when the
+    monthly table is unavailable). ``period="D"`` uses TS_DAILY_* price data and
+    converts it to month-end returns, always using TS_DAILY_BASIC.
     ``lag_features=True`` aligns market cap and characteristic fields observed
     at t to the next return period, avoiding same-period look-ahead.
 
@@ -255,7 +325,11 @@ def load_ts_factor_inputs(
     )
 
     jhd = JHData()
-    ts_codes = ",".join(symbols)
+    # Empty symbols means "all stocks": omit ts_code entirely (an empty string
+    # would be rejected by the server), rather than filtering to zero codes.
+    fetch_kwargs = {}
+    if symbols:
+        fetch_kwargs["ts_code"] = ",".join(symbols)
     price_data_type, already_monthly = _ts_price_data_type(
         DataTypes,
         period=period,
@@ -266,29 +340,27 @@ def load_ts_factor_inputs(
         price_data_type,
         start=start_date,
         end=end_date,
-        ts_code=ts_codes,
+        **fetch_kwargs,
     )
     stock_returns = _monthly_returns_from_ts_prices(
         prices,
         already_monthly=already_monthly,
     )
 
-    daily_basic = jhd.get_data(
-        DataTypes.TS_DAILY_BASIC,
-        start=start_date,
-        end=end_date,
-        ts_code=ts_codes,
+    basic_monthly = _fetch_basic_monthly(
+        jhd,
+        period=period,
+        start_date=start_date,
+        end_date=end_date,
+        ts_codes=",".join(symbols) if symbols else None,
     )
-    market_cap = month_end_rows(to_factor_market_cap_frame(daily_basic))
+    market_cap = to_factor_market_cap_frame(basic_monthly)
     if lag_features:
         market_cap = _align_features_to_next_return_date(market_cap, stock_returns)
 
-    basic_df = _to_df(daily_basic).copy().rename(
-        columns={"ts_code": "symbol", "trade_date": "date"}
-    )
-    pb = pd.to_numeric(basic_df["pb"], errors="coerce")
-    basic_df["bm"] = 1 / pb.where(pb > 0)
-    bm = month_end_rows(to_factor_input_frame(basic_df, field_name="bm"))
+    pb = pd.to_numeric(basic_monthly["pb"], errors="coerce")
+    basic_monthly["bm"] = 1 / pb.where(pb > 0)
+    bm = to_factor_input_frame(basic_monthly, field_name="bm")
 
     price_df = _to_df(prices).copy().rename(
         columns={"ts_code": "symbol", "trade_date": "date"}
@@ -299,7 +371,6 @@ def load_ts_factor_inputs(
     fundamentals.update(_build_price_fields(price_monthly, stock_returns))
 
     if include_proxy_fundamentals:
-        basic_monthly = month_end_rows(basic_df)
         basic_monthly["mkt_cap"] = pd.to_numeric(
             basic_monthly["total_mv"], errors="coerce"
         )

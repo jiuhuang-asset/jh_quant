@@ -68,6 +68,19 @@ df = jh.get_data(
 | DataType | 说明 |
 |----------|------|
 | `TS_DAILY_BASIC` | 日线基础指标（换手率、市盈率、市净率等） |
+| `TS_MONTHLY_BASIC` | 月度基础指标（`ts_daily_basic` 的衍生表：每只股票每月取当月最后一个交易日的记录） |
+
+`TS_MONTHLY_BASIC` 字段与 `TS_DAILY_BASIC` 完全一致，仅按月份聚合。其 `trade_date` 为当月最后一个实际交易日（与月线行情 `TS_MONTHLY_*` 同约定，**不是**自然月末日期），只包含已结束的完整月份。适合月频因子计算等场景，数据量约为日线的 1/20。
+
+```python
+# 获取 2020 年 000001.SZ 与 600000.SH 的月度基础指标
+df = jh.get_data(
+    DataTypes.TS_MONTHLY_BASIC,
+    ts_code="000001.SZ,600000.SH",
+    start="2020-01-01",
+    end="2020-12-31",
+)
+```
 
 ### 实时行情
 
@@ -439,7 +452,7 @@ df = jh.get_data(
 
 ## 完整列表
 
-以下为当前有数据维护的全部 DataTypes（含复权变体共 63 个），表名大写即对应枚举名：
+以下为当前有数据维护的全部 DataTypes（含复权变体共 64 个），表名大写即对应枚举名：
 
 | 枚举名 | 值（API 标识） | 分类 |
 |--------|---------------|------|
@@ -453,6 +466,7 @@ df = jh.get_data(
 | `TS_MONTHLY_QFQ` | `ts_monthly_qfq` | 行情 |
 | `TS_MONTHLY_HFQ` | `ts_monthly_hfq` | 行情 |
 | `TS_DAILY_BASIC` | `ts_daily_basic` | 行情 |
+| `TS_MONTHLY_BASIC` | `ts_monthly_basic` | 行情 |
 | `AK_STOCK_ZH_A_SPOT` | `ak_stock_zh_a_spot` | 行情 |
 | `TS_BALANCESHEET` | `ts_balancesheet` | 基本面 |
 | `TS_INCOME` | `ts_income` | 基本面 |

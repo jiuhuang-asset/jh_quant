@@ -20,6 +20,24 @@
 
 ## 各模型详解
 
+下面示例先准备一份标准输入，再计算各模型因子收益：
+
+```python
+from jh_quant.factors import FactorEngine, FactorType, load_ts_factor_inputs
+
+engine = FactorEngine()
+inputs = load_ts_factor_inputs(
+    start_date="2020-01-01",
+    end_date="2024-12-31",
+    period="M",             # 默认月频
+    price_adjust="qfq",     # 默认前复权
+    lag_features=True,      # 默认滞后一收益期，避免 look-ahead
+)
+
+# 然后传入各模型：
+ff3 = engine.calculate_factor_returns(factor_type=FactorType.FF3, **inputs)
+```
+
 ### CAPM
 
 ```
@@ -30,10 +48,7 @@ CAPM 单因子模型。因子收益率即为市场超额收益率 (R_m - R_f)。
 **所需数据**：仅需市场超额收益率数据。
 
 ```python
-from jh_quant.factors import FactorEngine, FactorType
-
-engine = FactorEngine()
-capm = engine.calculate_factor_returns(factor_type=FactorType.CAPM, period='M')
+capm = engine.calculate_factor_returns(factor_type=FactorType.CAPM, **inputs)
 
 # capm 仅有一列: mkt（市场超额收益）
 print(capm.columns)  # Index(['mkt'])
@@ -55,7 +70,7 @@ Fama-French 三因子模型，市场 + 规模 + 价值。
 **所需数据**：`mkt_cap`、`bm`
 
 ```python
-ff3 = engine.calculate_factor_returns(factor_type=FactorType.FF3)
+ff3 = engine.calculate_factor_returns(factor_type=FactorType.FF3, **inputs)
 print(ff3.columns)  # Index(['mkt', 'smb', 'hml'])
 ```
 
@@ -77,7 +92,7 @@ Fama-French 五因子模型，在 FF3 基础上增加盈利和投资两个因子
 **所需数据**：`mkt_cap`、`bm`、`op`、`asset_growth`
 
 ```python
-ff5 = engine.calculate_factor_returns(factor_type=FactorType.FF5)
+ff5 = engine.calculate_factor_returns(factor_type=FactorType.FF5, **inputs)
 # 包含 5 个因子: mkt, smb, hml, rmw, cma
 ```
 
@@ -98,7 +113,7 @@ Carhart 四因子模型，在 FF3 基础上增加动量因子。
 **所需数据**：`mkt_cap`、`bm`、`momentum`
 
 ```python
-carhart = engine.calculate_factor_returns(factor_type=FactorType.CARHART)
+carhart = engine.calculate_factor_returns(factor_type=FactorType.CARHART, **inputs)
 # 包含 4 个因子: mkt, smb, hml, umd
 ```
 
@@ -119,7 +134,7 @@ Novy-Marx 四因子模型。核心创新：用毛利/资产 (GP/A) 替代传统�
 **所需数据**：`mkt_cap`、`bm`、`momentum`、`gross_profit`、`industry`
 
 ```python
-novy_marx = engine.calculate_factor_returns(factor_type=FactorType.NOVY_MARX)
+novy_marx = engine.calculate_factor_returns(factor_type=FactorType.NOVY_MARX, **inputs)
 # 包含 4 个因子: mkt, hml_adj, umd, gp_a
 ```
 
@@ -140,7 +155,7 @@ Hou-Xue-Zhang q-factor 模型。基于投资 q 理论，用投资和盈利解释
 **所需数据**：`mkt_cap`、`asset_growth`、`roe_quarterly`
 
 ```python
-hxz = engine.calculate_factor_returns(factor_type=FactorType.HOU_XUE_ZHANG)
+hxz = engine.calculate_factor_returns(factor_type=FactorType.HOU_XUE_ZHANG, **inputs)
 # 包含 4 个因子: mkt, me, ia, roe
 ```
 
@@ -160,7 +175,7 @@ Daniel-Hirshleifer-Sun 行为三因子模型。以盈余公告后漂移和融资
 **所需数据**：`mkt_cap`、`sud`（标准未预期盈余）、`net_share_issuance`
 
 ```python
-dhs = engine.calculate_factor_returns(factor_type=FactorType.DHS)
+dhs = engine.calculate_factor_returns(factor_type=FactorType.DHS, **inputs)
 # 包含 3 个因子: mkt, pead, fin
 ```
 
@@ -229,7 +244,7 @@ Stambaugh-Yuan 误定价四因子模型。基于多个异象指标聚类构建�
 
 ### TS 便捷数据准备
 
-`FactorEngine` 不再在核心计算中自动拉取数据。推荐先通过 `load_ts_factor_inputs()` 准备标准输入：
+`FactorEngine` 不再在核心计算中自动拉取数据。推荐先通过 `load_ts_factor_inputs()` 准备标准输入（示例见上文「各模型详解」开头的准备段）：
 
 ```python
 from jh_quant.factors import load_ts_factor_inputs
@@ -243,7 +258,7 @@ inputs = load_ts_factor_inputs(
 )
 ```
 
-其他数据源也可以使用，只要在进入因子计算前转换成相同 schema。
+`symbols` 参数可省略，省略时加载全部 A 股；传 ts_codes 列表则限定范围。月频（`period="M"`）时基本面直接使用 `TS_MONTHLY_BASIC` 月度衍生表（约日线数据量的 1/20）。其他数据源也可以使用，只要在进入因子计算前转换成相同 schema。
 
 ### 数据合并逻辑
 

@@ -290,6 +290,7 @@ class DataTypes(Enum):
     TS_MONEYFLOW_MKT_DC = "ts_moneyflow_mkt_dc"  # ts_moneyflow_mkt_dc
     TS_MONEYFLOW_THS = "ts_moneyflow_ths"  # ts_moneyflow_ths
     TS_MONTHLY = "ts_monthly"  # ts_monthly
+    TS_MONTHLY_BASIC = "ts_monthly_basic"  # ts_monthly_basic
     TS_MONTHLY_HFQ = "ts_monthly_hfq"  # ts_monthly_hfq(后复权)
     TS_MONTHLY_QFQ = "ts_monthly_qfq"  # ts_monthly_qfq(前复权)
     TS_NAMECHANGE = "ts_namechange"  # ts_namechange
@@ -4398,6 +4399,26 @@ def get_data_rename_mapping(data_type: DataTypes) -> Dict[str, str]:
             'ts_code': 'ts_code',
             'vol': 'vol',
         },
+        DataTypes.TS_MONTHLY_BASIC: {
+            'circ_mv': 'circ_mv',
+            'close': 'close',
+            'dv_ratio': 'dv_ratio',
+            'dv_ttm': 'dv_ttm',
+            'float_share': 'float_share',
+            'free_share': 'free_share',
+            'pb': 'pb',
+            'pe': 'pe',
+            'pe_ttm': 'pe_ttm',
+            'ps': 'ps',
+            'ps_ttm': 'ps_ttm',
+            'total_mv': 'total_mv',
+            'total_share': 'total_share',
+            'trade_date': 'trade_date',
+            'ts_code': 'ts_code',
+            'turnover_rate': 'turnover_rate',
+            'turnover_rate_f': 'turnover_rate_f',
+            'volume_ratio': 'volume_ratio',
+        },
         DataTypes.TS_MONTHLY_HFQ: {
             'amount': 'amount',
             'change': 'change',
@@ -6113,6 +6134,7 @@ def get_table_unique_keys(data_type: DataTypes) -> list:
         DataTypes.TS_MONEYFLOW_MKT_DC: ['trade_date'],
         DataTypes.TS_MONEYFLOW_THS: ['trade_date', 'ts_code'],
         DataTypes.TS_MONTHLY: ['trade_date', 'ts_code'],
+        DataTypes.TS_MONTHLY_BASIC: ['trade_date', 'ts_code'],
         DataTypes.TS_MONTHLY_HFQ: ['trade_date', 'ts_code'],
         DataTypes.TS_MONTHLY_QFQ: ['trade_date', 'ts_code'],
         DataTypes.TS_NAMECHANGE: ['ts_code', 'start_date', 'name'],
@@ -6505,6 +6527,7 @@ def get_table_fields(data_type: DataTypes) -> List[str]:
         DataTypes.TS_MONEYFLOW_MKT_DC: ['trade_date', 'close_sh', 'pct_change_sh', 'close_sz', 'pct_change_sz', 'net_amount', 'net_amount_rate', 'buy_elg_amount', 'buy_elg_amount_rate', 'buy_lg_amount', 'buy_lg_amount_rate', 'buy_md_amount', 'buy_md_amount_rate', 'buy_sm_amount', 'buy_sm_amount_rate'],
         DataTypes.TS_MONEYFLOW_THS: ['trade_date', 'ts_code', 'name', 'pct_change', 'latest', 'net_amount', 'net_d5_amount', 'buy_lg_amount', 'buy_lg_amount_rate', 'buy_md_amount', 'buy_md_amount_rate', 'buy_sm_amount', 'buy_sm_amount_rate'],
         DataTypes.TS_MONTHLY: ['ts_code', 'trade_date', 'close', 'open', 'high', 'low', 'pre_close', 'change', 'pct_chg', 'vol', 'amount'],
+        DataTypes.TS_MONTHLY_BASIC: ['trade_date', 'ts_code', 'close', 'turnover_rate', 'turnover_rate_f', 'volume_ratio', 'pe', 'pe_ttm', 'pb', 'ps', 'ps_ttm', 'dv_ratio', 'dv_ttm', 'total_share', 'float_share', 'free_share', 'total_mv', 'circ_mv'],
         DataTypes.TS_MONTHLY_HFQ: ['trade_date', 'ts_code', 'open', 'high', 'low', 'close', 'pre_close', 'change', 'pct_chg', 'vol', 'amount'],
         DataTypes.TS_MONTHLY_QFQ: ['trade_date', 'ts_code', 'open', 'high', 'low', 'close', 'pre_close', 'change', 'pct_chg', 'vol', 'amount'],
         DataTypes.TS_NAMECHANGE: ['ts_code', 'name', 'start_date', 'end_date', 'ann_date', 'change_reason'],
@@ -6898,6 +6921,7 @@ def get_table_dt_field(data_type: DataTypes) -> str:
         DataTypes.TS_MONEYFLOW_MKT_DC: "trade_date",
         DataTypes.TS_MONEYFLOW_THS: "trade_date",
         DataTypes.TS_MONTHLY: "trade_date",
+        DataTypes.TS_MONTHLY_BASIC: "trade_date",
         DataTypes.TS_MONTHLY_HFQ: "trade_date",
         DataTypes.TS_MONTHLY_QFQ: "trade_date",
         DataTypes.TS_NAMECHANGE: "",
@@ -7290,6 +7314,7 @@ def get_table_comment(data_type: DataTypes) -> str:
         DataTypes.TS_MONEYFLOW_MKT_DC: "获取东方财富大盘资金流向数据，每日盘后更新",
         DataTypes.TS_MONEYFLOW_THS: "获取同花顺个股资金流向数据，每日盘后更新",
         DataTypes.TS_MONTHLY: "获取A股月线数据",
+        DataTypes.TS_MONTHLY_BASIC: "每月指标（ts_daily_basic的衍生表）",
         DataTypes.TS_MONTHLY_HFQ: "月线行情 - 后复权",
         DataTypes.TS_MONTHLY_QFQ: "月线行情 - 前复权",
         DataTypes.TS_NAMECHANGE: "股票曾用名",
@@ -7388,5 +7413,4 @@ def get_table_comment(data_type: DataTypes) -> str:
     }
 
     return comment_mappings.get(data_type, "")
-
 # fmt: on
