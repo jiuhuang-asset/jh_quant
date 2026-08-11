@@ -2198,7 +2198,9 @@ class GeneralFactorCalculator:
         根据当前period将SHIBOR转换为日度或月度无风险利率
 
         Args:
-            shibor_data: SHIBOR数据，包含 date, on_rate, m1_rate 等列
+            shibor_data: SHIBOR数据，包含 date 列，以及利率列：
+                - tushare TS_SHIBOR：隔夜 `on`、1 个月 `f_1m`
+                - 兼容旧 akshare 列名：隔夜 `on_rate`、1 个月 `m1_rate`
 
         Returns:
             无风险利率查询字典 {date: rf}，rf为小数形式（如0.03表示3%）
@@ -2207,22 +2209,25 @@ class GeneralFactorCalculator:
             return None
 
         shibor_data = shibor_data.copy()
+        shibor_data["date"] = pd.to_datetime(shibor_data["date"])
 
         if self.period == TimePeriod.MONTHLY:
-            # 月度：使用1个月期SHIBOR，转换为月度利率
+            # 月度：使用1个月期SHIBOR，转换为月度利率（TS_SHIBOR 用 f_1m）
+            rate_col = "f_1m" if "f_1m" in shibor_data.columns else "m1_rate"
             shibor_data["year_month"] = shibor_data["date"].dt.to_period("M")
             shibor_monthly = (
                 shibor_data.groupby("year_month")
-                .agg({"m1_rate": "last", "date": "last"})
+                .agg({rate_col: "last", "date": "last"})
                 .reset_index()
             )
-            shibor_monthly["rf"] = shibor_monthly["m1_rate"] / 100 / 12
+            shibor_monthly["rf"] = shibor_monthly[rate_col] / 100 / 12
             return dict(
                 zip(pd.to_datetime(shibor_monthly["date"]), shibor_monthly["rf"])
             )
         else:
-            # 日度：使用隔夜SHIBOR，转换为日度利率
-            shibor_data["rf"] = shibor_data["on_rate"] / 100 / 360
+            # 日度：使用隔夜SHIBOR，转换为日度利率（TS_SHIBOR 用 on）
+            rate_col = "on" if "on" in shibor_data.columns else "on_rate"
+            shibor_data["rf"] = shibor_data[rate_col] / 100 / 360
             return dict(zip(pd.to_datetime(shibor_data["date"]), shibor_data["rf"]))
 
     def _get_latest_available_financial(

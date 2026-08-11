@@ -219,8 +219,11 @@ ff3 = engine.calculate_factor_returns(
 )
 ```
 
-- **月度计算**：使用 1 个月期 SHIBOR，转为月度利率（`rf = m1_rate / 100 / 12`）
-- **日度计算**：使用隔夜 SHIBOR，转为日度利率（`rf = on_rate / 100 / 360`）
+- **月度计算**：使用 1 个月期 SHIBOR，转为月度利率（TS_SHIBOR 列名 `f_1m`，即 `rf = f_1m / 100 / 12`）
+- **日度计算**：使用隔夜 SHIBOR，转为日度利率（TS_SHIBOR 列名 `on`，即 `rf = on / 100 / 360`）
+
+> 数据源统一用 **tushare 的 `TS_SHIBOR`**（akshare 的 SHIBOR 接口已不再更新）。
+> 列名兼容：传 `DataTypes.TS_SHIBOR` 的原始返回（`date/on/f_1m/...`）即可；旧 akshare 列名 `on_rate`/`m1_rate` 也仍被识别。
 
 ## 限定标的范围
 

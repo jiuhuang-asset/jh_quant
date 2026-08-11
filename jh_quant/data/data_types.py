@@ -4775,6 +4775,7 @@ def get_data_rename_mapping(data_type: DataTypes) -> Dict[str, str]:
         },
         DataTypes.TS_SHIBOR: {
             'date': 'date',
+            'on': 'on',
             'f_1m': 'f_1m',
             'f_1w': 'f_1w',
             'f_1y': 'f_1y',
@@ -6558,7 +6559,7 @@ def get_table_fields(data_type: DataTypes) -> List[str]:
         DataTypes.TS_SF_MONTH: ['month', 'inc_month', 'inc_cumval', 'stk_endval'],
         DataTypes.TS_SGE_BASIC: ['ts_code', 'ts_name', 'trade_type', 't_unit', 'p_unit', 'min_change', 'price_limit', 'min_vol', 'max_vol', 'trade_mode', 'margin_rate', 'liq_rate', 'trade_time', 'list_date'],
         DataTypes.TS_SHARE_FLOAT: ['ts_code', 'ann_date', 'float_date', 'float_share', 'float_ratio', 'holder_name', 'share_type'],
-        DataTypes.TS_SHIBOR: ['date', 'f_1w', 'f_2w', 'f_1m', 'f_3m', 'f_6m', 'f_9m', 'f_1y'],
+        DataTypes.TS_SHIBOR: ['date', 'on', 'f_1w', 'f_2w', 'f_1m', 'f_3m', 'f_6m', 'f_9m', 'f_1y'],
         DataTypes.TS_SHIBOR_LPR: ['date', 'f_1y', 'f_5y'],
         DataTypes.TS_SHIBOR_QUOTE: ['date', 'bank', 'on_b', 'on_a', 'f_1w_b', 'f_1w_a', 'f_2w_b', 'f_2w_a', 'f_1m_b', 'f_1m_a', 'f_3m_b', 'f_3m_a', 'f_6m_b', 'f_6m_a', 'f_9m_b', 'f_9m_a', 'f_1y_b', 'f_1y_a'],
         DataTypes.TS_SLB_LEN: ['trade_date', 'ob', 'auc_amount', 'repo_amount', 'repay_amount', 'cb'],
