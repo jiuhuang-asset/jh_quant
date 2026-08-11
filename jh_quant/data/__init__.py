@@ -1,4 +1,10 @@
-from .data import JHData, JhDataType, get_code_col, get_code_date_col
+from .data import (
+    JHData,
+    JhDataType,
+    get_code_col,
+    get_code_date_col,
+    get_ts_price_data_type,
+)
 from .adapters import (
     to_backtest_price_frame,
     to_factor_input_frame,

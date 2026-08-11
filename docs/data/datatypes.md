@@ -1,6 +1,6 @@
 # DataTypes 介绍
 
-`DataTypes` 是一个枚举类，每个成员代表一种可以从 JiuHuang API 获取的数据类型。当前共支持 **57 种**（含复权变体共 **63 个**）数据类型。
+`DataTypes` 是一个枚举类，每个成员代表一种可以从 JiuHuang API 获取的数据类型。当前有数据维护的全部类型见下文 [完整列表](#完整列表)，以列表项为准。
 
 ## 数据源
 
@@ -8,6 +8,7 @@
 |------|--------|----------|---------|---------|
 | `ts_` | tushare 数据源 | 英文标准化 | `ts_code` | `trade_date` |
 | `ak_` | akshare 数据源（东方财富等） | 英文标准化 | `symbol` | `date` |
+| `jh_` | jiuhuang 本地计算（tushare 衍生） | 英文标准化 | `symbol` | `date` |
 
 数据统一以**英文标准化字段**输出，例如 `open`、`high`、`low`、`close`、`volume` 等。
 
@@ -278,6 +279,71 @@ df = jh.get_data(
 )
 ```
 
+## 因子数据（jh_ 前缀）
+
+`jh_` 前缀数据由 Jiuhuang 基于 tushare 数据本地计算的**学术因子模型**结果，当前只提供**月频**数据（对应 `*_daily` 无数据维护）。
+
+每种模型有两类表：
+
+| 类别 | 命名 | 粒度 | 字段 |
+|------|------|------|------|
+| 因子收益率 | `jh_factor_{model}_returns_monthly` | 每月一行 | `date` + 各因子收益率 |
+| 个股因子暴露 | `jh_factor_{model}_exposure_monthly` | 每股票每月一行 | `date` + `symbol` + 各因子暴露 |
+
+- **`date`**：当月最后一个实际交易日（与 `TS_MONTHLY_*` 行情同约定，**不是**自然月末日期）。
+- **`symbol`**：`ts_code` 风格（如 `000001.SZ`），与 tushare 行情 `ts_code` 一致，可直接与 `TS_MONTHLY_*` 价格做 join。
+- 因子收益率表唯一键为 `date`；暴露表唯一键为 `(date, symbol)`。
+
+支持的模型：
+
+| 模型（枚举值） | 模型说明 | 因子列 |
+|------|------|------|
+| `ff3` | Fama-French三因子模型 | `mkt` `smb` `hml` |
+| `ff5` | Fama-French五因子模型 | `mkt` `smb` `hml` `rmw` `cma` |
+| `carhart` | Carhart四因子模型 | `mkt` `smb` `hml` `umd` |
+| `nm` | Novy-Marx四因子模型（`FactorType.NOVY_MARX`） | `mkt` `hml_adj` `umd` `gp_a` |
+| `hxz` | q-factor模型（`FactorType.HOU_XUE_ZHANG`） | `mkt` `me` `ia` `roe` |
+| `dhs` | Daniel-Hirshleifer-Sun行为三因子模型 | `mkt` `pead` `fin` |
+| `capm` | CAPM单因子模型 | `mkt` |
+| `ch3` | 中国三因子模型（CH-3） | `mkt` `smb` `vmg` |
+| `sy4` | Stambaugh-Yuan四因子模型 | `mkt` `smb` `mgmt` `perf` |
+| `reversal` | 短期反转模型 | `mkt` `smb` `rev` |
+| `low_vol` | 低波动模型 | `mkt` `smb` `ivol` |
+
+> 枚举值 `nm` 对应 `FactorType.NOVY_MARX`、`hxz` 对应 `FactorType.HOU_XUE_ZHANG`，其余枚举值即 `FactorType` 的 `value`。
+
+使用示例：
+
+```python
+from jh_quant.data import JHData, DataTypes
+
+jh = JHData()
+
+# 因子收益率（市场整体，每月一行）
+fr = jh.get_data(
+    DataTypes.JH_FACTOR_FF3_RETURNS_MONTHLY,
+    start="2020-01-01",
+    end="2024-12-31",
+)
+
+# 个股因子暴露（每股票每月一行）
+ex = jh.get_data(
+    DataTypes.JH_FACTOR_FF3_EXPOSURE_MONTHLY,
+    start="2020-01-01",
+    end="2024-12-31",
+)
+```
+
+遍历所有月频因子数据：
+
+```python
+from jh_quant.data import DataTypes
+
+for dt in DataTypes:
+    if dt.value.startswith("jh_factor_") and dt.value.endswith("_monthly"):
+        print(f"{dt.name} = {dt.value}")
+```
+
 ## 跨市场比价
 
 | DataType | 说明 |
@@ -452,7 +518,7 @@ df = jh.get_data(
 
 ## 完整列表
 
-以下为当前有数据维护的全部 DataTypes（含复权变体共 64 个），表名大写即对应枚举名：
+以下为当前有数据维护的全部 DataTypes（含复权变体共 86 个），表名大写即对应枚举名：
 
 | 枚举名 | 值（API 标识） | 分类 |
 |--------|---------------|------|
@@ -520,6 +586,28 @@ df = jh.get_data(
 | `TS_US_TBR` | `ts_us_tbr` | 宏观-美国 |
 | `TS_US_TLTR` | `ts_us_tltr` | 宏观-美国 |
 | `TS_US_TRLTR` | `ts_us_trltr` | 宏观-美国 |
+| `JH_FACTOR_CAPM_EXPOSURE_MONTHLY` | `jh_factor_capm_exposure_monthly` | 因子 |
+| `JH_FACTOR_CAPM_RETURNS_MONTHLY` | `jh_factor_capm_returns_monthly` | 因子 |
+| `JH_FACTOR_CARHART_EXPOSURE_MONTHLY` | `jh_factor_carhart_exposure_monthly` | 因子 |
+| `JH_FACTOR_CARHART_RETURNS_MONTHLY` | `jh_factor_carhart_returns_monthly` | 因子 |
+| `JH_FACTOR_CH3_EXPOSURE_MONTHLY` | `jh_factor_ch3_exposure_monthly` | 因子 |
+| `JH_FACTOR_CH3_RETURNS_MONTHLY` | `jh_factor_ch3_returns_monthly` | 因子 |
+| `JH_FACTOR_DHS_EXPOSURE_MONTHLY` | `jh_factor_dhs_exposure_monthly` | 因子 |
+| `JH_FACTOR_DHS_RETURNS_MONTHLY` | `jh_factor_dhs_returns_monthly` | 因子 |
+| `JH_FACTOR_FF3_EXPOSURE_MONTHLY` | `jh_factor_ff3_exposure_monthly` | 因子 |
+| `JH_FACTOR_FF3_RETURNS_MONTHLY` | `jh_factor_ff3_returns_monthly` | 因子 |
+| `JH_FACTOR_FF5_EXPOSURE_MONTHLY` | `jh_factor_ff5_exposure_monthly` | 因子 |
+| `JH_FACTOR_FF5_RETURNS_MONTHLY` | `jh_factor_ff5_returns_monthly` | 因子 |
+| `JH_FACTOR_HXZ_EXPOSURE_MONTHLY` | `jh_factor_hxz_exposure_monthly` | 因子 |
+| `JH_FACTOR_HXZ_RETURNS_MONTHLY` | `jh_factor_hxz_returns_monthly` | 因子 |
+| `JH_FACTOR_LOW_VOL_EXPOSURE_MONTHLY` | `jh_factor_low_vol_exposure_monthly` | 因子 |
+| `JH_FACTOR_LOW_VOL_RETURNS_MONTHLY` | `jh_factor_low_vol_returns_monthly` | 因子 |
+| `JH_FACTOR_NM_EXPOSURE_MONTHLY` | `jh_factor_nm_exposure_monthly` | 因子 |
+| `JH_FACTOR_NM_RETURNS_MONTHLY` | `jh_factor_nm_returns_monthly` | 因子 |
+| `JH_FACTOR_REVERSAL_EXPOSURE_MONTHLY` | `jh_factor_reversal_exposure_monthly` | 因子 |
+| `JH_FACTOR_REVERSAL_RETURNS_MONTHLY` | `jh_factor_reversal_returns_monthly` | 因子 |
+| `JH_FACTOR_SY4_EXPOSURE_MONTHLY` | `jh_factor_sy4_exposure_monthly` | 因子 |
+| `JH_FACTOR_SY4_RETURNS_MONTHLY` | `jh_factor_sy4_returns_monthly` | 因子 |
 
 > 枚举定义中还有其他类型（基金、港股、美股等），但目前它们对应的数据表没有数据维护，不建议在生产中使用。指数相关类型已在上方列出并可用。
 

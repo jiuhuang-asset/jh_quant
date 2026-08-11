@@ -95,6 +95,7 @@ class FactorSelector(Selector):
         factor_alpha: float = 0.10,
         default_weight: float = 0.1,
         period: str = "M",
+        price_adjust: str = "qfq",
         insignificant_weight_ratio: float = 0.5,
         missing_data_threshold: float = 0.10,
         test_window: Optional[int] = 36,
@@ -117,6 +118,7 @@ class FactorSelector(Selector):
             factor_alpha: 显著性水平，默认0.10
             default_weight: 不显著因子使用的基准权重系数
             period: 数据周期，默认"M"（月度）
+            price_adjust: 价格复权方式，"qfq"(前复权)/"hfq"(后复权)/"none"(不复权)，默认"qfq"
             insignificant_weight_ratio: 不显著因子的权重缩放比例 (0-1), <1.0 表示降低不显著因子的影响力
             missing_data_threshold: 当有效股票比例低于此值时发出警告 (默认 10%)
             test_window: FM验证的滚动窗口长度，默认None
@@ -138,15 +140,13 @@ class FactorSelector(Selector):
         ).set_index("date")
         factor_exposures = self.jh_data.get_data(exposure_dtype, start=start, end=end)
 
-        from jh_quant.data import DataTypes, to_backtest_price_frame
+        from jh_quant.data import get_ts_price_data_type, to_backtest_price_frame
 
-        stock_price_dtype = (
-            DataTypes.AK_STOCK_ZH_A_HIST_QFQ_MON
-            if period == "M"
-            else DataTypes.AK_STOCK_ZH_A_HIST_QFQ
+        price_data_type, _ = get_ts_price_data_type(
+            period=period, price_adjust=price_adjust
         )
         stock_price_monthly = self.jh_data.get_data(
-            stock_price_dtype, start=start, end=end
+            price_data_type, start=start, end=end
         )
 
         from .metrics import calculate_returns

@@ -94,6 +94,7 @@ class FactorSelectionConfig:
     factor_alpha: float = 0.10
     default_weight: float = 0.1
     period: str = "M"
+    price_adjust: str = "qfq"
     insignificant_weight_ratio: float = 0.5
     missing_data_threshold: float = 0.10
     test_window: int = 36

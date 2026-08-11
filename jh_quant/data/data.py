@@ -29,7 +29,13 @@ from ._factor_pro import derive_factor_pro
 
 load_dotenv()
 
-__all__ = ["JHData", "DataTypes", "get_code_col", "get_code_date_col"]
+__all__ = [
+    "JHData",
+    "DataTypes",
+    "get_code_col",
+    "get_code_date_col",
+    "get_ts_price_data_type",
+]
 
 
 # Provider prefix to filter field mappings
@@ -69,6 +75,41 @@ def _get_filter_field(data_type: DataTypes) -> str:
     """Get the filter field name (symbol or ts_code) for the data type."""
     prefix = _get_provider_prefix(data_type)
     return PROVIDER_FILTER_FIELDS.get(prefix, "symbol")
+
+
+def get_ts_price_data_type(*, period: str, price_adjust: str) -> tuple:
+    """Map a period + price adjustment to a TS price DataType.
+
+    ``price_adjust`` follows the ``"qfq"`` (pre-adjusted) / ``"hfq"``
+    (post-adjusted) / ``"none"`` (raw) convention used by the factor loader.
+    ``period`` may be ``"M"``/``"MONTH"/"MONTHLY"`` or ``"D"``/``"DAY"/"DAILY"``.
+
+    Returns ``(data_type, already_monthly)`` where ``already_monthly`` is True
+    when the data type is server-side monthly K-line (one row per symbol-month),
+    and False when it is daily frequency that callers must reduce locally.
+    """
+    period_key = period.upper()
+    adjust_key = (price_adjust or "qfq").lower()
+
+    if period_key in {"M", "MONTH", "MONTHLY"}:
+        if adjust_key == "qfq":
+            return DataTypes.TS_MONTHLY_QFQ, True
+        if adjust_key == "hfq":
+            return DataTypes.TS_MONTHLY_HFQ, True
+        if adjust_key in {"none", "raw", "bfq"}:
+            return DataTypes.TS_MONTHLY, True
+    elif period_key in {"D", "DAY", "DAILY"}:
+        if adjust_key == "qfq":
+            return DataTypes.TS_DAILY_QFQ, False
+        if adjust_key == "hfq":
+            return DataTypes.TS_DAILY_HFQ, False
+        if adjust_key in {"none", "raw", "bfq"}:
+            return DataTypes.TS_DAILY, False
+
+    raise ValueError(
+        "Unsupported TS price frequency/adjustment: "
+        f"period={period!r}, price_adjust={price_adjust!r}"
+    )
 
 
 def _validate_date_by_provider(

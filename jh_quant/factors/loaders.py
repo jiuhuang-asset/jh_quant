@@ -41,28 +41,9 @@ def _monthly_returns_from_ts_prices(
 
 
 def _ts_price_data_type(DataTypes, *, period: str, price_adjust: str):
-    period_key = period.upper()
-    adjust_key = price_adjust.lower()
+    from jh_quant.data.data import get_ts_price_data_type
 
-    if period_key in {"M", "MONTH", "MONTHLY"}:
-        if adjust_key == "qfq":
-            return DataTypes.TS_MONTHLY_QFQ, True
-        if adjust_key == "hfq":
-            return DataTypes.TS_MONTHLY_HFQ, True
-        if adjust_key in {"none", "raw", "bfq"}:
-            return DataTypes.TS_MONTHLY, True
-    elif period_key in {"D", "DAY", "DAILY"}:
-        if adjust_key == "qfq":
-            return DataTypes.TS_DAILY_QFQ, False
-        if adjust_key == "hfq":
-            return DataTypes.TS_DAILY_HFQ, False
-        if adjust_key in {"none", "raw", "bfq"}:
-            return DataTypes.TS_DAILY, False
-
-    raise ValueError(
-        "Unsupported TS price frequency/adjustment: "
-        f"period={period!r}, price_adjust={price_adjust!r}"
-    )
+    return get_ts_price_data_type(period=period, price_adjust=price_adjust)
 
 
 def _market_return_from_stock_returns(stock_returns: pd.DataFrame) -> pd.DataFrame:

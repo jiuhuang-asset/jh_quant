@@ -69,7 +69,9 @@ class FactorsView:
         self._check_input(factor_returns)
         fr = factor_returns.copy()
         fr["date"] = fr["date"].astype(str)
-        fr["factor_return"] = fr["factor_return"].fillna(0)
+        fr["factor_return"] = pd.to_numeric(
+            fr["factor_return"], errors="coerce"
+        ).fillna(0)
         self.factor_returns = fr.to_dict(orient="records")
 
     def _check_input(self, factor_returns):
