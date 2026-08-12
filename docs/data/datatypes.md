@@ -401,10 +401,33 @@ df = jh.get_data(DataTypes.TS_INDEX_BASIC)
 
 | DataType | 说明 |
 |----------|------|
+| `TS_INDEX_DAILY` | A 股指数日线行情（仅覆盖下方 9 个主要指数） |
 | `TS_INDEX_GLOBAL` | 国际主要指数日线行情（标普500、道琼斯等） |
 | `TS_SW_DAILY` | 申万行业指数日线行情（默认申万2021版） |
 
+`TS_INDEX_DAILY` 目前仅覆盖以下指数：
+
+| 代码 | 名称 |
+|------|------|
+| `000001.SH` | 上证指数 |
+| `399001.SZ` | 深证成指 |
+| `399006.SZ` | 创业板指 |
+| `000300.SH` | 沪深300 |
+| `000905.SH` | 中证500 |
+| `000852.SH` | 中证1000 |
+| `000016.SH` | 上证50 |
+| `000688.SH` | 科创50 |
+| `000903.SH` | 中证100 |
+
 ```python
+# 获取 A 股指数日线行情（指定指数）
+df = jh.get_data(
+    DataTypes.TS_INDEX_DAILY,
+    ts_code="000300.SH,000905.SH",
+    start="2024-01-01",
+    end="2024-12-31",
+)
+
 # 获取国际主要指数日线行情
 df = jh.get_data(
     DataTypes.TS_INDEX_GLOBAL,
@@ -567,6 +590,7 @@ df = jh.get_data(
 | `TS_THS_MEMBER` | `ts_ths_member` | 同花顺概念 |
 | `TS_THS_DAILY` | `ts_ths_daily` | 同花顺概念 |
 | `TS_INDEX_BASIC` | `ts_index_basic` | 指数 |
+| `TS_INDEX_DAILY` | `ts_index_daily` | 指数 |
 | `TS_INDEX_GLOBAL` | `ts_index_global` | 指数 |
 | `TS_DAILY_INFO` | `ts_daily_info` | 指数 |
 | `TS_SW_DAILY` | `ts_sw_daily` | 指数 |
