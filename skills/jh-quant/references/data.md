@@ -15,6 +15,8 @@ df = jh.get_data(
 )
 ```
 
+`ts_code` 可传逗号分隔的多个代码，如 `"000001.SZ,600519.SH"`；`get_data` 支持 `fields` 筛选返回列。
+
 ## 配置
 
 ### API Key
@@ -59,25 +61,28 @@ df.jh_dt          # DataTypes.TS_DAILY_QFQ
 df.to_df()        # 转回普通 DataFrame
 ```
 
-## DataTypes 完整列表
+## 常用工具函数
 
-共 40 种数据类型，含复权变体。`ts_` 前缀为 tushare 源，`ak_` 前缀为 akshare 源。
+| 函数 | 说明 |
+|------|------|
+| `get_ts_price_data_type(period, price_adjust)` | 映射 `("M"/"D") + ("qfq"/"hfq"/"none")` → `(DataTypes, already_monthly)`，返回的 DataType 可直接用于 `get_data`；`already_monthly=True` 表示服务端已是月频 |
+| `get_code_col(df)` / `get_code_date_col(df)` | 从 DataFrame 推断 code/date 列名 |
+| `to_factor_input_frame` / `to_factor_stock_returns_frame` / `to_factor_market_cap_frame` 等 adapter | 把源数据转成因子计算要求的 canonical schema |
+
+## DataTypes 分类
+
+当前**有数据维护**的类型共 **86 个**（含复权变体）。`ts_` 前缀为 tushare 源（`ts_code`/`trade_date`），`ak_` 前缀为 akshare 源（`symbol`/`date`），`jh_` 前缀为 Jiuhuang 本地计算（`symbol`/`date`）。枚举定义中还有其他类型（基金、港股、美股等），但无数据维护，不建议使用。
 
 ### 行情数据
 
 | 枚举名 | 值 | 说明 |
 |--------|-----|------|
-| `TS_DAILY` | `ts_daily` | A 股日线（不复权） |
-| `TS_DAILY_QFQ` | `ts_daily_qfq` | A 股日线（前复权） |
-| `TS_DAILY_HFQ` | `ts_daily_hfq` | A 股日线（后复权） |
-| `TS_WEEKLY` | `ts_weekly` | A 股周线（不复权） |
-| `TS_WEEKLY_QFQ` | `ts_weekly_qfq` | A 股周线（前复权） |
-| `TS_WEEKLY_HFQ` | `ts_weekly_hfq` | A 股周线（后复权） |
-| `TS_MONTHLY` | `ts_monthly` | A 股月线（不复权） |
-| `TS_MONTHLY_QFQ` | `ts_monthly_qfq` | A 股月线（前复权） |
-| `TS_MONTHLY_HFQ` | `ts_monthly_hfq` | A 股月线（后复权） |
+| `TS_DAILY` / `TS_DAILY_QFQ` / `TS_DAILY_HFQ` | `ts_daily*` | A 股日线（不复权/前复权/后复权） |
+| `TS_WEEKLY` / `TS_WEEKLY_QFQ` / `TS_WEEKLY_HFQ` | `ts_weekly*` | A 股周线 |
+| `TS_MONTHLY` / `TS_MONTHLY_QFQ` / `TS_MONTHLY_HFQ` | `ts_monthly*` | A 股月线 |
 | `TS_DAILY_BASIC` | `ts_daily_basic` | 日线基础指标（换手率、PE、PB 等） |
-| `AK_STOCK_ZH_A_SPOT` | `ak_stock_zh_a_spot` | A 股实时行情 |
+| `TS_MONTHLY_BASIC` | `ts_monthly_basic` | 月度基础指标（`ts_daily_basic` 衍生表，每股票每月取当月最后一个交易日，`trade_date` 与月线同约定，数据量约为日线的 1/20，适合月频因子） |
+| `AK_STOCK_ZH_A_SPOT` | `ak_stock_zh_a_spot` | A 股实时行情（建议 `bypass_cache=True`） |
 
 ### 基本面
 
@@ -89,18 +94,13 @@ df.to_df()        # 转回普通 DataFrame
 | `TS_FINA_INDICATOR` | `ts_fina_indicator` | 财务指标（ROE、ROA 等） |
 | `TS_FINA_AUDIT` | `ts_fina_audit` | 财务审计意见 |
 
-### 基础信息
+### 基础信息 / 新股与风险警示
 
 | 枚举名 | 值 | 说明 |
 |--------|-----|------|
 | `TS_STOCK_BASIC` | `ts_stock_basic` | 股票基本信息 |
 | `TS_TRADE_CAL` | `ts_trade_cal` | 交易日历 |
 | `TS_ADJ_FACTOR` | `ts_adj_factor` | 复权因子 |
-
-### 新股与风险警示
-
-| 枚举名 | 值 | 说明 |
-|--------|-----|------|
 | `TS_NEW_SHARE` | `ts_new_share` | 新股列表 |
 | `TS_STOCK_ST` | `ts_stock_st` | 风险警示股票 |
 | `TS_SUSPEND_D` | `ts_suspend_d` | 停牌信息 |
@@ -124,29 +124,49 @@ df.to_df()        # 转回普通 DataFrame
 | `TS_MONEYFLOW_IND_THS` | `ts_moneyflow_ind_ths` | 同花顺行业资金流向 |
 | `TS_MONEYFLOW_MKT_DC` | `ts_moneyflow_mkt_dc` | 东方财富大盘资金流向 |
 
-### 融资融券
+### 融资融券 / 业绩预告快报 / 分红 / 龙虎榜 / 技术面
 
 | 枚举名 | 值 | 说明 |
 |--------|-----|------|
-| `TS_MARGIN` | `ts_margin` | 融资融券汇总 |
-| `TS_MARGIN_DETAIL` | `ts_margin_detail` | 融资融券明细 |
-
-### 业绩预告与快报
-
-| 枚举名 | 值 | 说明 |
-|--------|-----|------|
-| `TS_EXPRESS` | `ts_express` | 业绩快报 |
-| `TS_FORECAST` | `ts_forecast` | 业绩预告 |
-
-### 其他
-
-| 枚举名 | 值 | 说明 |
-|--------|-----|------|
+| `TS_MARGIN` / `TS_MARGIN_DETAIL` | `ts_margin*` | 融资融券汇总 / 明细 |
+| `TS_EXPRESS` / `TS_FORECAST` | `ts_express` / `ts_forecast` | 业绩快报 / 业绩预告 |
 | `TS_DIVIDEND` | `ts_dividend` | 分红送股 |
-| `TS_TOP_LIST` | `ts_top_list` | 龙虎榜每日明细 |
-| `TS_TOP_INST` | `ts_top_inst` | 龙虎榜机构明细 |
+| `TS_TOP_LIST` / `TS_TOP_INST` | `ts_top_list` / `ts_top_inst` | 龙虎榜每日 / 机构明细 |
 | `TS_STK_FACTOR_PRO` | `ts_stk_factor_pro` | 技术面专业版（MACD、KDJ 等） |
 | `TS_STK_AH_COMPARISON` | `ts_stk_ah_comparison` | AH 股比价 |
+
+### 因子数据（jh_ 前缀，本地计算）
+
+Jiuhuang 基于 tushare 数据本地计算的**学术因子模型**结果，当前只提供**月频**。每个模型两类表，命名 `jh_factor_{model}_returns_monthly` / `jh_factor_{model}_exposure_monthly`：
+
+| 模型枚举值 | 说明 |
+|-----------|------|
+| `ff3` `ff5` `carhart` `nm` `hxz` `dhs` `capm` `ch3` `sy4` `reversal` `low_vol` | 对应各因子模型 |
+
+- `date` 为当月最后一个实际交易日（与 `TS_MONTHLY_*` 同约定）；`symbol` 为 `ts_code` 风格。
+- 枚举名形如 `JH_FACTOR_FF3_RETURNS_MONTHLY`、`JH_FACTOR_FF3_EXPOSURE_MONTHLY`。
+
+```python
+fr = jh.get_data(DataTypes.JH_FACTOR_FF3_RETURNS_MONTHLY, start="2020-01-01", end="2024-12-31")
+ex = jh.get_data(DataTypes.JH_FACTOR_FF3_EXPOSURE_MONTHLY, start="2020-01-01", end="2024-12-31")
+```
+
+### 同花顺概念板块 / 指数 / 宏观
+
+| 枚举名 | 值 | 说明 |
+|--------|-----|------|
+| `TS_THS_INDEX` / `TS_THS_MEMBER` / `TS_THS_DAILY` | `ts_ths_*` | 同花顺概念板块指数 / 成分股 / 日线行情 |
+| `TS_INDEX_BASIC` | `ts_index_basic` | 指数基本信息 |
+| `TS_INDEX_DAILY` | `ts_index_daily` | A 股指数日线（覆盖上证指数、深证成指、沪深300、中证500/1000、上证50、科创50 等 9 个主要指数） |
+| `TS_INDEX_GLOBAL` | `ts_index_global` | 国际主要指数日线（标普500、道琼斯等） |
+| `TS_SW_DAILY` | `ts_sw_daily` | 申万行业指数日线（默认申万2021版） |
+| `TS_INDEX_DAILYBASIC` | `ts_index_dailybasic` | 指数日线基础指标 |
+| `TS_DAILY_INFO` | `ts_daily_info` | 交易所股票交易统计 |
+| `TS_SHIBOR` | `ts_shibor` | Shibor 利率（隔夜 `on`、1 个月 `f_1m` 等列） |
+| `TS_SHIBOR_LPR` / `TS_SHIBOR_QUOTE` | `ts_shibor_lpr` / `ts_shibor_quote` | LPR / Shibor 报价 |
+| `TS_LIBOR` / `TS_HIBOR` | `ts_libor` / `ts_hibor` | 伦敦 / 香港同业拆借利率 |
+| `TS_CN_GDP` / `TS_CN_CPI` / `TS_CN_PPI` / `TS_CN_M` / `TS_CN_PMI` | `ts_cn_*` | 中国宏观：GDP / CPI / PPI / 货币供应 / PMI |
+| `TS_US_TYCR` / `TS_US_TRYCR` / `TS_US_TBR` / `TS_US_TLTR` / `TS_US_TRLTR` | `ts_us_*` | 美国国债收益率曲线与利率 |
 
 ## 兼容接口
 
@@ -169,6 +189,7 @@ df = ak.stock_zh_a_hist(symbol="000001", period="daily", start_date="20240101", 
 
 ## 常见开发任务
 
-- **新增 DataType**：在 `datatypes.py` 中添加枚举成员，确认 API 端已支持对应数据表
+- **查看全部类型**：遍历 `DataTypes` 打印 `dt.name` / `dt.value`；以 `docs/data/datatypes.md` 的完整列表为准
+- **新增 DataType**：在 `data_types.py` 中添加枚举成员，确认 API 端已支持对应数据表
 - **修改缓存逻辑**：`jh_data.py` 中的 DuckDB 查询和缓存层
 - **数据 schema 转换**：确保输出统一使用英文标准化字段（`open`、`high`、`low`、`close`、`volume`）

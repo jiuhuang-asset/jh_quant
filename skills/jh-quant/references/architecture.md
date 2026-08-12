@@ -65,7 +65,7 @@ JHData.get_data() ──> JiuHuang API（DuckDB 本地缓存）
 | `jh_quant/data/datatypes.py` | DataTypes 枚举 |
 | `jh_quant/backtest/backtest.py` | 回测主函数 + 绩效评估 |
 | `jh_quant/backtest/strategies/` | 11 种内置策略 |
-| `jh_quant/factors/engine.py` | FactorEngine |
+| `jh_quant/factors/main.py` | FactorEngine + 便捷函数 |
 | `jh_quant/factors/factors/` | 各因子模型计算器 |
 | `jh_quant/trading/bootstrap.py` | trading bootstrap |
 | `jh_quant/trading/config.py` | Builder 配置系统 |

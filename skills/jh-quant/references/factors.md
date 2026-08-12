@@ -77,7 +77,7 @@ exposures = calculate_exposures(
 
 ## 数据准备
 
-因子核心不直接拉取 Tushare 或 AkShare 数据。需先准备符合 schema 的 DataFrame。
+因子核心不直接拉取 Tushare 或 AkShare 数据。需先准备符合 schema 的 DataFrame。`calculate_factor_returns()` / `FactorEngine` **只接受这些 canonical DataFrame**，不再负责拉取源数据——传入未知参数（如数据拉取参数）会直接抛 `TypeError`。
 
 推荐使用 `load_ts_factor_inputs()`：
 
@@ -90,6 +90,10 @@ inputs = load_ts_factor_inputs(
     lag_features=True,      # 将特征滞后一收益期，避免 look-ahead bias
 )
 ```
+
+**注意 `symbols` 参数**：可省略，省略时加载**全部 A 股**（请求省略 `ts_code`，服务端返回全市场，数据量大、耗时较长）。如需限定范围，传入 ts_codes 列表，如 `symbols=["000001.SZ", "600519.SH"]`。
+
+**月频 `period="M"`**：市值、PB 等基本面数据直接使用月度衍生表 `TS_MONTHLY_BASIC`（每只股票每月取当月最后一个交易日，数据量约为日线基础表的 1/20）；该表不可用时自动回退 `TS_DAILY_BASIC` 本地降频。
 
 自行准备数据至少需要：
 
@@ -120,6 +124,46 @@ factor_returns = calc.calculate(
 )
 ```
 
+## 无风险利率
+
+支持传入 SHIBOR 计算超额收益（数据源统一为 tushare `TS_SHIBOR`，akshare SHIBOR 已停止更新）：
+
+```python
+from jh_quant.data import JHData, DataTypes
+
+shibor = JHData().get_data(DataTypes.TS_SHIBOR, start="2020-01-01", end="2024-12-31")
+ff3 = engine.calculate_factor_returns(
+    factor_type=FactorType.FF3,
+    risk_free_rate=shibor,
+    **inputs,
+)
+```
+
+- **月度**：用 1 个月期 SHIBOR，`rf = f_1m / 100 / 12`（TS_SHIBOR 列名 `f_1m`）
+- **日度**：用隔夜 SHIBOR，`rf = on / 100 / 360`（TS_SHIBOR 列名 `on`）
+- 旧 akshare 列名 `m1_rate` / `on_rate` 仍被兼容识别
+
+## 因子有效性验证
+
+`jh_quant.factors` 提供两种验证方法（截距项检验 + Fama-MacBeth 两步法）：
+
+```python
+from jh_quant.factors import validate_factor, validate_factor_intercept, FamaMacBethValidator
+
+# 截距项检验：单样本 t 检验因子收益率均值是否显著 ≠ 0
+result = validate_factor_intercept(ff3)
+print(result.to_dataframe())          # 每因子 t/p 值
+print(result.is_all_significant())
+
+# 便捷入口：method="intercept" 或 "fama_macbeth"
+result = validate_factor(ff3, method="intercept")
+
+# Fama-MacBeth：需要个股收益率 + 因子暴露/收益率，step2 检验因子风险溢价
+validator = FamaMacBethValidator(alpha=0.05, period="M")
+fm_result = validator.validate(stock_returns=stock_returns, factor_returns=ff3)
+print(fm_result.to_dataframe())
+```
+
 ## 11 种因子模型
 
 | 字符串简写 | FactorType | 因子组成 | 学术来源 |
@@ -129,12 +173,14 @@ factor_returns = calc.calculate(
 | `ff5` | `FF5` | mkt, smb, hml, rmw, cma | Fama-French (2015) |
 | `carhart` | `CARHART` | mkt, smb, hml, umd | Carhart (1997) |
 | `novy_marx` | `NOVY_MARX` | mkt, hml_adj, umd, gp_a | Novy-Marx (2013) |
-| `hxz` | `HOU_XUE_ZHANG` | mkt, me, ia, roe | Hou-Xue-Zhang (2015) |
+| `hou_xue_zhang` | `HOU_XUE_ZHANG` | mkt, me, ia, roe | Hou-Xue-Zhang (2015) |
 | `dhs` | `DHS` | mkt, pead, fin | Daniel-Hirshleifer-Sun (2020) |
 | `ch3` | `CH3` | mkt, smb, vmg | 汪昌云等 |
 | `sy4` | `SY4` | mkt, smb, mgmt, perf | Stambaugh-Yuan (2017) |
 | `reversal` | `REVERSAL` | mkt, smb, rev | A 股短期反转 |
 | `low_vol` | `LOW_VOL` | mkt, smb, ivol | 低波动异象 |
+
+> 字符串简写即 `FactorType.value`，可传给 `calculate_factor_returns("ff3")` 等；另有 `"all"` 表示全部模型。`HOU_XUE_ZHANG` 的简写是 **`hou_xue_zhang`**（`hxz` 不被接受）。推荐直接传 `FactorType` 枚举避免拼写问题。
 
 ### 因子含义速查
 
@@ -186,7 +232,8 @@ factor_returns = calc.calculate(
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| `period` | `"M"` | 月频；`"D"` 为日频转月末收益 |
+| `symbols` | `None` | 股票范围。省略或传空列表时加载**全部 A 股**（请求省略 `ts_code`，量大耗时）；传 ts_codes 列表则限定范围，如 `['000001.SZ', '600519.SH']` |
+| `period` | `"M"` | `"M"` 使用 TS 月频行情 `TS_MONTHLY_*`，基本面优先用 `TS_MONTHLY_BASIC`（不可用时回退 `TS_DAILY_BASIC` 本地降频）；`"D"` 使用日频行情转月末收益，基本面用 `TS_DAILY_BASIC` |
 | `price_adjust` | `"qfq"` | 前复权；可选 `"hfq"` 或 `"none"` |
 | `lag_features` | `True` | 将市值、BM、动量等特征滞后一收益期 |
 | `include_proxy_fundamentals` | `False` | 仅用于 smoke test，不建议正式研究 |

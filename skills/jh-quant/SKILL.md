@@ -1,13 +1,13 @@
 ---
 name: "jh-quant"
 description: "jh_quant 量化交易平台的开发助手。覆盖数据获取、策略回测、因子计算、模拟/实盘交易、数据同步、可视化仪表盘等全部模块。"
-version: "1.0.0"
 argument-hint: "[task description | module name]"
 user-invocable: true
 disable-model-invocation: false
 context: inline
 allowed-tools: Read, Grep, Glob, Bash, Write, Edit
 metadata:
+  version: "1.0.0"
   tags: [quant, a-share, backtest, trading, factors, finance]
   category: finance
 ---
@@ -80,7 +80,7 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 - 数据模块：`jh_quant/data/jh_data.py`、`jh_quant/data/datatypes.py`
 - 回测模块：`jh_quant/backtest/backtest.py`、`jh_quant/backtest/strategy.py`
-- 因子模块：`jh_quant/factors/engine.py`、`jh_quant/factors/factors/`
+- 因子模块：`jh_quant/factors/main.py`（FactorEngine）、`jh_quant/factors/loaders.py`、`jh_quant/factors/factors/`
 - 交易模块：`jh_quant/trading/bootstrap.py`、`jh_quant/trading/config.py`
 - CLI：`jh_quant/cli/`
 

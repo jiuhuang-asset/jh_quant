@@ -150,7 +150,7 @@ exposures = calculate_exposures(
 | `'ff5'` | `FF5` | mkt, smb, hml, rmw, cma |
 | `'carhart'` | `CARHART` | mkt, smb, hml, umd |
 | `'novy_marx'` | `NOVY_MARX` | mkt, hml_adj, umd, gp_a |
-| `'hxz'`, `'hou_xue_zhang'` | `HOU_XUE_ZHANG` | mkt, me, ia, roe |
+| `'hou_xue_zhang'` | `HOU_XUE_ZHANG` | mkt, me, ia, roe |
 | `'dhs'` | `DHS` | mkt, pead, fin |
 | `'ch3'` | `CH3` | mkt, smb, vmg |
 | `'sy4'` | `SY4` | mkt, smb, mgmt, perf |
