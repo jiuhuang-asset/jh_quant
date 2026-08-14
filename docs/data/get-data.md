@@ -144,10 +144,64 @@ df = jh.get_data(
 
 ### 手动清除缓存
 
+#### 1. 清空整表缓存
+
 ```python
 # 清除某个数据类型的全部缓存
 jh.clear_cache(DataTypes.AK_STOCK_ZH_A_HIST_QFQ)
 ```
+
+#### 2. 按条件删除缓存（`delete_cache`）
+
+只删除符合筛选条件的行（支持 `start`/`end`、代码列、任意字段等值筛选），返回删除的行数：
+
+```python
+# 删除某只股票的全部缓存
+n = jh.delete_cache(DataTypes.TS_DAILY, ts_code="000001.SZ")
+print(f"删除 {n} 行")
+
+# 删除某个日期范围内的缓存
+jh.delete_cache(DataTypes.TS_DAILY, start="2020-01-01", end="2020-12-31")
+
+# 按任意字段等值筛选（如股票名称）
+jh.delete_cache(DataTypes.TS_STOCK_BASIC, name="贵州茅台")
+
+# 先统计将删除的行数（dry-run，不实际删除）
+n = jh.count_cache(DataTypes.TS_STOCK_BASIC, name="贵州茅台")
+```
+
+#### 3. CLI 命令 `jh-quant del`
+
+命令行清理本地缓存，用法与 `delete_cache` 一致：
+
+```bash
+# 清空某表全部缓存（需确认，加 --yes 跳过）
+jh-quant del ts_daily --yes
+
+# 按代码删除（ts_ 源用 --ts-code，ak_/jh_ 源用 --symbol）
+jh-quant del ts_daily --ts-code 000001.SZ
+jh-quant del ak_stock_zh_a_hist_qfq --symbol 000001
+
+# 按日期范围删除
+jh-quant del ts_daily --start 2020-01-01 --end 2020-12-31
+
+# 任意字段等值筛选（可重复）+ 预演
+jh-quant del ts_stock_basic --field name=贵州茅台 --dry-run
+```
+
+### 服务通知与缓存失效
+
+`JHData` 初始化时会请求服务端 `/news` 与 `/version`，将服务通知用黄色字体打印到控制台。
+当通知内容**涉及数据变更/远端数据更新**时，会额外提示「本地缓存可能已过期」——因为远端数据更新后，
+本地缓存中的数据可能是旧版本，需要重新下载：
+
+```bash
+# 收到"数据变更"类通知后，清理对应类型缓存再重新下载
+jh-quant del ts_daily --yes          # 清理整表
+# 下次 get_data 会自动重新下载最新数据
+```
+
+也可直接调用 `jh.clear_cache(DataTypes.X)` 或 `jh.delete_cache(DataTypes.X)` 在代码中清理。
 
 ## bypass_cache 参数
 

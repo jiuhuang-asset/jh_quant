@@ -32,6 +32,35 @@ export JIUHUANG_API_URL="https://data.jiuhuang.xyz"  # 可选，默认值
 
 首次下载数据后缓存到本地 DuckDB（`~/.jiuhuang/cache_data.db`），后续相同查询直接从本地读取。
 
+#### 清理缓存
+
+```python
+# 清空整表
+jh.clear_cache(DataTypes.TS_DAILY)
+
+# 按条件删除（start/end、代码列、任意字段等值筛选），返回删除行数
+n = jh.delete_cache(DataTypes.TS_DAILY, ts_code="000001.SZ")
+
+# dry-run：统计将删除的行数，不实际删除
+n = jh.count_cache(DataTypes.TS_STOCK_BASIC, name="贵州茅台")
+```
+
+CLI 命令 `jh-quant del`（用法与 `delete_cache` 一致，整表删除需 `--yes` 确认）：
+
+```bash
+jh-quant del ts_daily --yes                      # 清空整表
+jh-quant del ts_daily --ts-code 000001.SZ        # 按代码删除
+jh-quant del ak_stock_zh_a_hist_qfq --symbol 000001
+jh-quant del ts_daily --start 2020-01-01 --end 2020-12-31
+jh-quant del ts_stock_basic --field name=贵州茅台 --dry-run   # 预演
+```
+
+#### 服务通知与缓存失效
+
+`JHData` 初始化会请求服务端 `/news` 与 `/version`，用**黄色字体**打印服务通知；
+若通知涉及**数据变更/远端数据更新**，会提示本地缓存可能已过期 → 用 `jh-quant del <数据类型>`
+清理对应缓存后重新下载（下次 `get_data` 自动拉最新数据）。
+
 ### DuckDB 并发说明
 
 多进程场景下 DuckDB 可能被锁定。JHData 会自动检测并切换：

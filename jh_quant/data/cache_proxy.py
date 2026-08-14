@@ -90,5 +90,23 @@ class _DataCacheProxy:
             json={"data_type": data_type.value},
         )
 
+    def delete_data(self, data_type: DataTypes, **kwargs) -> int:
+        """按条件删除缓存表中的数据，返回删除的行数。"""
+        body = self._request(
+            "POST",
+            "/delete",
+            json={"data_type": data_type.value, "kwargs": kwargs},
+        )
+        return body.get("row_count", 0)
+
+    def count_delete(self, data_type: DataTypes, **kwargs) -> int:
+        """统计将删除的行数（dry-run，不实际删除）。"""
+        body = self._request(
+            "POST",
+            "/delete",
+            json={"data_type": data_type.value, "kwargs": kwargs, "dry_run": True},
+        )
+        return body.get("row_count", 0)
+
     def close(self):
         self._client.close()

@@ -73,6 +73,8 @@ df = jh.get_data(
 
 `TS_MONTHLY_BASIC` 字段与 `TS_DAILY_BASIC` 完全一致，仅按月份聚合。其 `trade_date` 为当月最后一个实际交易日（与月线行情 `TS_MONTHLY_*` 同约定，**不是**自然月末日期），只包含已结束的完整月份。适合月频因子计算等场景，数据量约为日线的 1/20。
 
+> **时点数据（point-in-time）说明**：`ts_daily_basic` / `ts_monthly_basic` 的字段（`total_share`、`float_share`、`free_share`、`total_mv`、`circ_mv`、`pe`、`pb` 等）记录的是**该交易日当日的实际值**，tushare 不会因后续增发、送转、回购或财报披露而回溯重算历史值。因此 `TS_MONTHLY_BASIC` 采用 append-only 增量派生：每个已结束的月份只写入一次，历史值一经生成即保持不变、不会回刷。对因子选股/回测场景，这恰好是期望的语义（避免引入前视偏差）。
+
 ```python
 # 获取 2020 年 000001.SZ 与 600000.SH 的月度基础指标
 df = jh.get_data(

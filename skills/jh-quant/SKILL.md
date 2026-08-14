@@ -36,7 +36,7 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 | 模块 | 包路径 | 说明 |
 |------|--------|------|
-| data | `jh_quant.data` | JHData API 客户端 + DuckDB 本地缓存 |
+| data | `jh_quant.data` | JHData API 客户端 + DuckDB 本地缓存（可用 `jh-quant del <数据类型>` 清理缓存，服务端 news 通知数据变更时会提示缓存失效） |
 | backtest | `jh_quant.backtest` | 回测引擎 + 11 种内置策略 |
 | factors | `jh_quant.factors` | 因子引擎 + 11 种因子模型 |
 | trading | `jh_quant.trading` | 交易服务编排 + Bootstrap + CLI |

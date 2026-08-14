@@ -18,6 +18,7 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 from rich import print as rprint
+from rich.markup import escape
 from .data_types import (
     DataTypes,
     get_table_fields,
@@ -166,12 +167,12 @@ def raise_err_with_details(response, read_body: bool = True) -> None:
                 error_msg = (
                     error_body if "error_body" in dir() else response.text or error_msg
                 )
-        # 401: API Token 无效或已过期，提示用户到官网购买/续费套餐
+        # 401: API Key 无效或已过期，提示用户到官网购买/续费套餐
         if response.status_code == 401:
             error_msg = (
                 f"{error_msg}\n"
-                "提示: API Token 无效或已过期，请到 https://jiuhuang.xyz "
-                "购买或续费 API Token 套餐（首次注册赠送7日免费额度）。"
+                "提示: API Key 无效或已过期，请到 https://jiuhuang.xyz "
+                "购买或续费 API Key 套餐（首次注册赠送7日免费额度）。"
             )
         raise Exception(f"API error {response.status_code}: {error_msg}")
 
@@ -312,6 +313,25 @@ def get_code_date_col(df: pd.DataFrame) -> Tuple[str, str]:
     return "symbol", "date"  # Default
 
 
+def _parse_version(version_str: str) -> tuple:
+    """解析版本号为可比较的整数元组，如 '0.3.9' -> (0, 3, 9)。
+
+    兼容 'v0.3.9' 之类前缀；忽略不以数字开头的段（如 '0.3.9.dev1' /
+    '0.3.9-beta' 都视为 (0, 3, 9)），避免预发布后缀被误判为"更新版本"。
+    """
+    parts = []
+    for part in re.split(r"[.+-]", re.sub(r"^[^\d]+", "", version_str.strip())):
+        m = re.match(r"\d+", part)
+        if not m:
+            continue
+        parts.append(int(m.group()))
+    return tuple(parts) or (0,)
+
+
+# 服务端版本/通知检查：每个进程只执行一次，避免 JHData 被反复实例化时重复发请求
+_version_news_checked = False
+
+
 class JHData:
     SMALL_DOWNLOAD_THRESHOLD = 100_000  # warning: 不要改动,过大会影响下载效率
     INCREMENTAL_BATCH_SIZE = 10_000
@@ -325,6 +345,7 @@ class JHData:
         self.api_key = api_key
         self.api_url = api_url
         self._prepare_client(api_key)
+        self._check_server_updates()
 
         if as_service is None:
             # Auto mode: try direct, fall back to service if DB is locked
@@ -355,9 +376,69 @@ class JHData:
             self._cache = _DataCache(jd=self)
 
     def _prepare_client(self, api_key: str):
+        if not api_key or len(api_key) < 10:
+            raise ValueError(
+                "错误的api_key, 请手动传入api_key或者设置JIUHUANG_API_KEY环境变量，"
+                " 访问https://jiuhuang.xyz获取（首次注册赠送7日免费额度）"
+            )
         client = httpx.Client(timeout=180)
         client.headers.update({"Authorization": f"Bearer {api_key}"})
         self._client = client
+
+    def _check_server_updates(self):
+        """请求服务端 /version 与 /news：版本落后或存在服务通知时用黄色提示。
+
+        每个进程只检查一次（`_version_news_checked` 标志）；
+        任何网络异常静默跳过，不影响 JHData 初始化。
+        """
+        global _version_news_checked
+        if _version_news_checked:
+            return
+        _version_news_checked = True
+
+        # 1. 版本落后提醒
+        try:
+            latest = self._client.get(
+                f"{self.api_url}/data-offline/version", timeout=5
+            ).text.strip()
+        except Exception:
+            latest = ""
+
+        if latest:
+            try:
+                from importlib.metadata import PackageNotFoundError, version as pkg_ver
+
+                try:
+                    local = pkg_ver("jh-quant")
+                except PackageNotFoundError:
+                    local = "0.0.0"
+                if _parse_version(latest) > _parse_version(local):
+                    rprint(
+                        f"[yellow]发现新版本 {latest}（当前 {local}），"
+                        f"建议升级: pip install -U jh-quant[/yellow]"
+                    )
+            except Exception:
+                pass
+
+        # 2. 服务通知提示
+        try:
+            news = self._client.get(
+                f"{self.api_url}/data-offline/news", timeout=5
+            ).text.strip()
+        except Exception:
+            news = ""
+
+        if news:
+            rprint(f"[yellow]{escape(news)}[/yellow]")
+            # 数据变更类通知 → 提示本地缓存可能已过期
+            if re.search(
+                r"数据(变更|更新|已更新)|data (change|update)", news, re.IGNORECASE
+            ):
+                rprint(
+                    "[yellow]远端数据已更新，本地缓存可能已过期。"
+                    "可用 `jh-quant del <表名>` 清理对应缓存后重新下载，"
+                    "或调用 `jh.clear_cache(DataTypes.X)`。[/yellow]"
+                )
 
     def get_data_total(
         self,
@@ -688,6 +769,17 @@ class JHData:
         """清除指定数据类型的本地缓存（truncate表）"""
         self._cache._clear_table(data_type)
 
+    def delete_cache(self, data_type: DataTypes, **kwargs) -> int:
+        """按条件删除本地缓存数据，返回删除的行数。
+
+        不传筛选条件时清空整表；支持 start/end/代码列/任意字段等值筛选。
+        """
+        return self._cache.delete_data(data_type, **kwargs)
+
+    def count_cache(self, data_type: DataTypes, **kwargs) -> int:
+        """统计将删除的本地缓存记录数（与 delete_cache 的筛选条件一致，供 dry-run 使用）。"""
+        return self._cache.count_delete(data_type, **kwargs)
+
 
 def _build_filter_sql(data_type: DataTypes, kwargs: dict) -> str:
     """构建 WHERE 条件SQL片段 (module-level, shared with DuckDB service)"""
@@ -720,6 +812,30 @@ def _build_filter_sql(data_type: DataTypes, kwargs: dict) -> str:
             sql += f" AND {filter_field} IN ({value_list})"
         else:
             sql += f" AND {filter_field} = '{filter_value}'"
+    return sql
+
+
+def _build_delete_sql(data_type: DataTypes, kwargs: dict) -> str:
+    """构建 DELETE 的 WHERE 条件（module-level, shared with DuckDB service）。
+
+    复用 ``_build_filter_sql`` 处理 start/end/代码列筛选；
+    其余 kwargs 键作为**任意字段等值筛选**（校验字段存在，值做单引号转义）。
+    """
+    filter_field = _get_filter_field(data_type)
+    fields = set(get_table_fields(data_type))
+
+    sql = _build_filter_sql(data_type, kwargs)
+
+    for key, val in kwargs.items():
+        if key in {"start", "end", filter_field} or not val:
+            continue
+        if key not in fields:
+            raise ValueError(
+                f"字段 {key!r} 不存在于表 {data_type.value} 中。"
+                f"可用字段: {sorted(fields)}"
+            )
+        escaped = str(val).replace("'", "''")
+        sql += f" AND {key} = '{escaped}'"
     return sql
 
 
@@ -804,6 +920,42 @@ class _DataCache:
         count = conn.execute(sql).fetchone()[0]
         conn.close()
         return count
+
+    def delete_data(self, data_type: DataTypes, **kwargs) -> int:
+        """按条件删除缓存表中的数据，返回删除的行数。
+
+        不传筛选条件时清空整表；支持 start/end/代码列/任意字段等值筛选。
+        """
+        self._init_table(data_type)
+
+        table_name = data_type.value
+        where_sql = _build_delete_sql(data_type, kwargs)
+
+        conn = duckdb.connect(self.cache_db_path)
+        try:
+            affected = conn.execute(
+                f"SELECT count(*) FROM {table_name} {where_sql}"
+            ).fetchone()[0]
+            conn.execute(f"DELETE FROM {table_name} {where_sql}")
+        finally:
+            conn.close()
+        return int(affected)
+
+    def count_delete(self, data_type: DataTypes, **kwargs) -> int:
+        """统计将删除的行数（与 delete_data 的筛选条件一致，供 dry-run 使用）。"""
+        self._init_table(data_type)
+
+        table_name = data_type.value
+        where_sql = _build_delete_sql(data_type, kwargs)
+
+        conn = duckdb.connect(self.cache_db_path)
+        try:
+            count = conn.execute(
+                f"SELECT count(*) FROM {table_name} {where_sql}"
+            ).fetchone()[0]
+        finally:
+            conn.close()
+        return int(count)
 
     def bulk_import(self, data_type: DataTypes, data: pd.DataFrame):
         """批量导入数据到缓存（支持 upsert）

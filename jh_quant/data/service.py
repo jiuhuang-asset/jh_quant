@@ -30,6 +30,7 @@ from .data_types import (
 )
 from .data import (
     _build_filter_sql,
+    _build_delete_sql,
     _get_provider_prefix,
     _get_filter_field,
 )
@@ -202,6 +203,25 @@ def create_app() -> FastAPI:
             conn = get_db()
             conn.execute(f"TRUNCATE TABLE {data_type_str}")
         return {"status": "ok"}
+
+    @app.post("/delete")
+    def delete(req: dict):
+        """按条件删除缓存表中的数据，返回删除的行数（dry_run=True 时只统计）。"""
+        data_type_str = req["data_type"]
+        kwargs = req.get("kwargs", {})
+        dry_run = bool(req.get("dry_run", False))
+        dt = DataTypes(data_type_str)
+        with _db_lock:
+            _init_table(data_type_str)
+
+            where_sql = _build_delete_sql(dt, kwargs)
+            conn = get_db()
+            affected = conn.execute(
+                f"SELECT count(*) FROM {data_type_str} {where_sql}"
+            ).fetchone()[0]
+            if not dry_run:
+                conn.execute(f"DELETE FROM {data_type_str} {where_sql}")
+        return {"status": "ok", "row_count": int(affected)}
 
     @app.post("/init")
     def init_table(req: dict):

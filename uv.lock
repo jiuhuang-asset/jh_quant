@@ -1551,7 +1551,7 @@ wheels = [
 
 [[package]]
 name = "jh-quant"
-version = "0.3.8"
+version = "0.4.0"
 source = { editable = "." }
 dependencies = [
     { name = "croniter" },

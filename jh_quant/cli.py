@@ -279,6 +279,60 @@ def _build_parser() -> argparse.ArgumentParser:
         add_help=False,
     )
 
+    # ---- del ----
+    del_parser = sub.add_parser(
+        "del",
+        help="删除本地缓存数据（jh-quant 数据缓存）",
+        description=(
+            "删除本地 DuckDB 缓存中指定数据类型的数据。"
+            "data_type 为 DataTypes 的值（如 ts_daily）；"
+            "不传任何筛选条件时清空整表（需确认或 --yes）。"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "使用示例:\n"
+            "  # 清空某表全部缓存\n"
+            "  jh-quant del ts_daily --yes\n"
+            "\n"
+            "  # 按代码删除（ts_ 源用 --ts-code，ak_/jh_ 源用 --symbol）\n"
+            "  jh-quant del ts_daily --ts-code 000001.SZ\n"
+            "  jh-quant del ak_stock_zh_a_hist_qfq --symbol 000001\n"
+            "\n"
+            "  # 按日期范围删除\n"
+            "  jh-quant del ts_daily --start 2020-01-01 --end 2020-12-31\n"
+            "\n"
+            "  # 任意字段等值筛选（可重复）+ 预演\n"
+            "  jh-quant del ts_stock_basic --field name=贵州茅台 --dry-run\n"
+        ),
+    )
+    del_parser.add_argument(
+        "data_type",
+        help="数据类型（DataTypes 的值，如 ts_daily / ak_stock_zh_a_hist_qfq）",
+    )
+    del_parser.add_argument(
+        "--symbol", default="", help="代码筛选（ak_/jh_ 源格式，如 000001）"
+    )
+    del_parser.add_argument(
+        "--ts-code", default="", help="代码筛选（ts_ 源格式，如 000001.SZ）"
+    )
+    del_parser.add_argument(
+        "--start", default="", help="起始日期筛选（YYYY-MM-DD）"
+    )
+    del_parser.add_argument("--end", default="", help="结束日期筛选（YYYY-MM-DD）")
+    del_parser.add_argument(
+        "--field",
+        action="append",
+        default=[],
+        metavar="COL=VALUE",
+        help="任意字段等值筛选，可重复（如 --field name=贵州茅台）",
+    )
+    del_parser.add_argument(
+        "--yes", action="store_true", help="跳过确认（整表删除时）"
+    )
+    del_parser.add_argument(
+        "--dry-run", action="store_true", help="只显示将删除的行数，不实际删除"
+    )
+
     return parser
 
 
@@ -328,8 +382,69 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
         return int(sync_main(rest) or 0)
 
+    if command == "del":
+        args = _build_parser().parse_args(argv_list)
+        return _run_del(args)
+
     _build_parser().print_help()
     return 1
+
+
+def _run_del(args: argparse.Namespace) -> int:
+    """执行 `jh-quant del`：按条件清理本地缓存数据。"""
+    from rich import print as rprint
+
+    from .data.utils import _delete_cache_data
+
+    filters = {}
+    for field in args.field:
+        if "=" not in field:
+            rprint(f"[bold red]无效的 --field 格式: {field!r}，应为 COL=VALUE[/bold red]")
+            return 1
+        col, val = field.split("=", 1)
+        filters[col] = val
+    if args.symbol:
+        filters["symbol"] = args.symbol
+    if args.ts_code:
+        filters["ts_code"] = args.ts_code
+    if args.start:
+        filters["start"] = args.start
+    if args.end:
+        filters["end"] = args.end
+
+    delete_all = not filters
+
+    if args.dry_run:
+        try:
+            n = _delete_cache_data(args.data_type, dry_run=True, **filters)
+        except Exception as e:
+            rprint(f"[bold red]预演失败: {e}[/bold red]")
+            return 1
+        rprint(
+            f"[cyan]类型 {args.data_type} 将删除 {n} 行缓存数据"
+            + ("（整表）" if delete_all else "")
+            + "[/cyan]"
+        )
+        return 0
+
+    if delete_all and not args.yes:
+        try:
+            ans = input(
+                f"确认删除类型 {args.data_type} 的全部缓存数据? [y/N] "
+            ).strip().lower()
+        except EOFError:
+            ans = ""
+        if ans != "y":
+            rprint("[yellow]已取消[/yellow]")
+            return 0
+
+    try:
+        n = _delete_cache_data(args.data_type, **filters)
+    except Exception as e:
+        rprint(f"[bold red]删除失败: {e}[/bold red]")
+        return 1
+    rprint(f"[green]已删除类型 {args.data_type} 的 {n} 行缓存数据[/green]")
+    return 0
 
 
 if __name__ == "__main__":  # pragma: no cover - manual invocation
